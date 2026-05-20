@@ -1,15 +1,16 @@
 import argparse
 from pathlib import Path
 import sys
-import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 
 from utils.config import load_config
 from utils.seed import set_seed
+from utils.device import select_device
 from data.synthetic_dataset import make_synthetic_paired_dataset, split_train_test, build_client_pool
 from data.real_dataset_adapter import load_real_paired_dataset
+from data.uci_har_adapter import load_uci_har_dataset
 from trainers.stage2_trainer import Stage2Trainer
 
 
@@ -34,6 +35,11 @@ def _prepare_dataset(cfg):
         print(f"dataset source: real ({cfg['dataset'].get('root', '')})")
         return split
 
+    if ds_type == "uci_har":
+        split = load_uci_har_dataset(cfg, ROOT)
+        print(f"dataset source: uci_har ({split['root']})")
+        return {"train": split["train"], "test": split["test"]}
+
     raise ValueError(f"Unsupported dataset.type: {ds_type}")
 
 
@@ -45,7 +51,8 @@ def main():
     cfg = load_config(args.config)
     set_seed(cfg["seed"])
 
-    device = torch.device(cfg.get("device", "cpu"))
+    device = select_device(cfg.get("device", "auto"))
+    print(f"compute device: {device}")
 
     split = _prepare_dataset(cfg)
     train_clients_raw = build_client_pool(split["train"], cfg)

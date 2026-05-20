@@ -20,6 +20,42 @@ class Stage2Trainer:
             self.clients_by_modality[c.modality_id].append(c)
 
         self.server = SplitServer(cfg, device).to(device)
+        self._validate_dataset_and_partition()
+
+    def _validate_dataset_and_partition(self):
+        # 1) Paired test-set sanity checks
+        assert "modalities" in self.test_set and "labels" in self.test_set, "test_set must contain modalities and labels"
+        assert len(self.test_set["modalities"]) == self.cfg["num_modalities"], (
+            f"test modalities mismatch: expected {self.cfg['num_modalities']}, got {len(self.test_set['modalities'])}"
+        )
+        test_n = len(self.test_set["labels"])
+        for m, x in enumerate(self.test_set["modalities"]):
+            assert x.shape[0] == test_n, f"test modality {m} sample size mismatch: {x.shape[0]} vs {test_n}"
+
+        # 2) Client partition sanity checks
+        expected_clients = self.cfg["num_modalities"] * self.cfg["clients_per_modality"]
+        assert len(self.clients) == expected_clients, f"client count mismatch: {len(self.clients)} vs {expected_clients}"
+
+        per_modality_count = {m: len(self.clients_by_modality[m]) for m in self.clients_by_modality}
+        for m in range(self.cfg["num_modalities"]):
+            assert per_modality_count[m] == self.cfg["clients_per_modality"], (
+                f"modality {m} client count mismatch: {per_modality_count[m]} vs {self.cfg['clients_per_modality']}"
+            )
+
+        min_labels_required = max(2, int(self.cfg["num_classes"] * self.cfg["min_labels_per_client_ratio"]))
+        sample_sizes = []
+        for c in self.clients:
+            unique_labels = torch.unique(c.y).numel()
+            assert unique_labels >= min_labels_required, (
+                f"{c.client_id} unique labels {unique_labels} < required {min_labels_required}"
+            )
+            sample_sizes.append(int(c.y.shape[0]))
+        assert len(set(sample_sizes)) == 1, f"client sample sizes are not equal: {sorted(set(sample_sizes))}"
+
+        print("validation(dataset/partition): passed")
+        print(f"test paired samples: {test_n}")
+        print(f"clients per modality: {per_modality_count}")
+        print(f"min unique labels per client required: {min_labels_required}")
 
     def cluster_clients(self):
         gt = [c.gt_cluster for c in self.clients]
@@ -33,14 +69,19 @@ class Stage2Trainer:
         print("confusion matrix:\n", cm)
         print(f"cluster metrics: acc={acc:.4f}, nmi={nmi:.4f}, ari={ari:.4f}")
 
-        cluster_to_clients = {k: [] for k in range(self.cfg["num_modalities"])}
-        for c, p in zip(self.clients, pred):
-            cluster_to_clients[int(p)].append(c.client_id)
-        return cluster_to_clients
+        # Protocol-consistent scheduling pools:
+        # one pool per true modality cluster defined by controlled partitioning.
+        # KMeans is used for diagnostics/evaluation only.
+        modality_to_clients = {
+            m: [c.client_id for c in self.clients_by_modality[m]]
+            for m in range(self.cfg["num_modalities"])
+        }
+        print("scheduler modality pools (GT partition):", {m: len(v) for m, v in modality_to_clients.items()})
+        return modality_to_clients
 
     def run(self):
-        cluster_to_clients = self.cluster_clients()
-        scheduler = FairRandomFullModalityScheduler(cluster_to_clients, seed=self.cfg["seed"])
+        modality_to_clients = self.cluster_clients()
+        scheduler = FairRandomFullModalityScheduler(modality_to_clients, seed=self.cfg["seed"])
 
         for round_idx in range(self.cfg["global_rounds"]):
             selected = scheduler.select()
@@ -48,6 +89,11 @@ class Stage2Trainer:
             print("selected clients:", selected)
 
             selected_clients = [self.clients_by_id[cid] for _, cid in sorted(selected.items())]
+            selected_modalities = [c.modality_id for c in selected_clients]
+            assert len(set(selected_modalities)) == self.cfg["num_modalities"], (
+                f"selected clients are not full-modality: {selected_modalities}"
+            )
+            print("selected modality ids:", selected_modalities)
             for local_step in range(self.cfg["local_steps_per_round"]):
                 print(f"-- Local Step {local_step}")
 
@@ -55,6 +101,8 @@ class Stage2Trainer:
                 z_cache = {}
                 for client in selected_clients:
                     x, y, _ = client.sample_batch()
+                    batch_label_dist = torch.bincount(y, minlength=self.cfg["num_classes"]).tolist()
+                    print(f"batch labels [{client.client_id}]: {batch_label_dist}")
                     z_client, z_server = client.forward_to_server(x)
                     payloads.append(
                         {
@@ -76,6 +124,7 @@ class Stage2Trainer:
                     grad = out["grad_to_clients"][client.client_id]
                     client.backward_from_server(z_cache[client.client_id], grad)
 
-        acc, macro_f1 = evaluate_paired_test(self.clients_by_modality, self.server, self.test_set, self.device)
+        metrics = evaluate_paired_test(self.clients_by_modality, self.server, self.test_set, self.device)
         print("\n=== Paired multimodal test evaluation ===")
-        print(f"test accuracy={acc:.4f}, macro_f1={macro_f1:.4f}")
+        print(f"test top1_acc={metrics['top1_acc']:.4f}, macro_f1={metrics['macro_f1']:.4f}")
+        return metrics

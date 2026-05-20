@@ -1,5 +1,5 @@
 seed: 42
-device: cpu
+device: auto
 
 # synthetic | real
 dataset:

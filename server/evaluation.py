@@ -21,4 +21,10 @@ def evaluate_paired_test(clients_by_modality, server_model, test_set, device):
     pred = torch.argmax(logits, dim=1)
     acc = (pred == y).float().mean().item()
     macro_f1 = f1_score(y.cpu().numpy(), pred.cpu().numpy(), average="macro")
-    return acc, macro_f1
+
+    # Keep names aligned with common benchmark reporting style.
+    return {
+        "acc": float(acc),
+        "macro_f1": float(macro_f1),
+        "top1_acc": float(acc),
+    }

@@ -13,9 +13,17 @@
 python experiments/run_stage2_training.py --config configs/default.yaml
 ```
 
+## Device Selection
+Set `device` in yaml:
+- `auto` (default): use CUDA if available, else CPU
+- `cuda` or `gpu`: force CUDA (raises if unavailable)
+- `cpu`: force CPU
+- also supports custom strings like `cuda:1`
+
 ## Dataset Sources
 - `dataset.type: synthetic` uses built-in synthetic paired multimodal data.
 - `dataset.type: real` loads paired multimodal `.npz` files from `dataset.root`.
+- `dataset.type: uci_har` loads local UCI-HAR under `./data/uci-har` (included in project tree).
 
 ### Real dataset `.npz` format
 Each `.npz` file must contain:
@@ -28,6 +36,11 @@ By default:
 
 Optional:
 - Set `full_file` to one `.npz` and it will be split by `train_split_ratio`.
+
+## UCI-HAR Quick Start
+```bash
+python experiments/run_stage2_training.py --config configs/uci_har.yaml
+```
 
 ## Implemented in v1
 - Synthetic paired multimodal dataset
