@@ -1,8 +1,7 @@
 seed: 42
 device: auto
-experiment_name: default_synthetic
+experiment_name: ablation_kmeans_clusters
 
-# synthetic | real | uci_har
 dataset:
   type: synthetic
   root: ./data
@@ -42,4 +41,4 @@ cluster:
   known_k: 3
 
 clustering:
-  use_oracle_clusters_for_training: true
+  use_oracle_clusters_for_training: false

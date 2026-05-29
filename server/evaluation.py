@@ -7,6 +7,9 @@ def evaluate_paired_test(clients_by_modality, server_model, test_set, device):
     # full paired test, no label-guided pairing
     xs = [x.to(device) for x in test_set["modalities"]]
     y = test_set["labels"].to(device)
+    assert len(xs) == len(clients_by_modality), (
+        f"test modalities ({len(xs)}) and clients_by_modality ({len(clients_by_modality)}) mismatch"
+    )
 
     proj_list = []
     for m, x in enumerate(xs):

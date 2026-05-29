@@ -17,6 +17,7 @@ def make_synthetic_paired_dataset(num_samples, num_modalities, num_classes, inpu
     return {
         "modalities": [torch.tensor(x) for x in xs],
         "labels": torch.tensor(labels, dtype=torch.long),
+        "modality_input_dims": [int(input_dim) for _ in range(num_modalities)],
     }
 
 
@@ -24,13 +25,19 @@ def split_train_test(dataset, train_ratio):
     n = len(dataset["labels"])
     train_n = int(n * train_ratio)
     out = {}
+    modality_input_dims = dataset.get(
+        "modality_input_dims",
+        [int(dataset["modalities"][0].shape[1]) for _ in range(len(dataset["modalities"]))],
+    )
     out["train"] = {
         "modalities": [x[:train_n] for x in dataset["modalities"]],
         "labels": dataset["labels"][:train_n],
+        "modality_input_dims": modality_input_dims,
     }
     out["test"] = {
         "modalities": [x[train_n:] for x in dataset["modalities"]],
         "labels": dataset["labels"][train_n:],
+        "modality_input_dims": modality_input_dims,
     }
     return out
 
@@ -52,8 +59,7 @@ def partition_modality_to_clients(
 ):
     rng = np.random.default_rng(seed + modality_id * 100)
     num_classes = int(y.max().item()) + 1
-    n = len(y)
-    samples_per_client = n // clients_per_modality
+    samples_per_client = len(y) // clients_per_modality
 
     indices_by_class = {c: np.where(y.numpy() == c)[0].tolist() for c in range(num_classes)}
     for c in indices_by_class:
@@ -74,7 +80,6 @@ def partition_modality_to_clients(
             client_indices[cid].extend(pool[start:end])
             start = end
 
-    # repair: ensure each client has enough distinct labels
     for cid in range(clients_per_modality):
         cur = client_indices[cid]
         labels = set(int(y[i]) for i in cur)
@@ -88,7 +93,6 @@ def partition_modality_to_clients(
                     cur.append(int(candidates[rng.integers(0, len(candidates))]))
         client_indices[cid] = cur
 
-    # force same sample count by floor
     fixed = []
     for cid in range(clients_per_modality):
         arr = client_indices[cid]
@@ -108,6 +112,7 @@ def partition_modality_to_clients(
                 "x": x_mod[idx],
                 "y": y[idx],
                 "gt_cluster": modality_id,
+                "input_dim": int(x_mod.shape[1]),
             }
         )
     return clients

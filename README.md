@@ -1,66 +1,80 @@
 # semantic_split_multimodal
 
-`semantic_split_multimodal` is a **distributed split multimodal learning** simulation on a single machine.
+`semantic_split_multimodal` is a **single-process simulation of distributed split multimodal learning**.
 
-## Important
+## Important Protocol Notes
 - This project is **NOT Federated Learning**.
-- No FedAvg, no client parameter aggregation.
-- Clients only own and update local encoders.
-- Server owns semantic projectors, alignment/fusion/classifier and runs loss/backward.
+- FedAvg is **not implemented**.
+- No client parameter aggregation is used.
+- Clients only update local encoders through returned activation gradients.
+- Server performs projection/alignment/fusion/classification and backward.
 
-## Run
+## Training Protocol
+- **Global Round**: one client scheduling cycle.
+- **Local Step**: one batch-level split-learning update.
+- Current v1 main path:
+  - client encoder
+  - feature upload
+  - shared semantic projector
+  - supervised contrastive semantic alignment
+  - concat fusion
+  - classifier
+  - server backward
+  - gradient return
+  - client backward update
+
+## Data Pairing Rules
+- Training: label-guided virtual multimodal pairing is used.
+- Training must **not** use sample_id for cross-modality pairing.
+- Testing: paired multimodal test set is used directly.
+- Testing must **not** use label for pairing or filtering.
+
+## Implemented in v1
+- KMeans clustering with known K
+- Fair random full-modality scheduling
+- Label-guided virtual multimodal pairing
+- Shared semantic projection
+- Supervised contrastive semantic alignment
+- Concat fusion
+- Paired multimodal test evaluation
+
+## Stubs Only (not implemented in this phase)
+- ISODATA clustering
+- D2D offloading
+- PairedFullModalityScheduler
+- GlobalRandomScheduler
+- AttentionFusion training logic
+
+## Device Selection
+Set `device` in yaml:
+- `auto` (default): CUDA if available, else CPU
+- `cuda` / `gpu`: force CUDA
+- `cpu`: force CPU
+- custom strings like `cuda:1`
+
+## Run Commands (Smoke)
+1. Synthetic main training:
 ```bash
 python experiments/run_stage2_training.py --config configs/default.yaml
 ```
 
-## Device Selection
-Set `device` in yaml:
-- `auto` (default): use CUDA if available, else CPU
-- `cuda` or `gpu`: force CUDA (raises if unavailable)
-- `cpu`: force CPU
-- also supports custom strings like `cuda:1`
+2. No-alignment ablation:
+```bash
+python experiments/run_stage2_training.py --config configs/default.yaml --lambda_align 0.0
+```
 
-## Dataset Sources
-- `dataset.type: synthetic` uses built-in synthetic paired multimodal data.
-- `dataset.type: real` loads paired multimodal `.npz` files from `dataset.root`.
-- `dataset.type: uci_har` loads local UCI-HAR under `./data/uci-har` (included in project tree).
+3. KMeans cluster-map training:
+```bash
+python experiments/run_stage2_training.py --config configs/default.yaml --use_oracle_clusters_for_training false
+```
 
-### Real dataset `.npz` format
-Each `.npz` file must contain:
-- `labels` (or `y`): shape `[N]`, integer labels
-- `mod_0`, `mod_1`, ..., `mod_{M-1}`: each shape `[N, input_dim]`
-
-By default:
-- `train_file: train_paired.npz`
-- `test_file: test_paired.npz`
-
-Optional:
-- Set `full_file` to one `.npz` and it will be split by `train_split_ratio`.
-
-## UCI-HAR Quick Start
+4. UCI-HAR:
 ```bash
 python experiments/run_stage2_training.py --config configs/uci_har.yaml
 ```
 
-## Implemented in v1
-- Synthetic paired multimodal dataset
-- Controlled modality-to-client partition
-- Controlled label-skew partition
-- Avoid single-label clients
-- Class-balanced batch sampling
-- KMeans clustering (known K = num_modalities)
-- FairRandomFullModalityScheduler
-- Label-guided virtual semantic batch (label-only pairing)
-- Semantic projectors + supervised contrastive alignment
-- Concat fusion + classifier
-- Server-side loss/backward + gradient routing
-- Client-side backward/update
-- Paired multimodal test evaluation
-
-## Stubs in v1
-- ISODATA clustering
-- PairedFullModalityScheduler
-- GlobalRandomScheduler
-- AttentionFusion
-- PrototypeMemory/PrototypeLoss (lambda_proto default 0)
-- D2D offloading
+## Result Logs
+- Round-level log:
+  - `experiments/results/<experiment_name>_train_log.json`
+- Final summary:
+  - `experiments/results/<experiment_name>_summary.json`

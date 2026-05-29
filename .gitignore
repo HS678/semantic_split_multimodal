@@ -17,3 +17,14 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# experiment artifacts
+experiments/results/
+*.log
+
+# local datasets (if downloaded locally)
+data/uci-har/
+
+# optional large artifacts
+*.pt
+*.pth

@@ -11,39 +11,29 @@ def _build_modality_vectors(root: Path, split: str):
     split_dir = root / split
     sig = split_dir / "Inertial Signals"
 
+    # fed-multimodal compatible channels for UCI-HAR
     acc_x = _read_signal_matrix(sig / f"body_acc_x_{split}.txt")
     acc_y = _read_signal_matrix(sig / f"body_acc_y_{split}.txt")
     acc_z = _read_signal_matrix(sig / f"body_acc_z_{split}.txt")
+
     gyro_x = _read_signal_matrix(sig / f"body_gyro_x_{split}.txt")
     gyro_y = _read_signal_matrix(sig / f"body_gyro_y_{split}.txt")
     gyro_z = _read_signal_matrix(sig / f"body_gyro_z_{split}.txt")
 
     labels = np.loadtxt(split_dir / f"y_{split}.txt", dtype=np.int64) - 1
-
     n = labels.shape[0]
-    t = acc_x.shape[1]
 
-    # Shared 9-channel layout for both modalities to keep one encoder input_dim.
-    acc_only = np.zeros((n, 9, t), dtype=np.float32)
-    gyro_only = np.zeros((n, 9, t), dtype=np.float32)
+    # modality-isolated tensors; no shared full-channel tensor
+    acc_only = np.stack([acc_x, acc_y, acc_z], axis=1).astype(np.float32)  # [N, 3, 128]
+    gyro_only = np.stack([gyro_x, gyro_y, gyro_z], axis=1).astype(np.float32)  # [N, 3, 128]
 
-    acc_only[:, 0, :] = acc_x
-    acc_only[:, 1, :] = acc_y
-    acc_only[:, 2, :] = acc_z
-    acc_only[:, 3, :] = acc_x
-    acc_only[:, 4, :] = acc_y
-    acc_only[:, 5, :] = acc_z
-
-    gyro_only[:, 6, :] = gyro_x
-    gyro_only[:, 7, :] = gyro_y
-    gyro_only[:, 8, :] = gyro_z
-
-    acc_vec = acc_only.reshape(n, -1)
-    gyro_vec = gyro_only.reshape(n, -1)
+    acc_vec = acc_only.reshape(n, -1)  # [N, 384]
+    gyro_vec = gyro_only.reshape(n, -1)  # [N, 384]
 
     return {
         "modalities": [torch.tensor(acc_vec, dtype=torch.float32), torch.tensor(gyro_vec, dtype=torch.float32)],
         "labels": torch.tensor(labels, dtype=torch.long),
+        "modality_input_dims": [int(acc_vec.shape[1]), int(gyro_vec.shape[1])],
     }
 
 
@@ -60,5 +50,4 @@ def load_uci_har_dataset(cfg, project_root: Path):
 
     train = _build_modality_vectors(root, "train")
     test = _build_modality_vectors(root, "test")
-
-    return {"train": train, "test": test, "root": str(root)}
+    return {"train": train, "test": test, "root": str(root), "modality_input_dims": train["modality_input_dims"]}

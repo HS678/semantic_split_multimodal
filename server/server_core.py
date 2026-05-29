@@ -28,6 +28,7 @@ class SemanticBatchBuilder:
                 continue
             for take_i in range(min_count):
                 for ci, p in enumerate(selected_payloads):
+                    # strictly index from original z_server path; no detach here.
                     indices_per_client[p["client_id"]].append(per_client_indices[ci][take_i].item())
                 semantic_labels.append(label)
 
@@ -48,7 +49,9 @@ class SplitServer(nn.Module):
         self.cfg = cfg
         self.device = device
         self.num_modalities = cfg["num_modalities"]
-        self.projectors = nn.ModuleDict({str(m): SemanticProjector(cfg["encoder_hidden_dim"], cfg["projected_dim"]) for m in range(self.num_modalities)})
+        self.projectors = nn.ModuleDict(
+            {str(m): SemanticProjector(cfg["encoder_hidden_dim"], cfg["projected_dim"]) for m in range(self.num_modalities)}
+        )
         self.fusion = ConcatFusion()
         self.classifier = ClassifierHead(cfg["projected_dim"] * self.num_modalities, cfg["num_classes"])
 
@@ -84,51 +87,65 @@ class SplitServer(nn.Module):
             cid = p["client_id"]
             mid = p["modality_id"]
             idx = index_map[cid]
-            z_subset = p["z_server"][idx]
+            z_server = p["z_server"]
+            # protocol: selected z must come from original z_server via indexing only.
+            z_subset = z_server[idx]
+            assert z_subset.requires_grad, "selected z_subset must require grad from original z_server"
             proj = self.projectors[str(mid)](z_subset)
             proj_list.append(proj)
             raw_grad_targets[cid] = {
-                "full_shape": p["z_server"].shape,
+                "full_shape": z_server.shape,
                 "idx": idx,
-                "z_server": p["z_server"],
-                "batch_size": p["z_server"].shape[0],
+                "z_server": z_server,
             }
-            print(f"feature shape [{cid}]: {tuple(p['z_server'].shape)}")
+            print(f"feature shape [{cid}]: {tuple(z_server.shape)}")
             print(f"projected shape [{cid}]: {tuple(proj.shape)}")
 
-        # [B, M, D]
-        stacked = torch.stack(proj_list, dim=1)
-        loss_supcon = self.supcon(stacked, y_sem)
+        stacked = torch.stack(proj_list, dim=1)  # [B, M, D]
+        loss_align = self.supcon(stacked, y_sem)
 
         fused = self.fusion(proj_list)
         logits = self.classifier(fused)
         loss_cls = self.ce(logits, y_sem)
         loss_proto = self.prototype()
 
+        lambda_align = float(self.cfg.get("lambda_align", self.cfg.get("lambda_supcon", 0.0)))
         total_loss = (
-            self.cfg["lambda_cls"] * loss_cls
-            + self.cfg["lambda_supcon"] * loss_supcon
-            + self.cfg["lambda_proto"] * loss_proto
+            float(self.cfg["lambda_cls"]) * loss_cls
+            + lambda_align * loss_align
+            + float(self.cfg["lambda_proto"]) * loss_proto
         )
         total_loss.backward()
         self.opt.step()
 
         grad_to_clients = {}
+        non_null = 0
         for p in selected_payloads:
             cid = p["client_id"]
             z_server = raw_grad_targets[cid]["z_server"]
             idx = raw_grad_targets[cid]["idx"]
+            assert z_server.grad is not None, f"z_server.grad is None for {cid}"
             grad_subset = z_server.grad[idx]
             grad_full = self._scatter_grad(raw_grad_targets[cid]["full_shape"], idx, grad_subset)
             grad_to_clients[cid] = grad_full
+            if grad_full is not None and torch.isfinite(grad_full).all().item():
+                non_null += 1
 
-        grad_non_null = {cid: (g is not None and torch.isfinite(g).all().item()) for cid, g in grad_to_clients.items()}
-        print(f"loss dict: cls={loss_cls.item():.4f}, supcon={loss_supcon.item():.4f}, proto={float(loss_proto):.4f}, total={total_loss.item():.4f}")
-        print(f"gradient non-null check: {grad_non_null}")
+        grad_non_null_ratio = non_null / max(1, len(selected_payloads))
+        print(
+            "loss dict: "
+            f"cls={loss_cls.item():.4f}, align={loss_align.item():.4f}, proto={float(loss_proto):.4f}, total={total_loss.item():.4f}"
+        )
+        print(f"gradient non-null check: ratio={grad_non_null_ratio:.4f}")
 
         return {
             "grad_to_clients": grad_to_clients,
             "common_labels": common_labels,
+            "common_label_count": int(len(common_labels)),
             "semantic_batch_size": int(bsz),
             "loss_total": float(total_loss.item()),
+            "loss_cls": float(loss_cls.item()),
+            "loss_align": float(loss_align.item()),
+            "loss_proto": float(loss_proto.item() if hasattr(loss_proto, "item") else float(loss_proto)),
+            "grad_non_null_ratio": float(grad_non_null_ratio),
         }

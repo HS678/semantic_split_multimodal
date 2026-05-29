@@ -12,7 +12,7 @@ def test_gradient_scatter_and_routing_partial_batch():
         "temperature": 0.1,
         "learning_rate": 1e-3,
         "lambda_cls": 1.0,
-        "lambda_supcon": 0.1,
+        "lambda_align": 0.1,
         "lambda_proto": 0.0,
     }
     server = SplitServer(cfg, device=torch.device("cpu"))

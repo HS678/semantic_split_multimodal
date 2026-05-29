@@ -1,5 +1,4 @@
 import torch
-from torch import nn
 
 from models.modules import ClientEncoder
 from utils.samplers import ClassBalancedBatchSampler
@@ -13,8 +12,9 @@ class SplitClient:
         self.x = client_dict["x"].to(device)
         self.y = client_dict["y"].to(device)
         self.device = device
+        self.input_dim = int(client_dict.get("input_dim", cfg.get("input_dim", self.x.shape[1])))
 
-        self.encoder = ClientEncoder(cfg["input_dim"], cfg["encoder_hidden_dim"]).to(device)
+        self.encoder = ClientEncoder(self.input_dim, cfg["encoder_hidden_dim"]).to(device)
         self.optimizer = torch.optim.Adam(self.encoder.parameters(), lr=cfg["learning_rate"])
         self.sampler = ClassBalancedBatchSampler(self.y.cpu().tolist(), cfg["batch_size"], rng_seed=cfg["seed"])
 
@@ -34,6 +34,10 @@ class SplitClient:
         self.optimizer.zero_grad()
         z_client.backward(grad_from_server)
         self.optimizer.step()
+
+    # alias for protocol tests / readability
+    def backward_update(self, z_client, grad_from_server):
+        self.backward_from_server(z_client, grad_from_server)
 
     def cluster_representation(self):
         parts = []

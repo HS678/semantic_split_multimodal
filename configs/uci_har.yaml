@@ -1,5 +1,6 @@
 seed: 42
 device: auto
+experiment_name: uci_har_stage2
 
 dataset:
   type: uci_har
@@ -7,7 +8,7 @@ dataset:
 
 num_modalities: 2
 num_classes: 6
-input_dim: 1152
+input_dim: 384
 encoder_hidden_dim: 128
 projected_dim: 64
 
@@ -21,7 +22,7 @@ label_skew_alpha: 0.4
 min_labels_per_client_ratio: 0.5
 
 lambda_cls: 1.0
-lambda_supcon: 0.2
+lambda_align: 0.2
 lambda_proto: 0.0
 temperature: 0.1
 
@@ -31,3 +32,6 @@ scheduler:
 cluster:
   method: kmeans
   known_k: 2
+
+clustering:
+  use_oracle_clusters_for_training: true
