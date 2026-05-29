@@ -55,6 +55,7 @@ def _prepare_dataset(cfg):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--lambda_align", type=float, default=None)
     parser.add_argument("--use_oracle_clusters_for_training", type=str, default=None)
     args = parser.parse_args()
@@ -73,6 +74,8 @@ def main():
         cfg["lambda_align"] = float(args.lambda_align)
     if args.use_oracle_clusters_for_training is not None:
         cfg["clustering"]["use_oracle_clusters_for_training"] = _str_to_bool(args.use_oracle_clusters_for_training)
+    if args.experiment_name is not None:
+        cfg["experiment_name"] = str(args.experiment_name).strip()
 
     set_seed(cfg["seed"])
     device = select_device(cfg.get("device", "auto"))

@@ -55,22 +55,22 @@ Set `device` in yaml:
 ## Run Commands (Smoke)
 1. Synthetic main training:
 ```bash
-python experiments/run_stage2_training.py --config configs/default.yaml
+python experiments/run_stage2_training.py --config configs/default.yaml --experiment_name s2_default
 ```
 
 2. No-alignment ablation:
 ```bash
-python experiments/run_stage2_training.py --config configs/default.yaml --lambda_align 0.0
+python experiments/run_stage2_training.py --config configs/default.yaml --lambda_align 0.0 --experiment_name s2_no_align
 ```
 
 3. KMeans cluster-map training:
 ```bash
-python experiments/run_stage2_training.py --config configs/default.yaml --use_oracle_clusters_for_training false
+python experiments/run_stage2_training.py --config configs/default.yaml --use_oracle_clusters_for_training false --experiment_name s2_kmeans_map
 ```
 
 4. UCI-HAR:
 ```bash
-python experiments/run_stage2_training.py --config configs/uci_har.yaml
+python experiments/run_stage2_training.py --config configs/uci_har.yaml --experiment_name s2_uci_har
 ```
 
 ## Result Logs
