@@ -70,9 +70,55 @@ class Stage2Trainer:
         print(f"clients per modality: {per_modality_count}")
         print(f"min unique labels per client required: {min_labels_required}")
 
+    def _run_stage1_autoencoder_pretraining(self):
+        stage1_cfg = self.cfg.get("stage1", {}).get("autoencoder_pretrain", {})
+        enabled = bool(stage1_cfg.get("enabled", True))
+        epochs = int(stage1_cfg.get("epochs", 5))
+        batch_size = int(stage1_cfg.get("batch_size", 64))
+        lr = float(stage1_cfg.get("lr", 0.001))
+        weight_decay = float(stage1_cfg.get("weight_decay", 0.0))
+        max_samples = stage1_cfg.get("max_samples", None)
+
+        print(
+            "stage1 autoencoder pretraining: "
+            f"enabled={enabled}, epochs={epochs}, batch_size={batch_size}, lr={lr}, "
+            f"weight_decay={weight_decay}, max_samples={max_samples}"
+        )
+
+        losses = []
+        for client in self.clients:
+            out = client.pretrain_autoencoder(
+                enabled=enabled,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+                weight_decay=weight_decay,
+                max_samples=max_samples,
+            )
+            if out["avg_recon_loss"] is not None:
+                losses.append(out["avg_recon_loss"])
+        if losses:
+            print(f"stage1 pretrain avg recon loss across clients: {sum(losses) / len(losses):.6f}")
+
     def cluster_clients(self):
+        self._run_stage1_autoencoder_pretraining()
+
         gt = [c.gt_cluster for c in self.clients]
-        reps = [c.cluster_representation().cpu().numpy() for c in self.clients]
+
+        clustering_cfg = self.cfg.get("clustering", {})
+        fp_max_samples = clustering_cfg.get("fingerprint_max_samples", None)
+        if fp_max_samples is None:
+            fp_max_samples = self.cfg.get("stage1", {}).get("autoencoder_pretrain", {}).get("max_samples", None)
+        fp_normalize = bool(clustering_cfg.get("fingerprint_normalize", False))
+
+        reps = [
+            c.cluster_representation(max_samples=fp_max_samples, normalize=fp_normalize).cpu().numpy()
+            for c in self.clients
+        ]
+        if len(reps) > 0:
+            print(f"fingerprint shape (single client): {reps[0].shape}")
+            print(f"kmeans input matrix shape: ({len(reps)}, {len(reps[0])})")
+
         pred = run_kmeans(reps, known_k=self.cfg["cluster"]["known_k"], seed=self.cfg["seed"])
         mapping, cm, acc, nmi, ari = evaluate_clustering(gt, pred, k=self.cfg["cluster"]["known_k"])
 

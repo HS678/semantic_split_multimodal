@@ -33,5 +33,17 @@ cluster:
   method: kmeans
   known_k: 2
 
+stage1:
+  autoencoder_pretrain:
+    enabled: true
+    epochs: 5
+    batch_size: 64
+    lr: 0.001
+    weight_decay: 0.0
+    max_samples: null
+
 clustering:
   use_oracle_clusters_for_training: true
+  fingerprint_type: mean_std
+  fingerprint_max_samples: null
+  fingerprint_normalize: false
