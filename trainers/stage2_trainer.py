@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 
 from clients.client_node import SplitClient
-from clustering.kmeans_cluster import run_kmeans, evaluate_clustering
+from clustering.cluster import run_kmeans, evaluate_clustering
 from trainers.schedulers import FairRandomFullModalityScheduler
 from server.server_core import SplitServer
 from server.evaluation import evaluate_paired_test
