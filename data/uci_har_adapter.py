@@ -1,3 +1,39 @@
+# 读取UCI-HAR数据集，并且数据按照模态分开存储在不同的键下，标签存储在 "labels" 或 "y" 键下。
+'''
+UCI-HAR数据集的目录结构应该如下：
+uci-har/
+    train/
+        Inertial Signals/
+            body_acc_x_train.txt
+            body_acc_y_train.txt
+            body_acc_z_train.txt
+            body_gyro_x_train.txt
+            body_gyro_y_train.txt
+            body_gyro_z_train.txt
+        y_train.txt
+    test/   
+        Inertial Signals/   
+            body_acc_x_test.txt
+            body_acc_y_test.txt
+            body_acc_z_test.txt     
+            body_gyro_x_test.txt
+            body_gyro_y_test.txt
+            body_gyro_z_test.txt
+        y_test.txt  
+每个模态的数据被存储在一个单独的键下，标签存储在 "labels" 或 "y" 键下。返回格式如下：
+{
+    "train": {
+        "modalities": [模态0数据, 模态1数据, ...],
+        "labels": 标签      
+    },
+    "test": {
+        "modalities": [模态0数据, 模态1数据, ...],
+        "labels": 标签              
+    },
+    "root": 数据集根目录路径,
+    "modality_input_dims": [模态0输入维度, 模态1输入维度, ...]  # 可选，提供每个模态的输入维度信息
+}   
+'''
 from pathlib import Path
 import numpy as np
 import torch

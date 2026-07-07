@@ -1,3 +1,4 @@
+# 随机创建模拟数据
 import numpy as np
 import torch
 
