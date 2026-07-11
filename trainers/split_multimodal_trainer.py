@@ -7,9 +7,10 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 import yaml
+from sklearn.metrics import confusion_matrix, f1_score
 
 from data.partitioner import resolve_project_path
-from models.modules import ClientEncoder
+from models.encoders import create_client_encoder
 
 
 class Stage3Client:
@@ -17,12 +18,18 @@ class Stage3Client:
         self.client_id = payload["client_id"]
         self.pred_cluster = int(pred_cluster)
         self.input_dim = int(payload["input_dim"])
+        self.input_shape = [int(v) for v in payload.get("input_shape", [self.input_dim])]
+        self.modality_name = payload.get("modality_name")
         self.x = payload["x"].to(device)
         self.y = payload["y"].to(device)
         self.device = device
         self.batch_size = int(cfg.get("training", {}).get("batch_size", cfg.get("batch_size", 32)))
-        hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
-        self.encoder = ClientEncoder(self.input_dim, hidden_dim).to(device)
+        self.encoder = create_client_encoder(
+            cfg,
+            input_dim=self.input_dim,
+            input_shape=self.input_shape,
+            modality_name=self.modality_name,
+        ).to(device)
         self.encoder.load_state_dict(encoder_state)
         lr = float(cfg.get("training", {}).get("client_lr", cfg.get("learning_rate", 1e-3)))
         self.optimizer = torch.optim.Adam(self.encoder.parameters(), lr=lr)
@@ -173,7 +180,6 @@ def _train_round(server, server_optimizer, clients, selected, cfg, device):
 
 
 def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device):
-    hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
     cluster_metrics_path = cfg.get("_cluster_metrics_path")
     with open(cluster_metrics_path, "r", encoding="utf-8") as f:
         metrics = json.load(f)
@@ -202,6 +208,7 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
                 f"{len(modality_names)} modalities."
             )
         expected_dim = modality_dims[true_modality]
+        expected_shape = [int(v) for v in modality_tensors[true_modality].shape[1:]]
         candidate_rows = [row for row in rows if int(row["pred_cluster"]) == cid]
         chosen_payload = None
         for row in candidate_rows:
@@ -217,7 +224,12 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
                     break
         if chosen_payload is None:
             raise RuntimeError(f"No pretrained encoder with input_dim={expected_dim} for eval cluster {cid}.")
-        encoder = ClientEncoder(expected_dim, hidden_dim).to(device)
+        encoder = create_client_encoder(
+            cfg,
+            input_dim=expected_dim,
+            input_shape=chosen_payload.get("input_shape", expected_shape),
+            modality_name=chosen_payload.get("modality_name"),
+        ).to(device)
         encoder.load_state_dict(chosen_payload["state_dict"])
         encoders[int(cid)] = encoder
 
@@ -227,6 +239,8 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
     correct = 0
     total = 0
     loss_total = 0.0
+    y_true = []
+    y_pred = []
     ce = nn.CrossEntropyLoss(reduction="sum")
     server.eval()
     for encoder in encoders.values():
@@ -242,11 +256,29 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
                 xb = modality_batches[int(true_modality)]
                 features.append(encoders[int(cid)](xb))
             logits = server(features)
+            pred = logits.argmax(dim=1)
             loss_total += float(ce(logits, y_b).item())
-            correct += int((logits.argmax(dim=1) == y_b).sum().item())
+            correct += int((pred == y_b).sum().item())
             total += int(y_b.numel())
+            y_true.extend(y_b.detach().cpu().tolist())
+            y_pred.extend(pred.detach().cpu().tolist())
     server.train()
-    return {"loss": float(loss_total / max(1, total)), "accuracy": float(correct / max(1, total))}
+    labels = list(range(int(cfg.get("num_classes", 6))))
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    per_class_total = cm.sum(axis=1)
+    per_class_correct = cm.diagonal()
+    per_class_accuracy = {
+        str(label): (float(per_class_correct[label] / per_class_total[label]) if per_class_total[label] > 0 else 0.0)
+        for label in labels
+    }
+    return {
+        "loss": float(loss_total / max(1, total)),
+        "accuracy": float(correct / max(1, total)),
+        "macro_f1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
+        "weighted_f1": float(f1_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0)),
+        "confusion_matrix": cm.tolist(),
+        "per_class_accuracy": per_class_accuracy,
+    }
 
 
 def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.device):
@@ -281,8 +313,8 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
     train_log_path = result_dir / "train_log.csv"
     eval_log_path = result_dir / "eval_log.csv"
     train_fields = ["round", "loss", "accuracy", "Q_star", "r", "K_t", "grad_return_count", "feature_map_json"]
-    eval_fields = ["round", "loss", "accuracy"]
-    best_metrics = {"accuracy": -1.0, "loss": None, "round": None}
+    eval_fields = ["round", "loss", "accuracy", "macro_f1", "weighted_f1"]
+    best_metrics = {"macro_f1": -1.0, "accuracy": None, "loss": None, "round": None}
 
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
     eval_every = int(cfg.get("training", {}).get("eval_every", 1))
@@ -311,8 +343,16 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
 
             if round_idx % eval_every == 0 or round_idx == rounds:
                 final_eval = _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device)
-                eval_writer.writerow({"round": round_idx, "loss": final_eval["loss"], "accuracy": final_eval["accuracy"]})
-                if final_eval["accuracy"] > best_metrics["accuracy"]:
+                eval_writer.writerow(
+                    {
+                        "round": round_idx,
+                        "loss": final_eval["loss"],
+                        "accuracy": final_eval["accuracy"],
+                        "macro_f1": final_eval["macro_f1"],
+                        "weighted_f1": final_eval["weighted_f1"],
+                    }
+                )
+                if final_eval["macro_f1"] > best_metrics["macro_f1"]:
                     best_metrics = {"round": round_idx, **final_eval}
                     torch.save(server.state_dict(), model_dir / "best_server_model.pt")
                     for client in clients.values():
@@ -321,6 +361,8 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
                                 "client_id": client.client_id,
                                 "pred_cluster": int(client.pred_cluster),
                                 "input_dim": int(client.input_dim),
+                                "input_shape": [int(v) for v in client.input_shape],
+                                "modality_name": client.modality_name,
                                 "state_dict": client.encoder.cpu().state_dict(),
                             },
                             best_client_dir / f"{client.client_id}_encoder.pt",

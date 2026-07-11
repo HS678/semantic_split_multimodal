@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from clustering.cluster import evaluate_clustering, run_isodata, run_kmeans
 from data.partitioner import resolve_project_path
-from models.modules import ClientEncoder
+from models.encoders import create_client_encoder, resolve_encoder_type
 
 
 def _load_clients(partition_dir: Path):
@@ -23,9 +23,16 @@ def _load_clients(partition_dir: Path):
 
 
 class _AutoEncoder(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int):
+    def __init__(self, client: dict, cfg: dict):
         super().__init__()
-        self.encoder = ClientEncoder(input_dim, hidden_dim)
+        input_dim = int(client["input_dim"])
+        hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
+        self.encoder = create_client_encoder(
+            cfg,
+            input_dim=input_dim,
+            input_shape=client.get("input_shape"),
+            modality_name=client.get("modality_name"),
+        )
         self.decoder = nn.Linear(hidden_dim, input_dim)
 
     def forward(self, x):
@@ -36,8 +43,7 @@ class _AutoEncoder(nn.Module):
 def _pretrain_client_encoder(client, cfg, device):
     pre_cfg = cfg.get("pretrain", {})
     input_dim = int(client["input_dim"])
-    hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
-    model = _AutoEncoder(input_dim, hidden_dim).to(device)
+    model = _AutoEncoder(client, cfg).to(device)
 
     epochs = int(pre_cfg.get("epochs", 5))
     batch_size = int(pre_cfg.get("batch_size", cfg.get("batch_size", 64)))
@@ -59,7 +65,7 @@ def _pretrain_client_encoder(client, cfg, device):
         for (xb,) in loader:
             xb = xb.to(device)
             recon, _ = model(xb)
-            loss = loss_fn(recon, xb)
+            loss = loss_fn(recon, xb.reshape(xb.shape[0], -1))
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -123,7 +129,9 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
                 "modality_id": int(client["modality_id"]),
                 "modality_name": client["modality_name"],
                 "input_dim": int(client["input_dim"]),
+                "input_shape": [int(v) for v in client.get("input_shape", [int(client["input_dim"])])],
                 "hidden_dim": int(cfg.get("encoder_hidden_dim", 128)),
+                "encoder_type": resolve_encoder_type(cfg, client.get("modality_name")),
                 "state_dict": encoder.cpu().state_dict(),
             },
             encoder_dir / f"{client['client_id']}_encoder.pt",

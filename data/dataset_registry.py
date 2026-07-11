@@ -42,12 +42,18 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
 
     modality_names = list(dataset["modality_names"])
     input_dims = list(dataset["modality_input_dims"])
+    input_shapes = dataset.get("modality_input_shapes")
     if len(modality_names) == 0:
         raise ValueError(f"Dataset '{dataset_type}' must define at least one modality.")
     if len(modality_names) != len(input_dims):
         raise ValueError(
             f"Dataset '{dataset_type}' has mismatched modality_names and modality_input_dims lengths: "
             f"{len(modality_names)} vs {len(input_dims)}"
+        )
+    if input_shapes is not None and len(input_shapes) != len(modality_names):
+        raise ValueError(
+            f"Dataset '{dataset_type}' has mismatched modality_names and modality_input_shapes lengths: "
+            f"{len(modality_names)} vs {len(input_shapes)}"
         )
 
     for split_name in ("train", "test"):

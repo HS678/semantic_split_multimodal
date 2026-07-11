@@ -31,6 +31,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     test = dataset["test"]
     modality_names = dataset["modality_names"]
     input_dims = dataset["modality_input_dims"]
+    input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
     seed = int(cfg.get("seed", 42))
 
@@ -47,6 +48,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
                 "x": train["modalities"][modality_id][idx].contiguous(),
                 "y": train["labels"][idx].contiguous(),
                 "input_dim": int(input_dims[modality_id]),
+                "input_shape": [int(v) for v in input_shapes[modality_id]],
             }
             torch.save(payload, train_clients_dir / f"{client_id}.pt")
             client_rows.append(
@@ -68,6 +70,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "modalities": test_modalities,
         "modality_names": list(modality_names),
         "modality_input_dims": {name: int(dim) for name, dim in zip(modality_names, input_dims)},
+        "modality_input_shapes": {name: [int(v) for v in shape] for name, shape in zip(modality_names, input_shapes)},
     }
     for name, tensor in test_modalities.items():
         test_payload[name] = tensor
@@ -85,7 +88,12 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "clients_per_modality": clients_per_modality,
         "num_clients": len(client_rows),
         "modalities": [
-            {"modality_id": i, "modality_name": name, "input_dim": int(input_dims[i])}
+            {
+                "modality_id": i,
+                "modality_name": name,
+                "input_dim": int(input_dims[i]),
+                "input_shape": [int(v) for v in input_shapes[i]],
+            }
             for i, name in enumerate(modality_names)
         ],
         "seed": seed,

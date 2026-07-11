@@ -1,18 +1,9 @@
 import torch
 from torch import nn
+from models.encoders import MLPEncoder
 
 
-class ClientEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-
-    def forward(self, x):
-        return self.net(x)
+ClientEncoder = MLPEncoder
 
 
 class SemanticProjector(nn.Module):

@@ -15,6 +15,15 @@ encoder_hidden_dim: 128
 learning_rate: 0.001
 batch_size: 32
 
+model:
+  encoder:
+    # UCI-HAR inertial signals are temporal tensors, so use a 1D Conv + GRU encoder.
+    # Other datasets can switch this to "mlp" or register/use future encoder types.
+    type: cnn_gru
+    conv_channels: [64, 128]
+    kernel_sizes: [5, 3]
+    dropout: 0.1
+
 partition:
   output_dir: ./results/data_partition
   clients_per_modality: 10

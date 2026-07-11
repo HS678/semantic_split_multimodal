@@ -85,13 +85,11 @@ def _build_modality_vectors(root: Path, split: str):
     ).astype(np.float32)
     gyro = np.stack([body_gyro_x, body_gyro_y, body_gyro_z], axis=1).astype(np.float32)
 
-    acc_vec = acc.reshape(n, -1)
-    gyro_vec = gyro.reshape(n, -1)
-
     return {
-        "modalities": [torch.tensor(acc_vec, dtype=torch.float32), torch.tensor(gyro_vec, dtype=torch.float32)],
+        "modalities": [torch.tensor(acc, dtype=torch.float32), torch.tensor(gyro, dtype=torch.float32)],
         "labels": torch.tensor(labels, dtype=torch.long),
-        "modality_input_dims": [int(acc_vec.shape[1]), int(gyro_vec.shape[1])],
+        "modality_input_dims": [int(acc.reshape(n, -1).shape[1]), int(gyro.reshape(n, -1).shape[1])],
+        "modality_input_shapes": [[int(acc.shape[1]), int(acc.shape[2])], [int(gyro.shape[1]), int(gyro.shape[2])]],
         "modality_names": ["acc", "gyro"],
     }
 
@@ -112,5 +110,6 @@ def load_uci_har_dataset(cfg, project_root: Path):
         "test": test,
         "root": str(root),
         "modality_input_dims": train["modality_input_dims"],
+        "modality_input_shapes": train["modality_input_shapes"],
         "modality_names": train["modality_names"],
     }

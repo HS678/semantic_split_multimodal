@@ -126,6 +126,39 @@ dataset:
 
 The Stage 1 partitioner validates the returned contract before writing any artifacts. The rest of the pipeline reads the standardized `results/data_partition/` artifacts, so Stage 2 and Stage 3 do not need dataset-specific branches.
 
+## Encoder Extension Interface
+
+Client encoders are created through `models/encoders.py`. The current built-in encoders are:
+
+- `mlp`: flatten input and use a small MLP. This is the generic fallback for vector-like datasets.
+- `cnn_gru`: use 1D convolution followed by GRU. This is the default for UCI-HAR inertial signals.
+
+UCI-HAR uses temporal tensors:
+
+```text
+acc:  [N, 6, 128]
+gyro: [N, 3, 128]
+```
+
+The configured encoder is:
+
+```yaml
+model:
+  encoder:
+    type: cnn_gru
+    conv_channels: [64, 128]
+    kernel_sizes: [5, 3]
+    dropout: 0.1
+```
+
+To add another dataset-specific encoder later:
+
+1. Implement a new `nn.Module` in `models/encoders.py`.
+2. Add it to `create_client_encoder()`.
+3. Select it in YAML through `model.encoder.type`.
+
+Stage 2 and Stage 3 both use the same encoder factory, so new encoders work for pretraining, fingerprint extraction, split training, evaluation, and model saving.
+
 ## Stage 1: Data Partition
 
 Run:
@@ -262,6 +295,7 @@ Important fields:
 - `cluster.known_k`: expected modality cluster count, default `2`.
 - `result.output_dir`: logs and metrics directory, default `./results/logs`.
 - `result_model.output_dir`: model artifact directory, default `./results/models`.
+- `model.encoder.type`: client encoder type. UCI-HAR defaults to `cnn_gru`.
 - `training.clients_per_cluster_per_round`: scheduling parameter `r`.
 - `training.global_rounds`: Stage 3 training rounds.
 
@@ -275,7 +309,7 @@ Implemented:
 - Cluster metrics: clustering accuracy, NMI, ARI.
 - Stage 3 balanced predicted-cluster scheduling.
 - Ordered feature concat with explicit `feature_map` gradient return to clients.
-- Paired multimodal test evaluation.
+- Paired multimodal test evaluation with accuracy, macro-F1, weighted-F1, confusion matrix, and per-class accuracy.
 - Required result and model output files under `results/`.
 
 TODO:
