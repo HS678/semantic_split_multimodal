@@ -4,6 +4,8 @@ experiment_name: uci_har_three_stage
 
 # UCI-HAR should contain train/test folders and train/test/Inertial Signals/*.txt files.
 dataset:
+  # dataset.type is resolved by data/dataset_registry.py.
+  # Add a loader there when introducing a new dataset.
   type: uci_har
   root: ./data/uci-har
 
@@ -14,7 +16,7 @@ learning_rate: 0.001
 batch_size: 32
 
 partition:
-  output_dir: ./data_partition
+  output_dir: ./results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -29,7 +31,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
-  output_dir: ./cluster
+  output_dir: ./results/cluster
   method: kmeans   # kmeans or isodata
   known_k: 2
   isodata:
@@ -48,10 +50,10 @@ training:
   server_lr: 0.001
 
 result:
-  output_dir: ./result
+  output_dir: ./results/logs
 
 result_model:
-  output_dir: ./result_model
+  output_dir: ./results/models
 
 # Reserved only. Real D2D training/offloading logic is intentionally not implemented in this phase.
 d2d:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from data.uci_har_adapter import load_uci_har_dataset
+from data.dataset_registry import load_dataset
 
 
 def resolve_project_path(project_root: Path, value: str) -> Path:
@@ -21,9 +21,9 @@ def _split_indices(num_samples: int, num_clients: int, seed: int):
 
 
 def run_stage1_partition(cfg: dict, project_root: Path):
-    dataset = load_uci_har_dataset(cfg, project_root)
+    dataset = load_dataset(cfg, project_root)
     partition_cfg = cfg.get("partition", {})
-    output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "data_partition"))
+    output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "results/data_partition"))
     train_clients_dir = output_dir / "train_clients"
     train_clients_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,16 +59,18 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             )
             client_id_num += 1
 
+    test_modalities = {
+        name: test["modalities"][idx].reshape(int(test["labels"].shape[0]), -1).contiguous()
+        for idx, name in enumerate(modality_names)
+    }
     test_payload = {
-        "acc": test["modalities"][0].contiguous(),
-        "gyro": test["modalities"][1].contiguous(),
         "label": test["labels"].contiguous(),
-        "modalities": {
-            "acc": test["modalities"][0].contiguous(),
-            "gyro": test["modalities"][1].contiguous(),
-        },
+        "modalities": test_modalities,
+        "modality_names": list(modality_names),
         "modality_input_dims": {name: int(dim) for name, dim in zip(modality_names, input_dims)},
     }
+    for name, tensor in test_modalities.items():
+        test_payload[name] = tensor
     torch.save(test_payload, output_dir / "test_multimodal.pt")
 
     with (output_dir / "client_meta.csv").open("w", newline="", encoding="utf-8") as f:
@@ -77,6 +79,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         writer.writerows(client_rows)
 
     partition_config = {
+        "dataset_type": cfg.get("dataset", {}).get("type", "uci_har"),
         "dataset_root": dataset["root"],
         "output_dir": str(output_dir),
         "clients_per_modality": clients_per_modality,
@@ -91,3 +94,4 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         json.dump(partition_config, f, indent=2)
 
     return partition_config
+

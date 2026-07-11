@@ -1,7 +1,6 @@
 ﻿import csv
 import json
 import random
-import shutil
 from pathlib import Path
 
 import torch
@@ -187,10 +186,21 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
     with assignment_path.open("r", newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
-    modality_dims = {0: int(test_payload["acc"].shape[1]), 1: int(test_payload["gyro"].shape[1])}
+    modality_names = list(test_payload.get("modality_names", []))
+    if not modality_names:
+        modality_names = list(test_payload.get("modalities", {}).keys())
+    if not modality_names:
+        raise RuntimeError("test_multimodal.pt must contain modality_names or a modalities mapping.")
+    modality_tensors = [test_payload["modalities"][name] for name in modality_names]
+    modality_dims = {idx: int(x.reshape(int(test_payload["label"].shape[0]), -1).shape[1]) for idx, x in enumerate(modality_tensors)}
     encoders = {}
     for cid in cluster_ids:
         true_modality = int(cluster_to_true.get(cid, cid))
+        if true_modality not in modality_dims:
+            raise RuntimeError(
+                f"Cluster {cid} maps to modality id {true_modality}, but test data only has "
+                f"{len(modality_names)} modalities."
+            )
         expected_dim = modality_dims[true_modality]
         candidate_rows = [row for row in rows if int(row["pred_cluster"]) == cid]
         chosen_payload = None
@@ -213,9 +223,7 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
 
     batch_size = int(cfg.get("training", {}).get("eval_batch_size", cfg.get("training", {}).get("batch_size", 64)))
     label = test_payload["label"]
-    acc = test_payload["acc"]
-    gyro = test_payload["gyro"]
-    loader = DataLoader(TensorDataset(acc, gyro, label), batch_size=batch_size, shuffle=False)
+    loader = DataLoader(TensorDataset(*modality_tensors, label), batch_size=batch_size, shuffle=False)
     correct = 0
     total = 0
     loss_total = 0.0
@@ -224,14 +232,14 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
     for encoder in encoders.values():
         encoder.eval()
     with torch.no_grad():
-        for acc_b, gyro_b, y_b in loader:
-            acc_b = acc_b.to(device)
-            gyro_b = gyro_b.to(device)
+        for batch in loader:
+            *modality_batches, y_b = batch
+            modality_batches = [x.to(device) for x in modality_batches]
             y_b = y_b.to(device)
             features = []
             for cid in cluster_ids:
                 true_modality = cluster_to_true.get(cid, cid)
-                xb = acc_b if true_modality == 0 else gyro_b
+                xb = modality_batches[int(true_modality)]
                 features.append(encoders[int(cid)](xb))
             logits = server(features)
             loss_total += float(ce(logits, y_b).item())
@@ -242,10 +250,10 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
 
 
 def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.device):
-    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "data_partition"))
-    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "cluster"))
-    result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "result"))
-    model_dir = resolve_project_path(project_root, cfg.get("result_model", {}).get("output_dir", "result_model"))
+    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/data_partition"))
+    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/cluster"))
+    result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "results/logs"))
+    model_dir = resolve_project_path(project_root, cfg.get("result_model", {}).get("output_dir", "results/models"))
     best_client_dir = model_dir / "best_client_encoders"
     result_dir.mkdir(parents=True, exist_ok=True)
     best_client_dir.mkdir(parents=True, exist_ok=True)
@@ -336,4 +344,5 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
         json.dump({"best_metrics": best_metrics, "cluster_ids": cluster_ids, "r": r}, f, indent=2)
 
     return final_metrics
+
 

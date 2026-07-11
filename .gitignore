@@ -26,6 +26,9 @@ log/
 data/uci-har/
 
 # generated pipeline artifacts
+results/
+
+# legacy generated output locations; all new outputs must go under results/
 data_partition/
 cluster/
 result/

@@ -86,9 +86,9 @@ def _fingerprint(encoder, x, cfg, device):
 
 
 def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.device):
-    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "data_partition"))
-    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "cluster"))
-    result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "result"))
+    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/data_partition"))
+    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/cluster"))
+    result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "results/logs"))
     encoder_dir = cluster_dir / "pretrained_encoders"
     encoder_dir.mkdir(parents=True, exist_ok=True)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -172,3 +172,4 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
             f.write(f"{row['client_id']}, true={row['true_modality']}, pred_cluster={row['pred_cluster']}\n")
 
     return metrics
+
