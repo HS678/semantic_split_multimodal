@@ -25,24 +25,11 @@ log/
 # local datasets
 data/uci-har/
 
-# generated pipeline artifacts; keep directory skeletons only
-data_partition/*
-!data_partition/.gitkeep
-!data_partition/train_clients/
-data_partition/train_clients/*
-!data_partition/train_clients/.gitkeep
-cluster/*
-!cluster/.gitkeep
-!cluster/pretrained_encoders/
-cluster/pretrained_encoders/*
-!cluster/pretrained_encoders/.gitkeep
-result/*
-!result/.gitkeep
-result_model/*
-!result_model/.gitkeep
-!result_model/best_client_encoders/
-result_model/best_client_encoders/*
-!result_model/best_client_encoders/.gitkeep
+# generated pipeline artifacts
+data_partition/
+cluster/
+result/
+result_model/
 
 # model/data binaries
 *.pt
