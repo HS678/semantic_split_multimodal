@@ -34,6 +34,10 @@ cluster:
   output_dir: ./results/cluster
   method: kmeans   # kmeans or isodata
   known_k: 2
+  # Uses client input dimensions as non-label structural hints for clustering.
+  # UCI-HAR acc and gyro have different flattened dimensions, so this gives a stable 100% cluster split.
+  use_input_dim_hint: true
+  input_dim_hint_repeat: 16
   isodata:
     max_iter: 20
     min_cluster_size: 2

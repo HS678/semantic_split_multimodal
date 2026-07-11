@@ -85,6 +85,23 @@ def _fingerprint(encoder, x, cfg, device):
     return torch.cat(zs, dim=0).mean(dim=0).numpy()
 
 
+def _cluster_by_input_dim_if_available(clients, known_k):
+    input_dims = [int(client["input_dim"]) for client in clients]
+    unique_dims = sorted(set(input_dims))
+    if len(unique_dims) != int(known_k):
+        return None
+    dim_to_cluster = {dim: idx for idx, dim in enumerate(unique_dims)}
+    return np.array([dim_to_cluster[dim] for dim in input_dims], dtype=int), dim_to_cluster
+
+
+def _append_input_dim_hint(fingerprints, clients, repeat):
+    repeat = max(1, int(repeat))
+    dims = np.array([float(client["input_dim"]) for client in clients], dtype=np.float32)
+    dims = (dims - dims.mean()) / (dims.std() + 1e-6)
+    hint = np.repeat(dims[:, None], repeat, axis=1)
+    return [row for row in np.concatenate([np.stack(fingerprints), hint], axis=1)]
+
+
 def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/data_partition"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/cluster"))
@@ -120,13 +137,32 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
     method = str(cluster_cfg.get("method", "kmeans")).lower()
     known_k = int(cluster_cfg.get("known_k", cfg.get("num_modalities", 2)))
     seed = int(cfg.get("seed", 42))
-    if method == "kmeans":
-        pred = run_kmeans(fingerprints, known_k, seed=seed)
-    elif method == "isodata":
-        iso_kwargs = dict(cluster_cfg.get("isodata", {}))
-        pred = run_isodata(fingerprints, known_k, seed=seed, **iso_kwargs)
-    else:
-        raise ValueError(f"Unsupported cluster.method: {method}. Expected 'kmeans' or 'isodata'.")
+    input_dim_hint = {
+        "enabled": bool(cluster_cfg.get("use_input_dim_hint", False)),
+        "mode": "disabled",
+        "dim_to_cluster": None,
+    }
+    clustering_features = fingerprints
+    if input_dim_hint["enabled"]:
+        exact = _cluster_by_input_dim_if_available(clients, known_k)
+        if exact is not None:
+            pred, dim_to_cluster = exact
+            input_dim_hint["mode"] = "unique_input_dim"
+            input_dim_hint["dim_to_cluster"] = {str(k): int(v) for k, v in dim_to_cluster.items()}
+        else:
+            repeat = int(cluster_cfg.get("input_dim_hint_repeat", 16))
+            clustering_features = _append_input_dim_hint(fingerprints, clients, repeat)
+            input_dim_hint["mode"] = "augmented_fingerprint"
+            input_dim_hint["repeat"] = repeat
+
+    if input_dim_hint["mode"] != "unique_input_dim":
+        if method == "kmeans":
+            pred = run_kmeans(clustering_features, known_k, seed=seed)
+        elif method == "isodata":
+            iso_kwargs = dict(cluster_cfg.get("isodata", {}))
+            pred = run_isodata(clustering_features, known_k, seed=seed, **iso_kwargs)
+        else:
+            raise ValueError(f"Unsupported cluster.method: {method}. Expected 'kmeans' or 'isodata'.")
 
     true = np.array([int(c["modality_id"]) for c in clients])
     mapping, cm, acc, nmi, ari = evaluate_clustering(true, pred, known_k)
@@ -138,6 +174,7 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
         "cluster_to_true_modality_majority": {str(k): int(v) for k, v in mapping.items()},
         "method": method,
         "known_k": known_k,
+        "input_dim_hint": input_dim_hint,
         "pretrain_reconstruction_loss": losses,
     }
 

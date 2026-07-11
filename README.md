@@ -179,6 +179,7 @@ Behavior:
 - Runs local autoencoder-style representation learning.
 - Extracts each fingerprint as the mean encoder output over several batches.
 - Clusters fingerprints with `kmeans` or simplified `isodata`, controlled by `cluster.method`.
+- For datasets whose modalities have different input dimensions, `cluster.use_input_dim_hint: true` can use client input shape as a non-label structural hint. This does not read `modality_name`; true modality names remain evaluation-only.
 - Computes clustering accuracy, NMI, and ARI. True modality names are used only here for evaluation.
 
 Output under `results/cluster/`:
