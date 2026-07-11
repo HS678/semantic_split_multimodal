@@ -2,6 +2,8 @@
 
 This repository is a lightweight, single-process simulation framework for split multimodal learning on the UCI-HAR inertial-signal dataset.
 
+The current implementation is the non-D2D foundation of the paper framework: modality-aware ISODATA clustering plus balanced split multimodal learning. UCI-HAR is used as a two-modality sanity-check dataset. Later paper experiments can add 3, 4, 5, or 6 modality datasets through the dataset and encoder extension interfaces without changing the three stage entry scripts.
+
 The current project target is a strict three-stage pipeline:
 
 1. Stage 1: `dataPartition`
@@ -26,6 +28,7 @@ semantic_split_multimodal/
   models/          # Shared PyTorch model modules.
   trainers/        # Stage 2 and Stage 3 training orchestration.
   utils/           # Small shared utilities.
+  docs/            # Extension guide for new multimodal datasets and future D2D integration.
   results/         # Generated at runtime; ignored by git.
 ```
 
@@ -79,6 +82,10 @@ data/uci-har/
 
 If the path or required files are missing, Stage 1 raises a clear `FileNotFoundError` listing the missing paths.
 
+## Extension Guide
+
+See [docs/extension_guide.md](docs/extension_guide.md) for the recommended way to add 3+ modality datasets, dataset-specific encoders, ISODATA ranges, evaluation baselines, and future D2D latency/offloading logic.
+
 ## Dataset Extension Interface
 
 Datasets are selected by `dataset.type` in the YAML config and resolved through `data/dataset_registry.py`.
@@ -107,6 +114,7 @@ def load_my_dataset(cfg: dict, project_root: Path) -> dict:
     "root": "resolved dataset root",
     "modality_names": ["acc", "gyro", ...],
     "modality_input_dims": [768, 384, ...],
+    "modality_input_shapes": [[6, 128], [3, 128], ...],
 }
 ```
 
@@ -211,8 +219,9 @@ Behavior:
 - Initializes one encoder per client.
 - Runs local autoencoder-style representation learning.
 - Extracts each fingerprint as the mean encoder output over several batches.
-- Clusters fingerprints with `kmeans` or simplified `isodata`, controlled by `cluster.method`.
+- Clusters fingerprints with `kmeans` or ISODATA-style split/merge clustering, controlled by `cluster.method`.
 - For datasets whose modalities have different input dimensions, `cluster.use_input_dim_hint: true` can use client input shape as a non-label structural hint. This does not read `modality_name`; true modality names remain evaluation-only.
+- With `cluster.method: isodata` and `cluster.known_k: null`, the predicted modality count is `Q_star = number of predicted clusters`. Use `cluster.isodata.min_clusters` and `cluster.isodata.max_clusters` to set the candidate modality range.
 - Computes clustering accuracy, NMI, and ARI. True modality names are used only here for evaluation.
 
 Output under `results/cluster/`:
@@ -291,8 +300,9 @@ Important fields:
 - `partition.output_dir`: Stage 1 output directory, default `./results/data_partition`.
 - `partition.clients_per_modality`: number of training clients per true modality.
 - `cluster.output_dir`: Stage 2 cluster output directory, default `./results/cluster`.
-- `cluster.method`: `kmeans` or `isodata`.
-- `cluster.known_k`: expected modality cluster count, default `2`.
+- `cluster.method`: `kmeans` or `isodata`. The current UCI-HAR config uses `isodata`.
+- `cluster.known_k`: expected modality cluster count for fixed-k clustering, or `null` for ISODATA-style `Q_star` discovery under min/max constraints.
+- `cluster.isodata.min_clusters/max_clusters`: candidate modality range. UCI-HAR uses `[2, 2]`; future 3+ modality datasets should set this to the expected experimental range, for example `[3, 6]`.
 - `result.output_dir`: logs and metrics directory, default `./results/logs`.
 - `result_model.output_dir`: model artifact directory, default `./results/models`.
 - `model.encoder.type`: client encoder type. UCI-HAR defaults to `cnn_gru`.
@@ -305,7 +315,7 @@ Implemented:
 
 - UCI-HAR inertial signal loading with required-file validation.
 - Stage 1 data partition artifacts.
-- Stage 2 local encoder pretraining, fingerprint extraction, KMeans and simplified ISODATA clustering.
+- Stage 2 local encoder pretraining, fingerprint extraction, KMeans and ISODATA-style modality-aware clustering.
 - Cluster metrics: clustering accuracy, NMI, ARI.
 - Stage 3 balanced predicted-cluster scheduling.
 - Ordered feature concat with explicit `feature_map` gradient return to clients.

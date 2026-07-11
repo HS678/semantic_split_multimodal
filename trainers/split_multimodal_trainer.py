@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 import yaml
 from sklearn.metrics import confusion_matrix, f1_score
@@ -131,12 +132,83 @@ def _paired_group_batch(group_clients, batch_size: int, device: torch.device):
     return x_out, y
 
 
+def _mse_alignment_loss(features):
+    if len(features) < 2:
+        return features[0].new_tensor(0.0)
+    losses = []
+    mse = nn.MSELoss()
+    for i in range(len(features)):
+        for j in range(i + 1, len(features)):
+            losses.append(mse(features[i], features[j]))
+    return torch.stack(losses).mean()
+
+
+def _supervised_contrastive_alignment_loss(features, labels, temperature):
+    if len(features) < 2:
+        return features[0].new_tensor(0.0)
+    views = torch.stack(features, dim=1)
+    bsz, num_views, dim = views.shape
+    z = F.normalize(views.reshape(bsz * num_views, dim), dim=1)
+    y = labels.repeat_interleave(num_views)
+    logits = torch.matmul(z, z.T) / float(temperature)
+    self_mask = torch.eye(logits.shape[0], dtype=torch.bool, device=logits.device)
+    positive_mask = (y[:, None] == y[None, :]) & (~self_mask)
+    logits = logits - logits.max(dim=1, keepdim=True).values.detach()
+    exp_logits = torch.exp(logits) * (~self_mask).float()
+    log_prob = logits - torch.log(exp_logits.sum(dim=1, keepdim=True).clamp_min(1e-12))
+    positive_count = positive_mask.sum(dim=1)
+    valid = positive_count > 0
+    if not bool(valid.any()):
+        return z.new_tensor(0.0)
+    mean_log_prob_pos = (positive_mask.float() * log_prob).sum(dim=1)[valid] / positive_count[valid].float()
+    return -mean_log_prob_pos.mean()
+
+
+def _classwise_prototype_alignment_loss(features, labels):
+    if len(features) < 2:
+        return features[0].new_tensor(0.0)
+    losses = []
+    mse = nn.MSELoss()
+    for label in torch.unique(labels):
+        mask = labels == label
+        if int(mask.sum().item()) == 0:
+            continue
+        prototypes = [feature[mask].mean(dim=0) for feature in features]
+        for i in range(len(prototypes)):
+            for j in range(i + 1, len(prototypes)):
+                losses.append(mse(prototypes[i], prototypes[j]))
+    if not losses:
+        return features[0].new_tensor(0.0)
+    return torch.stack(losses).mean()
+
+
+def _alignment_loss(features, labels, align_cfg):
+    loss_type = str(align_cfg.get("type", "mse")).lower()
+    if loss_type == "mse":
+        return _mse_alignment_loss(features)
+    if loss_type == "classwise_mse":
+        return _classwise_prototype_alignment_loss(features, labels)
+    if loss_type in {"supervised_contrastive", "supcon"}:
+        return _supervised_contrastive_alignment_loss(
+            features,
+            labels,
+            temperature=float(align_cfg.get("temperature", 0.2)),
+        )
+    raise ValueError(
+        f"Unsupported alignment.type: {loss_type}. Expected 'mse', 'classwise_mse', or 'supervised_contrastive'."
+    )
+
+
 def _train_round(server, server_optimizer, clients, selected, cfg, device):
     r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 1))
     batch_size = int(cfg.get("training", {}).get("batch_size", cfg.get("batch_size", 32)))
+    align_cfg = cfg.get("alignment", {})
+    lambda_align = float(align_cfg.get("lambda_align", 0.0)) if bool(align_cfg.get("enabled", False)) else 0.0
     cluster_ids = sorted(selected.keys())
     ce = nn.CrossEntropyLoss()
     group_losses = []
+    group_cls_losses = []
+    group_align_losses = []
     group_correct = 0
     group_total = 0
     feature_map = {}
@@ -153,12 +225,18 @@ def _train_round(server, server_optimizer, clients, selected, cfg, device):
             client_paths[(int(cluster_id), int(group_id))] = (client, z_client, z_server)
             features.append(z_server)
         logits = server(features)
-        loss = ce(logits, y)
+        loss_cls = ce(logits, y)
+        loss_align = _alignment_loss(features, y, align_cfg)
+        loss = loss_cls + lambda_align * loss_align
         group_losses.append(loss)
+        group_cls_losses.append(loss_cls)
+        group_align_losses.append(loss_align)
         group_correct += int((logits.argmax(dim=1) == y).sum().item())
         group_total += int(y.numel())
 
     total_loss = torch.stack(group_losses).mean()
+    total_cls_loss = torch.stack(group_cls_losses).mean()
+    total_align_loss = torch.stack(group_align_losses).mean()
     total_loss.backward()
     server_optimizer.step()
 
@@ -171,6 +249,9 @@ def _train_round(server, server_optimizer, clients, selected, cfg, device):
 
     return {
         "loss": float(total_loss.item()),
+        "loss_cls": float(total_cls_loss.item()),
+        "loss_align": float(total_align_loss.item()),
+        "lambda_align": float(lambda_align),
         "accuracy": float(group_correct / max(1, group_total)),
         "feature_map": {f"{k[0]}:{k[1]}": v for k, v in feature_map.items()},
         "grad_return_count": int(grad_return_count),
@@ -179,18 +260,13 @@ def _train_round(server, server_optimizer, clients, selected, cfg, device):
     }
 
 
-def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device):
+def _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device):
     cluster_metrics_path = cfg.get("_cluster_metrics_path")
     with open(cluster_metrics_path, "r", encoding="utf-8") as f:
         metrics = json.load(f)
     # Evaluation maps predicted clusters to paired test modalities via Stage 2 majority metadata.
     # This mapping is not used by the training scheduler.
     cluster_to_true = {int(k): int(v) for k, v in metrics.get("cluster_to_true_modality_majority", {}).items()}
-
-    encoder_dir = Path(cfg["_cluster_dir"]) / "pretrained_encoders"
-    assignment_path = Path(cfg["_cluster_dir"]) / "cluster_assignments.csv"
-    with assignment_path.open("r", newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
 
     modality_names = list(test_payload.get("modality_names", []))
     if not modality_names:
@@ -208,30 +284,10 @@ def _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device
                 f"{len(modality_names)} modalities."
             )
         expected_dim = modality_dims[true_modality]
-        expected_shape = [int(v) for v in modality_tensors[true_modality].shape[1:]]
-        candidate_rows = [row for row in rows if int(row["pred_cluster"]) == cid]
-        chosen_payload = None
-        for row in candidate_rows:
-            payload = torch.load(encoder_dir / f"{row['client_id']}_encoder.pt", map_location="cpu")
-            if int(payload["input_dim"]) == expected_dim:
-                chosen_payload = payload
-                break
-        if chosen_payload is None:
-            for row in rows:
-                payload = torch.load(encoder_dir / f"{row['client_id']}_encoder.pt", map_location="cpu")
-                if int(payload["input_dim"]) == expected_dim:
-                    chosen_payload = payload
-                    break
-        if chosen_payload is None:
-            raise RuntimeError(f"No pretrained encoder with input_dim={expected_dim} for eval cluster {cid}.")
-        encoder = create_client_encoder(
-            cfg,
-            input_dim=expected_dim,
-            input_shape=chosen_payload.get("input_shape", expected_shape),
-            modality_name=chosen_payload.get("modality_name"),
-        ).to(device)
-        encoder.load_state_dict(chosen_payload["state_dict"])
-        encoders[int(cid)] = encoder
+        candidates = [client for client in cluster_to_clients[int(cid)] if int(client.input_dim) == expected_dim]
+        if not candidates:
+            raise RuntimeError(f"No trained client encoder with input_dim={expected_dim} for eval cluster {cid}.")
+        encoders[int(cid)] = candidates[0].encoder
 
     batch_size = int(cfg.get("training", {}).get("eval_batch_size", cfg.get("training", {}).get("batch_size", 64)))
     label = test_payload["label"]
@@ -312,7 +368,19 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
 
     train_log_path = result_dir / "train_log.csv"
     eval_log_path = result_dir / "eval_log.csv"
-    train_fields = ["round", "loss", "accuracy", "Q_star", "r", "K_t", "grad_return_count", "feature_map_json"]
+    train_fields = [
+        "round",
+        "loss",
+        "loss_cls",
+        "loss_align",
+        "lambda_align",
+        "accuracy",
+        "Q_star",
+        "r",
+        "K_t",
+        "grad_return_count",
+        "feature_map_json",
+    ]
     eval_fields = ["round", "loss", "accuracy", "macro_f1", "weighted_f1"]
     best_metrics = {"macro_f1": -1.0, "accuracy": None, "loss": None, "round": None}
 
@@ -332,6 +400,9 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
                 {
                     "round": round_idx,
                     "loss": train_metrics["loss"],
+                    "loss_cls": train_metrics["loss_cls"],
+                    "loss_align": train_metrics["loss_align"],
+                    "lambda_align": train_metrics["lambda_align"],
                     "accuracy": train_metrics["accuracy"],
                     "Q_star": train_metrics["Q_star"],
                     "r": r,
@@ -342,7 +413,7 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
             )
 
             if round_idx % eval_every == 0 or round_idx == rounds:
-                final_eval = _evaluate(server, cluster_ids, cluster_input_dims, cfg, test_payload, device)
+                final_eval = _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device)
                 eval_writer.writerow(
                     {
                         "round": round_idx,

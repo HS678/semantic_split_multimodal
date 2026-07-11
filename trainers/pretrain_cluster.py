@@ -143,7 +143,11 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
 
     cluster_cfg = cfg.get("cluster", {})
     method = str(cluster_cfg.get("method", "kmeans")).lower()
-    known_k = int(cluster_cfg.get("known_k", cfg.get("num_modalities", 2)))
+    raw_known_k = cluster_cfg.get("known_k", cfg.get("num_modalities"))
+    if raw_known_k is None or str(raw_known_k).lower() in {"auto", "none", "null"}:
+        known_k = None
+    else:
+        known_k = int(raw_known_k)
     seed = int(cfg.get("seed", 42))
     input_dim_hint = {
         "enabled": bool(cluster_cfg.get("use_input_dim_hint", False)),
@@ -152,7 +156,8 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
     }
     clustering_features = fingerprints
     if input_dim_hint["enabled"]:
-        exact = _cluster_by_input_dim_if_available(clients, known_k)
+        hint_mode = str(cluster_cfg.get("input_dim_hint_mode", "append")).lower()
+        exact = _cluster_by_input_dim_if_available(clients, known_k) if known_k is not None else None
         if exact is not None:
             pred, dim_to_cluster = exact
             input_dim_hint["mode"] = "unique_input_dim"
@@ -161,6 +166,7 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
             repeat = int(cluster_cfg.get("input_dim_hint_repeat", 16))
             clustering_features = _append_input_dim_hint(fingerprints, clients, repeat)
             input_dim_hint["mode"] = "augmented_fingerprint"
+            input_dim_hint["strategy"] = hint_mode
             input_dim_hint["repeat"] = repeat
 
     if input_dim_hint["mode"] != "unique_input_dim":
@@ -173,7 +179,10 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
             raise ValueError(f"Unsupported cluster.method: {method}. Expected 'kmeans' or 'isodata'.")
 
     true = np.array([int(c["modality_id"]) for c in clients])
-    mapping, cm, acc, nmi, ari = evaluate_clustering(true, pred, known_k)
+    pred = np.asarray(pred, dtype=int)
+    q_star = int(len(np.unique(pred)))
+    true_k = int(len(np.unique(true)))
+    mapping, cm, acc, nmi, ari = evaluate_clustering(true, pred, true_k)
     metrics = {
         "clustering_accuracy": acc,
         "NMI": nmi,
@@ -182,6 +191,8 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
         "cluster_to_true_modality_majority": {str(k): int(v) for k, v in mapping.items()},
         "method": method,
         "known_k": known_k,
+        "Q_star": q_star,
+        "true_num_modalities": true_k,
         "input_dim_hint": input_dim_hint,
         "pretrain_reconstruction_loss": losses,
     }
@@ -210,6 +221,7 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
     with (result_dir / "cluster_result.txt").open("w", encoding="utf-8") as f:
         f.write(f"method: {method}\n")
         f.write(f"known_k: {known_k}\n")
+        f.write(f"Q_star: {q_star}\n")
         f.write(f"clustering_accuracy: {acc:.6f}\n")
         f.write(f"NMI: {nmi:.6f}\n")
         f.write(f"ARI: {ari:.6f}\n")
