@@ -1,75 +1,98 @@
-# 读取UCI-HAR数据集，并且数据按照模态分开存储在不同的键下，标签存储在 "labels" 或 "y" 键下。
-'''
-UCI-HAR数据集的目录结构应该如下：
-uci-har/
-    train/
-        Inertial Signals/
-            body_acc_x_train.txt
-            body_acc_y_train.txt
-            body_acc_z_train.txt
-            body_gyro_x_train.txt
-            body_gyro_y_train.txt
-            body_gyro_z_train.txt
-        y_train.txt
-    test/   
-        Inertial Signals/   
-            body_acc_x_test.txt
-            body_acc_y_test.txt
-            body_acc_z_test.txt     
-            body_gyro_x_test.txt
-            body_gyro_y_test.txt
-            body_gyro_z_test.txt
-        y_test.txt  
-每个模态的数据被存储在一个单独的键下，标签存储在 "labels" 或 "y" 键下。返回格式如下：
-{
-    "train": {
-        "modalities": [模态0数据, 模态1数据, ...],
-        "labels": 标签      
-    },
-    "test": {
-        "modalities": [模态0数据, 模态1数据, ...],
-        "labels": 标签              
-    },
-    "root": 数据集根目录路径,
-    "modality_input_dims": [模态0输入维度, 模态1输入维度, ...]  # 可选，提供每个模态的输入维度信息
-}   
-'''
-from pathlib import Path
+﻿from pathlib import Path
 import numpy as np
 import torch
 
 
+REQUIRED_SIGNAL_FILES = {
+    "train": [
+        "body_acc_x_train.txt",
+        "body_acc_y_train.txt",
+        "body_acc_z_train.txt",
+        "total_acc_x_train.txt",
+        "total_acc_y_train.txt",
+        "total_acc_z_train.txt",
+        "body_gyro_x_train.txt",
+        "body_gyro_y_train.txt",
+        "body_gyro_z_train.txt",
+    ],
+    "test": [
+        "body_acc_x_test.txt",
+        "body_acc_y_test.txt",
+        "body_acc_z_test.txt",
+        "total_acc_x_test.txt",
+        "total_acc_y_test.txt",
+        "total_acc_z_test.txt",
+        "body_gyro_x_test.txt",
+        "body_gyro_y_test.txt",
+        "body_gyro_z_test.txt",
+    ],
+}
+
+
 def _read_signal_matrix(path: Path):
+    if not path.exists():
+        raise FileNotFoundError(f"Required UCI-HAR inertial signal file not found: {path}")
     return np.loadtxt(path, dtype=np.float32)
+
+
+def validate_uci_har_root(root: Path):
+    if not root.exists():
+        raise FileNotFoundError(
+            f"UCI-HAR root not found: {root}. Expected train/test folders with 'Inertial Signals' files."
+        )
+    missing = []
+    for split, files in REQUIRED_SIGNAL_FILES.items():
+        split_dir = root / split
+        sig_dir = split_dir / "Inertial Signals"
+        if not split_dir.exists():
+            missing.append(str(split_dir))
+        if not sig_dir.exists():
+            missing.append(str(sig_dir))
+        for name in files:
+            path = sig_dir / name
+            if not path.exists():
+                missing.append(str(path))
+        label_path = split_dir / f"y_{split}.txt"
+        if not label_path.exists():
+            missing.append(str(label_path))
+    if missing:
+        preview = "\n".join(missing[:20])
+        suffix = "" if len(missing) <= 20 else f"\n... and {len(missing) - 20} more"
+        raise FileNotFoundError(f"UCI-HAR dataset is incomplete under {root}. Missing:\n{preview}{suffix}")
 
 
 def _build_modality_vectors(root: Path, split: str):
     split_dir = root / split
     sig = split_dir / "Inertial Signals"
 
-    # fed-multimodal compatible channels for UCI-HAR
-    acc_x = _read_signal_matrix(sig / f"body_acc_x_{split}.txt")
-    acc_y = _read_signal_matrix(sig / f"body_acc_y_{split}.txt")
-    acc_z = _read_signal_matrix(sig / f"body_acc_z_{split}.txt")
+    body_acc_x = _read_signal_matrix(sig / f"body_acc_x_{split}.txt")
+    body_acc_y = _read_signal_matrix(sig / f"body_acc_y_{split}.txt")
+    body_acc_z = _read_signal_matrix(sig / f"body_acc_z_{split}.txt")
+    total_acc_x = _read_signal_matrix(sig / f"total_acc_x_{split}.txt")
+    total_acc_y = _read_signal_matrix(sig / f"total_acc_y_{split}.txt")
+    total_acc_z = _read_signal_matrix(sig / f"total_acc_z_{split}.txt")
 
-    gyro_x = _read_signal_matrix(sig / f"body_gyro_x_{split}.txt")
-    gyro_y = _read_signal_matrix(sig / f"body_gyro_y_{split}.txt")
-    gyro_z = _read_signal_matrix(sig / f"body_gyro_z_{split}.txt")
+    body_gyro_x = _read_signal_matrix(sig / f"body_gyro_x_{split}.txt")
+    body_gyro_y = _read_signal_matrix(sig / f"body_gyro_y_{split}.txt")
+    body_gyro_z = _read_signal_matrix(sig / f"body_gyro_z_{split}.txt")
 
     labels = np.loadtxt(split_dir / f"y_{split}.txt", dtype=np.int64) - 1
     n = labels.shape[0]
 
-    # modality-isolated tensors; no shared full-channel tensor
-    acc_only = np.stack([acc_x, acc_y, acc_z], axis=1).astype(np.float32)  # [N, 3, 128]
-    gyro_only = np.stack([gyro_x, gyro_y, gyro_z], axis=1).astype(np.float32)  # [N, 3, 128]
+    acc = np.stack(
+        [body_acc_x, body_acc_y, body_acc_z, total_acc_x, total_acc_y, total_acc_z],
+        axis=1,
+    ).astype(np.float32)
+    gyro = np.stack([body_gyro_x, body_gyro_y, body_gyro_z], axis=1).astype(np.float32)
 
-    acc_vec = acc_only.reshape(n, -1)  # [N, 384]
-    gyro_vec = gyro_only.reshape(n, -1)  # [N, 384]
+    acc_vec = acc.reshape(n, -1)
+    gyro_vec = gyro.reshape(n, -1)
 
     return {
         "modalities": [torch.tensor(acc_vec, dtype=torch.float32), torch.tensor(gyro_vec, dtype=torch.float32)],
         "labels": torch.tensor(labels, dtype=torch.long),
         "modality_input_dims": [int(acc_vec.shape[1]), int(gyro_vec.shape[1])],
+        "modality_names": ["acc", "gyro"],
     }
 
 
@@ -81,9 +104,13 @@ def load_uci_har_dataset(cfg, project_root: Path):
         root = project_root / root
     root = root.resolve()
 
-    if not root.exists():
-        raise FileNotFoundError(f"UCI-HAR root not found: {root}")
-
+    validate_uci_har_root(root)
     train = _build_modality_vectors(root, "train")
     test = _build_modality_vectors(root, "test")
-    return {"train": train, "test": test, "root": str(root), "modality_input_dims": train["modality_input_dims"]}
+    return {
+        "train": train,
+        "test": test,
+        "root": str(root),
+        "modality_input_dims": train["modality_input_dims"],
+        "modality_names": train["modality_names"],
+    }

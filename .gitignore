@@ -18,13 +18,33 @@ env/
 .DS_Store
 Thumbs.db
 
-# experiment artifacts
-experiments/results/
+# logs
 *.log
+log/
 
-# local datasets (if downloaded locally)
+# local datasets
 data/uci-har/
 
-# optional large artifacts
+# generated pipeline artifacts; keep directory skeletons only
+data_partition/*
+!data_partition/.gitkeep
+!data_partition/train_clients/
+data_partition/train_clients/*
+!data_partition/train_clients/.gitkeep
+cluster/*
+!cluster/.gitkeep
+!cluster/pretrained_encoders/
+cluster/pretrained_encoders/*
+!cluster/pretrained_encoders/.gitkeep
+result/*
+!result/.gitkeep
+result_model/*
+!result_model/.gitkeep
+!result_model/best_client_encoders/
+result_model/best_client_encoders/*
+!result_model/best_client_encoders/.gitkeep
+
+# model/data binaries
 *.pt
 *.pth
+*.npy

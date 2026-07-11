@@ -1,49 +1,58 @@
-seed: 42
+﻿seed: 42
 device: auto
-experiment_name: uci_har_stage2
+experiment_name: uci_har_three_stage
 
+# UCI-HAR should contain train/test folders and train/test/Inertial Signals/*.txt files.
 dataset:
   type: uci_har
   root: ./data/uci-har
 
 num_modalities: 2
 num_classes: 6
-input_dim: 384
 encoder_hidden_dim: 128
-projected_dim: 64
-
-clients_per_modality: 10
-batch_size: 32
-local_steps_per_round: 3
-global_rounds: 3
 learning_rate: 0.001
+batch_size: 32
 
-label_skew_alpha: 0.4
-min_labels_per_client_ratio: 0.5
+partition:
+  output_dir: ./data_partition
+  clients_per_modality: 10
 
-lambda_cls: 1.0
-lambda_align: 0.2
-lambda_proto: 0.0
-temperature: 0.1
+pretrain:
+  epochs: 5
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0
+  max_samples: null
 
-scheduler:
-  name: fair_random_full_modality
+fingerprint:
+  batch_size: 64
+  max_batches: 4
 
 cluster:
-  method: kmeans
+  output_dir: ./cluster
+  method: kmeans   # kmeans or isodata
   known_k: 2
+  isodata:
+    max_iter: 20
+    min_cluster_size: 2
+    split_std_threshold: 1.0
+    merge_distance_threshold: 0.25
 
-stage1:
-  autoencoder_pretrain:
-    enabled: true
-    epochs: 5
-    batch_size: 64
-    lr: 0.001
-    weight_decay: 0.0
-    max_samples: null
+training:
+  global_rounds: 3
+  batch_size: 32
+  eval_batch_size: 128
+  eval_every: 1
+  clients_per_cluster_per_round: 1  # r; K_t = Q_star * r
+  client_lr: 0.001
+  server_lr: 0.001
 
-clustering:
-  use_oracle_clusters_for_training: true
-  fingerprint_type: mean_std
-  fingerprint_max_samples: null
-  fingerprint_normalize: false
+result:
+  output_dir: ./result
+
+result_model:
+  output_dir: ./result_model
+
+# Reserved only. Real D2D training/offloading logic is intentionally not implemented in this phase.
+d2d:
+  enabled: false
