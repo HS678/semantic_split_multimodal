@@ -2,6 +2,9 @@
 device: auto
 experiment_name: uci_har_three_stage
 
+results:
+  base_dir: ./results
+
 # UCI-HAR should contain train/test folders and train/test/Inertial Signals/*.txt files.
 dataset:
   # dataset.type is resolved by data/dataset_registry.py.

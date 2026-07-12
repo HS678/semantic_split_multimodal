@@ -3,6 +3,7 @@ from typing import Callable
 
 import torch
 
+from data.mhealth_adapter import load_mhealth_dataset
 from data.uci_har_adapter import load_uci_har_dataset
 
 
@@ -88,3 +89,4 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
 
 
 register_dataset_loader("uci_har", load_uci_har_dataset)
+register_dataset_loader("mhealth", load_mhealth_dataset)

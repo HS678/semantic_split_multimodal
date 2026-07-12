@@ -108,6 +108,51 @@ def _append_input_dim_hint(fingerprints, clients, repeat):
     return [row for row in np.concatenate([np.stack(fingerprints), hint], axis=1)]
 
 
+def _signal_stats(client):
+    x = client["x"].float()
+    if x.dim() == 1:
+        x = x.reshape(-1, 1, 1)
+    elif x.dim() == 2:
+        x = x.reshape(x.shape[0], 1, x.shape[1])
+    reduce_dims = tuple(i for i in range(x.dim()) if i != 1)
+    stats = [
+        x.mean(dim=reduce_dims),
+        x.std(dim=reduce_dims),
+        x.abs().mean(dim=reduce_dims),
+        x.amax(dim=reduce_dims),
+        x.amin(dim=reduce_dims),
+    ]
+    return torch.cat(stats).numpy().astype(np.float32)
+
+
+def _append_signal_stats(fingerprints, clients, include_input_dim=False, input_dim_repeat=8):
+    raw_stats = [_signal_stats(client) for client in clients]
+    max_len = max(len(stat) for stat in raw_stats)
+    padded = []
+    for client, stat in zip(clients, raw_stats):
+        row = np.zeros(max_len, dtype=np.float32)
+        row[: len(stat)] = stat
+        if include_input_dim:
+            dim = np.array([float(client["input_dim"])], dtype=np.float32)
+            row = np.concatenate([row, np.repeat(dim, max(1, int(input_dim_repeat)))])
+        padded.append(row)
+    return [row for row in np.concatenate([np.stack(fingerprints), np.stack(padded)], axis=1)]
+
+
+def _signal_stats_features(clients, include_input_dim=False, input_dim_repeat=8):
+    raw_stats = [_signal_stats(client) for client in clients]
+    max_len = max(len(stat) for stat in raw_stats)
+    rows = []
+    for client, stat in zip(clients, raw_stats):
+        row = np.zeros(max_len, dtype=np.float32)
+        row[: len(stat)] = stat
+        if include_input_dim:
+            dim = np.array([float(client["input_dim"])], dtype=np.float32)
+            row = np.concatenate([row, np.repeat(dim, max(1, int(input_dim_repeat)))])
+        rows.append(row)
+    return rows
+
+
 def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/data_partition"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/cluster"))
@@ -154,7 +199,30 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
         "mode": "disabled",
         "dim_to_cluster": None,
     }
+    fingerprint_source = str(cluster_cfg.get("fingerprint_source", "encoder")).lower()
     clustering_features = fingerprints
+    signal_stats_hint = {
+        "enabled": bool(cluster_cfg.get("use_signal_stats", False)),
+        "include_input_dim": bool(cluster_cfg.get("signal_stats_include_input_dim", True)),
+        "input_dim_repeat": int(cluster_cfg.get("signal_stats_input_dim_repeat", 8)),
+        "fingerprint_source": fingerprint_source,
+    }
+    if fingerprint_source == "signal_stats":
+        clustering_features = _signal_stats_features(
+            clients,
+            include_input_dim=signal_stats_hint["include_input_dim"],
+            input_dim_repeat=signal_stats_hint["input_dim_repeat"],
+        )
+        signal_stats_hint["enabled"] = True
+    elif signal_stats_hint["enabled"]:
+        clustering_features = _append_signal_stats(
+            clustering_features,
+            clients,
+            include_input_dim=signal_stats_hint["include_input_dim"],
+            input_dim_repeat=signal_stats_hint["input_dim_repeat"],
+        )
+    elif fingerprint_source != "encoder":
+        raise ValueError("cluster.fingerprint_source must be 'encoder' or 'signal_stats'.")
     if input_dim_hint["enabled"]:
         hint_mode = str(cluster_cfg.get("input_dim_hint_mode", "append")).lower()
         exact = _cluster_by_input_dim_if_available(clients, known_k) if known_k is not None else None
@@ -194,6 +262,7 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
         "Q_star": q_star,
         "true_num_modalities": true_k,
         "input_dim_hint": input_dim_hint,
+        "signal_stats_hint": signal_stats_hint,
         "pretrain_reconstruction_loss": losses,
     }
 

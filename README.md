@@ -40,13 +40,17 @@ All generated files and result files must be written under `semantic_split_multi
 
 ```text
 results/
-  data_partition/      # Stage 1 generated client data and paired test data.
-  cluster/             # Stage 2 fingerprints, cluster assignments, metrics, pretrained encoders.
-  logs/                # Stage 2 synced cluster summaries and Stage 3 train/eval/final metrics.
-  models/              # Stage 3 best server/client models and model metadata.
+  <dataset_name>/
+    latest_run.txt
+    <yy_mm_dd_HH_MM_SS_mmm>/
+      run_meta.yaml
+      01_dataset_partition/       # Stage 1 generated client data and paired test data.
+      02_cluster_results/         # Stage 2 fingerprints, cluster assignments, metrics, pretrained encoders.
+      03_training_evaluation/     # Stage 2 synced summaries and Stage 3 train/eval/final metrics.
+      04_model_artifacts/         # Stage 3 best server/client models and model metadata.
 ```
 
-The legacy root-level output directories `data_partition/`, `cluster/`, `result/`, and `result_model/` are not used by the current pipeline.
+Stage 1 creates a new millisecond-level timestamped run directory. Stage 2 and Stage 3 automatically reuse the same dataset's `latest_run.txt`, so the three separate stage commands write into one coherent run folder. The legacy root-level output directories `data_partition/`, `cluster/`, `result/`, and `result_model/` are not used by the current pipeline.
 
 ## Dataset
 
@@ -81,6 +85,34 @@ data/uci-har/
 ```
 
 If the path or required files are missing, Stage 1 raises a clear `FileNotFoundError` listing the missing paths.
+
+## MHEALTH Dataset
+
+MHEALTH is supported as a real three-modality activity-recognition dataset. Place the original files under:
+
+```text
+data/MHEALTHDATASET/
+  mHealth_subject1.log
+  ...
+  mHealth_subject10.log
+  README.txt
+```
+
+The adapter uses sliding windows over each subject log and builds three modalities:
+
+- `chest`: chest acceleration + two ECG leads, shape `[N, 5, window_size]`
+- `left_ankle`: left-ankle acceleration, gyroscope, magnetometer, shape `[N, 9, window_size]`
+- `right_lower_arm`: right-lower-arm acceleration, gyroscope, magnetometer, shape `[N, 9, window_size]`
+
+Default config:
+
+```bash
+python experiments/stage1_partition.py --config configs/mhealth.yaml
+python experiments/stage2_pretrain_cluster.py --config configs/mhealth.yaml
+python experiments/stage3_train_sl.py --config configs/mhealth.yaml
+```
+
+By default, subjects `1-8` are used for training and subjects `9-10` for paired multimodal testing. Label `0` is treated as null and dropped; activity labels `1-12` become class ids `0-11`.
 
 ## Extension Guide
 
@@ -132,7 +164,7 @@ dataset:
   root: ./data/my-dataset
 ```
 
-The Stage 1 partitioner validates the returned contract before writing any artifacts. The rest of the pipeline reads the standardized `results/data_partition/` artifacts, so Stage 2 and Stage 3 do not need dataset-specific branches.
+The Stage 1 partitioner validates the returned contract before writing any artifacts. The rest of the pipeline reads the standardized run-local `01_dataset_partition/` artifacts, so Stage 2 and Stage 3 do not need dataset-specific branches.
 
 ## Encoder Extension Interface
 
@@ -187,10 +219,10 @@ Behavior:
 - Creates single-modality training clients. Each client owns exactly one modality.
 - Creates paired multimodal test data containing `acc`, `gyro`, and `label`.
 
-Output under `results/data_partition/`:
+Output under `results/<dataset_name>/<run_id>/01_dataset_partition/`:
 
 ```text
-results/data_partition/
+01_dataset_partition/
   train_clients/
     client_000.pt
     client_001.pt
@@ -212,7 +244,7 @@ python experiments/stage2_pretrain_cluster.py --config configs/uci_har.yaml
 
 Input:
 
-- `results/data_partition/train_clients/client_*.pt` from Stage 1.
+- `results/<dataset_name>/<run_id>/01_dataset_partition/train_clients/client_*.pt` from Stage 1.
 
 Behavior:
 
@@ -224,10 +256,10 @@ Behavior:
 - With `cluster.method: isodata` and `cluster.known_k: null`, the predicted modality count is `Q_star = number of predicted clusters`. Use `cluster.isodata.min_clusters` and `cluster.isodata.max_clusters` to set the candidate modality range.
 - Computes clustering accuracy, NMI, and ARI. True modality names are used only here for evaluation.
 
-Output under `results/cluster/`:
+Output under `results/<dataset_name>/<run_id>/02_cluster_results/`:
 
 ```text
-results/cluster/
+02_cluster_results/
   fingerprints.npy
   cluster_assignments.csv
   cluster_metrics.json
@@ -235,10 +267,10 @@ results/cluster/
   cluster_config.json
 ```
 
-Synchronized output under `results/logs/`:
+Synchronized output under `results/<dataset_name>/<run_id>/03_training_evaluation/`:
 
 ```text
-results/logs/
+03_training_evaluation/
   cluster_result.txt
   cluster_metrics.json
 ```
@@ -255,10 +287,10 @@ python experiments/stage3_train_sl.py --config configs/uci_har.yaml
 
 Input:
 
-- `results/data_partition/train_clients/client_*.pt`
-- `results/data_partition/test_multimodal.pt`
-- `results/cluster/cluster_assignments.csv`
-- `results/cluster/pretrained_encoders/*.pt`
+- `results/<dataset_name>/<run_id>/01_dataset_partition/train_clients/client_*.pt`
+- `results/<dataset_name>/<run_id>/01_dataset_partition/test_multimodal.pt`
+- `results/<dataset_name>/<run_id>/02_cluster_results/cluster_assignments.csv`
+- `results/<dataset_name>/<run_id>/02_cluster_results/pretrained_encoders/*.pt`
 
 Behavior:
 
@@ -269,12 +301,12 @@ Behavior:
 - Builds `r` modality-complete groups from selected predicted clusters.
 - Concatenates group features in sorted `cluster_id` order before the server fusion classifier.
 - Preserves `feature_map[(cluster_id, group_id)] -> client` and returns each server gradient to the matching client encoder.
-- Evaluates on paired multimodal test data from `results/data_partition/test_multimodal.pt`.
+- Evaluates on paired multimodal test data from the run-local `01_dataset_partition/test_multimodal.pt`.
 
-Output under `results/logs/`:
+Output under `results/<dataset_name>/<run_id>/03_training_evaluation/`:
 
 ```text
-results/logs/
+03_training_evaluation/
   train_log.csv
   eval_log.csv
   final_metrics.json
@@ -282,10 +314,10 @@ results/logs/
   config_used.yaml
 ```
 
-Output under `results/models/`:
+Output under `results/<dataset_name>/<run_id>/04_model_artifacts/`:
 
 ```text
-results/models/
+04_model_artifacts/
   best_server_model.pt
   best_client_encoders/
   best_model_info.json
@@ -294,17 +326,19 @@ results/models/
 ## Configuration
 
 Main config: `configs/uci_har.yaml`.
+MHEALTH config: `configs/mhealth.yaml`.
 
 Important fields:
 
-- `partition.output_dir`: Stage 1 output directory, default `./results/data_partition`.
+- `results.base_dir`: generated artifact root, default `./results`.
+- `partition.output_dir`: Stage 1 output directory. It is overridden at runtime to the timestamped run directory.
 - `partition.clients_per_modality`: number of training clients per true modality.
-- `cluster.output_dir`: Stage 2 cluster output directory, default `./results/cluster`.
+- `cluster.output_dir`: Stage 2 cluster output directory. It is overridden at runtime to the timestamped run directory.
 - `cluster.method`: `kmeans` or `isodata`. The current UCI-HAR config uses `isodata`.
 - `cluster.known_k`: expected modality cluster count for fixed-k clustering, or `null` for ISODATA-style `Q_star` discovery under min/max constraints.
 - `cluster.isodata.min_clusters/max_clusters`: candidate modality range. UCI-HAR uses `[2, 2]`; future 3+ modality datasets should set this to the expected experimental range, for example `[3, 6]`.
-- `result.output_dir`: logs and metrics directory, default `./results/logs`.
-- `result_model.output_dir`: model artifact directory, default `./results/models`.
+- `result.output_dir`: logs and metrics directory. It is overridden at runtime to the timestamped run directory.
+- `result_model.output_dir`: model artifact directory. It is overridden at runtime to the timestamped run directory.
 - `model.encoder.type`: client encoder type. UCI-HAR defaults to `cnn_gru`.
 - `training.clients_per_cluster_per_round`: scheduling parameter `r`.
 - `training.global_rounds`: Stage 3 training rounds.

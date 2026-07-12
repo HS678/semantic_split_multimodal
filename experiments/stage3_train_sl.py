@@ -8,6 +8,7 @@ sys.path.append(str(ROOT))
 from trainers.split_multimodal_trainer import run_stage3_split_training
 from utils.config import load_config
 from utils.device import select_device
+from utils.results import configure_result_run
 from utils.seed import set_seed
 
 
@@ -17,10 +18,12 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    cfg = configure_result_run(cfg, ROOT, stage="stage3_train_sl", create_new=False)
     set_seed(int(cfg.get("seed", 42)))
     device = select_device(cfg.get("device", "auto"))
     metrics = run_stage3_split_training(cfg, ROOT, device)
     print("Stage 3 finished.")
+    print(f"run_dir={cfg['results']['run_dir']}")
     print(f"final_metrics={metrics}")
 
 

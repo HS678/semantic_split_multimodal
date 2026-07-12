@@ -24,6 +24,7 @@ log/
 
 # local datasets
 data/uci-har/
+data/MHEALTHDATASET/
 
 # generated pipeline artifacts
 results/

@@ -12,6 +12,42 @@ The implemented framework is:
 
 D2D training/offloading is intentionally not implemented in this phase. Keep D2D as a future module that consumes trained client/server metadata and latency inputs, rather than mixing D2D logic into Stage 1/2/3.
 
+## Result Layout
+
+Every Stage 1 run creates a new timestamped run folder:
+
+```text
+results/<dataset_name>/<yy_mm_dd_HH_MM_SS_mmm>/
+  run_meta.yaml
+  01_dataset_partition/
+  02_cluster_results/
+  03_training_evaluation/
+  04_model_artifacts/
+```
+
+Stage 2 and Stage 3 reuse `results/<dataset_name>/latest_run.txt` by default. This keeps all artifacts for one experiment run together while preserving the three independent stage entry scripts.
+
+## Built-In Real Datasets
+
+Current real dataset adapters:
+
+- `uci_har`: two-modality inertial HAR sanity check.
+- `mhealth`: three-modality wearable health/activity recognition dataset.
+
+MHEALTH modality grouping:
+
+- `chest`: chest accelerometer plus two ECG leads.
+- `left_ankle`: left-ankle accelerometer, gyroscope, and magnetometer.
+- `right_lower_arm`: right-lower-arm accelerometer, gyroscope, and magnetometer.
+
+Run MHEALTH with:
+
+```bash
+python experiments/stage1_partition.py --config configs/mhealth.yaml
+python experiments/stage2_pretrain_cluster.py --config configs/mhealth.yaml
+python experiments/stage3_train_sl.py --config configs/mhealth.yaml
+```
+
 ## Adding A 3+ Modality Dataset
 
 Add one dataset adapter under `data/`, then register it in `data/dataset_registry.py`.
@@ -57,11 +93,11 @@ num_modalities: 4
 num_classes: 10
 
 partition:
-  output_dir: ./results/data_partition
+  output_dir: ./results/data_partition  # overridden by the run-local result manager
   clients_per_modality: 10
 
 cluster:
-  output_dir: ./results/cluster
+  output_dir: ./results/cluster  # overridden by the run-local result manager
   method: isodata
   known_k: null
   use_input_dim_hint: false
@@ -130,7 +166,7 @@ The split learning trainer must preserve these invariants:
 - Concatenate features in sorted `cluster_id` order.
 - Preserve `feature_map[(cluster_id, group_id)] -> client`.
 - After server backward, return `z_server.grad` to the exact corresponding client encoder.
-- Evaluate only on paired multimodal test data from `results/data_partition/test_multimodal.pt`.
+- Evaluate only on paired multimodal test data from the run-local `01_dataset_partition/test_multimodal.pt`.
 
 These invariants are what make 3, 4, 5, and 6 modality datasets work without changing the scheduling logic.
 
