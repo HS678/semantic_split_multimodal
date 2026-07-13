@@ -4,11 +4,27 @@ import numpy as np
 import torch
 
 
-MHEALTH_MODALITIES = {
+MHEALTH_POSITION_MODALITIES = {
     "chest": list(range(0, 5)),
     "left_ankle": list(range(5, 14)),
     "right_lower_arm": list(range(14, 23)),
 }
+
+MHEALTH_SENSOR_TYPE_MODALITIES = {
+    "accelerometer": [0, 1, 2, 5, 6, 7, 14, 15, 16],
+    "gyroscope": [8, 9, 10, 17, 18, 19],
+    "magnetometer": [11, 12, 13, 20, 21, 22],
+    "ecg": [3, 4],
+}
+
+
+def _resolve_modalities(dataset_cfg):
+    scheme = str(dataset_cfg.get("modality_scheme", "sensor_type")).lower()
+    if scheme == "sensor_type":
+        return MHEALTH_SENSOR_TYPE_MODALITIES
+    if scheme == "position":
+        return MHEALTH_POSITION_MODALITIES
+    raise ValueError("dataset.modality_scheme must be 'sensor_type' or 'position'.")
 
 
 def _resolve_project_path(project_root: Path, value: str) -> Path:
@@ -39,8 +55,8 @@ def _read_subject_file(path: Path):
     return data[:, :23], data[:, 23].astype(np.int64)
 
 
-def _window_subject(features, labels, window_size, stride, drop_null, min_label_purity):
-    modality_windows = {name: [] for name in MHEALTH_MODALITIES}
+def _window_subject(features, labels, window_size, stride, drop_null, min_label_purity, modality_columns):
+    modality_windows = {name: [] for name in modality_columns}
     y_windows = []
     total = int(labels.shape[0])
     for start in range(0, total - window_size + 1, stride):
@@ -53,7 +69,7 @@ def _window_subject(features, labels, window_size, stride, drop_null, min_label_
             continue
         if drop_null and majority == 0:
             continue
-        for name, columns in MHEALTH_MODALITIES.items():
+        for name, columns in modality_columns.items():
             # Return [channels, time] tensors to reuse the CNN-GRU encoder.
             modality_windows[name].append(features[start:end, columns].T)
         y_windows.append(majority - 1 if drop_null else majority)
@@ -63,7 +79,7 @@ def _window_subject(features, labels, window_size, stride, drop_null, min_label_
             "No MHEALTH windows were produced. Try decreasing dataset.window_size, "
             "dataset.stride, or dataset.min_label_purity."
         )
-    modalities = [np.stack(modality_windows[name]).astype(np.float32) for name in MHEALTH_MODALITIES]
+    modalities = [np.stack(modality_windows[name]).astype(np.float32) for name in modality_columns]
     return modalities, np.asarray(y_windows, dtype=np.int64)
 
 
@@ -72,12 +88,21 @@ def _build_split(root: Path, subjects, dataset_cfg):
     stride = int(dataset_cfg.get("stride", 64))
     drop_null = bool(dataset_cfg.get("drop_null", True))
     min_label_purity = float(dataset_cfg.get("min_label_purity", 0.6))
+    modality_columns = _resolve_modalities(dataset_cfg)
 
-    split_modalities = [[] for _ in MHEALTH_MODALITIES]
+    split_modalities = [[] for _ in modality_columns]
     split_labels = []
     for subject_id in subjects:
         features, labels = _read_subject_file(_subject_path(root, int(subject_id)))
-        modalities, y = _window_subject(features, labels, window_size, stride, drop_null, min_label_purity)
+        modalities, y = _window_subject(
+            features,
+            labels,
+            window_size,
+            stride,
+            drop_null,
+            min_label_purity,
+            modality_columns,
+        )
         for idx, x in enumerate(modalities):
             split_modalities[idx].append(x)
         split_labels.append(y)
@@ -119,7 +144,7 @@ def load_mhealth_dataset(cfg, project_root: Path):
     if bool(dataset_cfg.get("normalize", True)):
         train, test = _normalize(train, test)
 
-    modality_names = list(MHEALTH_MODALITIES.keys())
+    modality_names = list(_resolve_modalities(dataset_cfg).keys())
     return {
         "train": train,
         "test": test,

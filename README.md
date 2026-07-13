@@ -157,15 +157,23 @@ data/MHEALTHDATASET/
   README.txt
 ```
 
-模态划分：
+当前默认按传感器类别划分 4 个模态：
 
 ```text
-chest            = chest acceleration + ECG
-left_ankle       = left-ankle acceleration + gyroscope + magnetometer
-right_lower_arm  = right-lower-arm acceleration + gyroscope + magnetometer
+accelerometer = chest/left ankle/right lower arm 的 acceleration
+gyroscope     = left ankle/right lower arm 的 gyroscope
+magnetometer  = left ankle/right lower arm 的 magnetometer
+ecg           = chest 的两路 ECG
 ```
 
 默认使用 subjects `1-8` 训练，subjects `9-10` 测试。标签 `0` 作为空标签丢弃。
+
+如果需要恢复旧的身体位置划分，可以在配置中设置：
+
+```yaml
+dataset:
+  modality_scheme: position
+```
 
 运行命令：
 

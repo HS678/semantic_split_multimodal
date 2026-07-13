@@ -32,14 +32,17 @@ Stage 2 and Stage 3 reuse `results/<dataset_name>/latest_run.txt` by default. Th
 Current real dataset adapters:
 
 - `uci_har`: two-modality inertial HAR sanity check.
-- `mhealth`: three-modality wearable health/activity recognition dataset.
+- `mhealth`: four-modality wearable health/activity recognition dataset.
 - `pamap2`: four-modality physical activity monitoring dataset.
 
-MHEALTH modality grouping:
+MHEALTH active modality grouping uses sensor types:
 
-- `chest`: chest accelerometer plus two ECG leads.
-- `left_ankle`: left-ankle accelerometer, gyroscope, and magnetometer.
-- `right_lower_arm`: right-lower-arm accelerometer, gyroscope, and magnetometer.
+- `accelerometer`: acceleration from chest, left ankle, and right lower arm.
+- `gyroscope`: gyroscope from left ankle and right lower arm.
+- `magnetometer`: magnetometer from left ankle and right lower arm.
+- `ecg`: two ECG leads from chest.
+
+The adapter still supports the older body-position grouping through `dataset.modality_scheme: position`, but the active config uses `sensor_type`.
 
 Run MHEALTH with:
 

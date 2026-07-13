@@ -12,6 +12,7 @@ results:
 dataset:
   type: mhealth
   root: ./data/MHEALTHDATASET
+  modality_scheme: sensor_type
   train_subjects: [1, 2, 3, 4, 5, 6, 7, 8]
   test_subjects: [9, 10]
   window_size: 128
@@ -20,7 +21,7 @@ dataset:
   min_label_purity: 0.6
   normalize: true
 
-num_modalities: 3
+num_modalities: 4
 num_classes: 12
 encoder_hidden_dim: 128
 learning_rate: 0.001
@@ -29,7 +30,8 @@ batch_size: 32
 model:
   encoder:
     # MHEALTH windows are temporal tensors:
-    # chest: [N, 5, 128], left_ankle/right_lower_arm: [N, 9, 128].
+    # sensor-type modalities:
+    # accelerometer: [N, 9, 128], gyroscope/magnetometer: [N, 6, 128], ecg: [N, 2, 128].
     type: cnn_gru
     conv_channels: [64, 128]
     kernel_sizes: [5, 3]
@@ -64,9 +66,9 @@ cluster:
   isodata:
     max_iter: 30
     min_cluster_size: 2
-    initial_k: 3
-    min_clusters: 3
-    max_clusters: 3
+    initial_k: 4
+    min_clusters: 4
+    max_clusters: 4
     split_std_threshold: 1.0
     merge_distance_threshold: 0.25
 
