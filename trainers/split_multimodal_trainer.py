@@ -52,13 +52,32 @@ class Stage3Client:
 
 
 class ServerFusionClassifier(nn.Module):
-    def __init__(self, hidden_dim: int, num_clusters: int, num_classes: int):
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_clusters: int,
+        num_classes: int,
+        server_hidden_dim: int | None = None,
+        num_layers: int = 1,
+        dropout: float = 0.0,
+    ):
         super().__init__()
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim * num_clusters, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, num_classes),
-        )
+        fusion_hidden_dim = int(server_hidden_dim or hidden_dim)
+        num_layers = max(1, int(num_layers))
+        layers = []
+        in_dim = int(hidden_dim) * int(num_clusters)
+        for _ in range(num_layers):
+            layers.extend(
+                [
+                    nn.Linear(in_dim, fusion_hidden_dim),
+                    nn.ReLU(),
+                ]
+            )
+            if float(dropout) > 0:
+                layers.append(nn.Dropout(float(dropout)))
+            in_dim = fusion_hidden_dim
+        layers.append(nn.Linear(fusion_hidden_dim, num_classes))
+        self.classifier = nn.Sequential(*layers)
 
     def forward(self, features):
         return self.classifier(torch.cat(features, dim=1))
@@ -356,7 +375,15 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
     r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 1))
     hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
     num_classes = int(cfg.get("num_classes", 6))
-    server = ServerFusionClassifier(hidden_dim, len(cluster_ids), num_classes).to(device)
+    server_cfg = cfg.get("model", {}).get("server", {})
+    server = ServerFusionClassifier(
+        hidden_dim,
+        len(cluster_ids),
+        num_classes,
+        server_hidden_dim=server_cfg.get("hidden_dim"),
+        num_layers=int(server_cfg.get("num_layers", 1)),
+        dropout=float(server_cfg.get("dropout", 0.0)),
+    ).to(device)
     server_optimizer = torch.optim.Adam(server.parameters(), lr=float(cfg.get("training", {}).get("server_lr", cfg.get("learning_rate", 1e-3))))
     rng = random.Random(int(cfg.get("seed", 42)))
 

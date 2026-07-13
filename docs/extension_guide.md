@@ -33,6 +33,7 @@ Current real dataset adapters:
 
 - `uci_har`: two-modality inertial HAR sanity check.
 - `mhealth`: three-modality wearable health/activity recognition dataset.
+- `pamap2`: four-modality physical activity monitoring dataset.
 
 MHEALTH modality grouping:
 
@@ -46,6 +47,22 @@ Run MHEALTH with:
 python experiments/stage1_partition.py --config configs/mhealth.yaml
 python experiments/stage2_pretrain_cluster.py --config configs/mhealth.yaml
 python experiments/stage3_train_sl.py --config configs/mhealth.yaml
+```
+
+PAMAP2 active modality grouping:
+
+- `accelerometer`: 16g acceleration from hand, chest, and ankle IMUs.
+- `gyroscope`: gyroscope from hand, chest, and ankle IMUs.
+- `magnetometer`: magnetometer from hand, chest, and ankle IMUs.
+
+The active PAMAP2 config disables heart rate with `dataset.include_heart_rate: false`.
+
+Run PAMAP2 with:
+
+```bash
+python experiments/stage1_partition.py --config configs/pamap2.yaml
+python experiments/stage2_pretrain_cluster.py --config configs/pamap2.yaml
+python experiments/stage3_train_sl.py --config configs/pamap2.yaml
 ```
 
 ## Adding A 3+ Modality Dataset

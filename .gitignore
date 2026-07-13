@@ -25,6 +25,7 @@ log/
 # local datasets
 data/uci-har/
 data/MHEALTHDATASET/
+data/pamap2+physical+activity+monitoring/
 
 # generated pipeline artifacts
 results/
