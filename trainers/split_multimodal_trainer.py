@@ -121,15 +121,44 @@ def build_cluster_to_clients(clients: dict):
     return {cluster_id: members for cluster_id, members in sorted(cluster_to_clients.items())}
 
 
-def balanced_cluster_schedule(cluster_to_clients: dict, r: int, rng: random.Random):
-    selected = {}
-    for cluster_id, members in cluster_to_clients.items():
-        if len(members) >= r:
-            picks = rng.sample(members, r)
-        else:
-            picks = [rng.choice(members) for _ in range(r)]
-        selected[int(cluster_id)] = {group_id: picks[group_id] for group_id in range(r)}
-    return selected
+class ClusterCyclicScheduler:
+    def __init__(self, cluster_to_clients: dict, r: int, rng: random.Random):
+        self.cluster_to_clients = {int(cid): list(members) for cid, members in sorted(cluster_to_clients.items())}
+        self.r = int(r)
+        self.rng = rng
+        self.remaining = {}
+        for cluster_id, members in self.cluster_to_clients.items():
+            if not members:
+                raise ValueError(f"Cluster {cluster_id} has no clients.")
+            self.remaining[cluster_id] = []
+
+    def _refill_cluster(self, cluster_id: int, exclude=None):
+        exclude = set(exclude or [])
+        members = list(self.cluster_to_clients[int(cluster_id)])
+        self.rng.shuffle(members)
+        if exclude:
+            eligible = [client for client in members if client not in exclude]
+            delayed = [client for client in members if client in exclude]
+            members = eligible + delayed
+        self.remaining[int(cluster_id)].extend(members)
+
+    def _take_from_cluster(self, cluster_id: int):
+        picks = []
+        while len(picks) < self.r:
+            if not self.remaining[int(cluster_id)]:
+                self._refill_cluster(int(cluster_id), exclude=picks)
+            need = self.r - len(picks)
+            take = min(need, len(self.remaining[int(cluster_id)]))
+            picks.extend(self.remaining[int(cluster_id)][:take])
+            self.remaining[int(cluster_id)] = self.remaining[int(cluster_id)][take:]
+        return picks
+
+    def sample_round(self):
+        selected = {}
+        for cluster_id in self.cluster_to_clients:
+            picks = self._take_from_cluster(int(cluster_id))
+            selected[int(cluster_id)] = {group_id: picks[group_id] for group_id in range(self.r)}
+        return selected
 
 
 def _paired_group_batch(group_clients, batch_size: int, device: torch.device):
@@ -386,6 +415,7 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
     ).to(device)
     server_optimizer = torch.optim.Adam(server.parameters(), lr=float(cfg.get("training", {}).get("server_lr", cfg.get("learning_rate", 1e-3))))
     rng = random.Random(int(cfg.get("seed", 42)))
+    scheduler = ClusterCyclicScheduler(cluster_to_clients, r, rng)
 
     cluster_input_dims = {cid: cluster_to_clients[cid][0].input_dim for cid in cluster_ids}
     test_path = partition_dir / "test_multimodal.pt"
@@ -421,7 +451,7 @@ def run_stage3_split_training(cfg: dict, project_root: Path, device: torch.devic
 
         final_eval = None
         for round_idx in range(1, rounds + 1):
-            selected = balanced_cluster_schedule(cluster_to_clients, r, rng)
+            selected = scheduler.sample_round()
             train_metrics = _train_round(server, server_optimizer, clients, selected, cfg, device)
             train_writer.writerow(
                 {
