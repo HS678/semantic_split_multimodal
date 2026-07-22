@@ -29,6 +29,7 @@ data/pamap2+physical+activity+monitoring/
 
 # generated pipeline artifacts
 results/
+presude-results/
 
 # legacy generated output locations; all new outputs must go under results/
 # data_partition/

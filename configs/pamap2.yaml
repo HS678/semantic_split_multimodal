@@ -40,6 +40,8 @@ model:
     hidden_dim: 256
     num_layers: 2
     dropout: 0.1
+    adapter_dim: 128
+    semantic_dim: 128
 
 partition:
   output_dir: ./results/data_partition
@@ -77,6 +79,12 @@ cluster:
     merge_distance_threshold: 0.25
 
 training:
+  # Options:
+  #   pseudo_paired_concat: v0.1.0 baseline with same-class pseudo-paired concat.
+  #   unpaired_shared_semantic: independent client batches with shared semantic server.
+  multimodal_mode: pseudo_paired_concat
+  # Use "oracle" only for ablation; default training uses predicted clusters.
+  cluster_assignment: predicted
   global_rounds: 100
   batch_size: 64
   eval_batch_size: 128
@@ -86,10 +94,14 @@ training:
   server_lr: 0.0005
 
 alignment:
+  # In unpaired_shared_semantic, classwise_mse means class-wise prototype alignment.
   enabled: true
   type: supervised_contrastive
   lambda_align: 0.01
   temperature: 0.2
+
+evaluation:
+  fusion_modes: [single, pairwise, all]
 
 result:
   output_dir: ./results/logs
