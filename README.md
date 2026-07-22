@@ -513,3 +513,52 @@ register_dataset_loader("my_dataset", load_my_dataset)
 5. 继续使用同样三条命令运行 Stage 1、Stage 2、Stage 3。
 
 这样可以在不改实验入口的情况下扩展到 3 模态以上数据集。
+
+
+
+
+---
+# Current Version
+
+## v0.1.0-pseudo-paired
+
+This version implements the original distributed split multimodal learning pipeline.
+
+## Training Pipeline
+
+The current pipeline consists of three stages:
+
+### Stage 1: Unknown Modality Discovery
+
+Each client owns only one modality.
+
+Client encoders are locally pretrained to extract modality fingerprints.
+
+The server applies clustering on fingerprints to discover hidden modality groups.
+
+### Stage 2: Modality-aware Client Scheduling
+
+The server selects clients from different predicted modality clusters to form a complete modality training group.
+
+The scheduling decision only relies on predicted clusters rather than true modality identities.
+
+### Stage 3: Split Multimodal Training
+
+Selected clients independently sample same-class data.
+
+The server constructs pseudo multimodal batches by concatenating intermediate features from different modality clients.
+
+The server performs multimodal classification and semantic alignment.
+
+Gradients are returned to corresponding clients for encoder updates.
+
+## Limitation
+
+The current implementation does not use strict instance-level multimodal pairing.
+
+Different modality clients may provide different samples with the same label.
+
+Therefore, the feature concatenation represents a same-class pseudo multimodal fusion strategy.
+
+This version is preserved as a baseline for comparison with future unpaired multimodal learning methods.
+---
