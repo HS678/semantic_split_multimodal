@@ -23,20 +23,24 @@ Thumbs.db
 log/
 
 # local datasets
-data/uci-har/
-data/MHEALTHDATASET/
-data/pamap2+physical+activity+monitoring/
+# data/uci-har/
+# data/MHEALTHDATASET/
+# data/pamap2+physical+activity+monitoring/
 
 # generated pipeline artifacts
 results/
 
 # legacy generated output locations; all new outputs must go under results/
-data_partition/
-cluster/
-result/
-result_model/
+# data_partition/
+# cluster/
+# result/
+# result_model/
 
 # model/data binaries
 *.pt
 *.pth
 *.npy
+
+# keep experiment outputs versioned
+!results/
+!results/**

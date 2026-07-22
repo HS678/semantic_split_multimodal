@@ -1,0 +1,13 @@
+dataset: mhealth
+run_id: '26_07_18_20_43_47_643'
+stage: stage3_train_sl
+run_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643
+paths:
+  base_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results
+  dataset_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth
+  run_id: '26_07_18_20_43_47_643'
+  run_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643
+  data_partition: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643\01_dataset_partition
+  cluster: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643\02_cluster_results
+  logs: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643\03_training_evaluation
+  models: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\mhealth\26_07_18_20_43_47_643\04_model_artifacts

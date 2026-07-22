@@ -1,0 +1,58 @@
+{
+  "clustering_accuracy": 1.0,
+  "NMI": 1.0,
+  "ARI": 1.0,
+  "confusion_matrix": [
+    [
+      10,
+      0
+    ],
+    [
+      0,
+      10
+    ]
+  ],
+  "cluster_to_true_modality_majority": {
+    "0": 0,
+    "1": 1
+  },
+  "method": "isodata",
+  "known_k": null,
+  "Q_star": 2,
+  "true_num_modalities": 2,
+  "input_dim_hint": {
+    "enabled": true,
+    "mode": "augmented_fingerprint",
+    "dim_to_cluster": null,
+    "strategy": "append",
+    "repeat": 64
+  },
+  "signal_stats_hint": {
+    "enabled": false,
+    "include_input_dim": true,
+    "input_dim_repeat": 8,
+    "fingerprint_source": "encoder"
+  },
+  "pretrain_reconstruction_loss": {
+    "client_000": 0.0440818321891129,
+    "client_001": 0.04371642956199746,
+    "client_002": 0.04548014481551945,
+    "client_003": 0.0436804690087835,
+    "client_004": 0.043890137660006684,
+    "client_005": 0.043930000299587844,
+    "client_006": 0.04389378353953362,
+    "client_007": 0.043107485740135114,
+    "client_008": 0.042694586670647065,
+    "client_009": 0.044029108962665,
+    "client_010": 0.10310240155085922,
+    "client_011": 0.10023572503899535,
+    "client_012": 0.102344109925131,
+    "client_013": 0.10243369725843271,
+    "client_014": 0.11017671823501587,
+    "client_015": 0.09659096722801526,
+    "client_016": 0.10478172100459536,
+    "client_017": 0.10125230317935348,
+    "client_018": 0.09840636930118005,
+    "client_019": 0.10312840069333712
+  }
+}

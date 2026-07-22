@@ -1,0 +1,74 @@
+{
+  "clustering_accuracy": 1.0,
+  "NMI": 1.0,
+  "ARI": 1.0,
+  "confusion_matrix": [
+    [
+      10,
+      0,
+      0
+    ],
+    [
+      0,
+      10,
+      0
+    ],
+    [
+      0,
+      0,
+      10
+    ]
+  ],
+  "cluster_to_true_modality_majority": {
+    "0": 1,
+    "1": 2,
+    "2": 0
+  },
+  "method": "isodata",
+  "known_k": null,
+  "Q_star": 3,
+  "true_num_modalities": 3,
+  "input_dim_hint": {
+    "enabled": false,
+    "mode": "disabled",
+    "dim_to_cluster": null
+  },
+  "signal_stats_hint": {
+    "enabled": true,
+    "include_input_dim": true,
+    "input_dim_repeat": 8,
+    "fingerprint_source": "signal_stats"
+  },
+  "pretrain_reconstruction_loss": {
+    "client_000": 0.685889778818403,
+    "client_001": 0.6672727857317243,
+    "client_002": 0.7181823236601693,
+    "client_003": 0.7344443996747335,
+    "client_004": 0.6485916895525796,
+    "client_005": 0.7248395885740008,
+    "client_006": 0.7560164315359933,
+    "client_007": 0.6841251217183613,
+    "client_008": 0.6928671848206293,
+    "client_009": 0.7268320787520636,
+    "client_010": 0.7766079774924687,
+    "client_011": 0.8146970070543743,
+    "client_012": 0.8532803359485808,
+    "client_013": 0.8382549263182141,
+    "client_014": 0.8129656598681495,
+    "client_015": 0.8239561659949166,
+    "client_016": 0.8312260525567191,
+    "client_017": 0.8717059890429179,
+    "client_018": 0.7765656570593517,
+    "client_019": 0.7674062430858613,
+    "client_020": 0.4081429373650324,
+    "client_021": 0.39932731148742495,
+    "client_022": 0.41335145618234365,
+    "client_023": 0.40864178183532895,
+    "client_024": 0.4021432276282992,
+    "client_025": 0.3889114286218371,
+    "client_026": 0.42270164617470335,
+    "client_027": 0.39201823047229223,
+    "client_028": 0.4189790461744581,
+    "client_029": 0.39481376792703354
+  }
+}

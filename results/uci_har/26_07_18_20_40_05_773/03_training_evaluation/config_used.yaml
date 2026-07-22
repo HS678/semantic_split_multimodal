@@ -1,0 +1,78 @@
+seed: 42
+device: auto
+experiment_name: uci_har_three_stage
+results:
+  base_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results
+  dataset_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har
+  run_id: '26_07_18_20_40_05_773'
+  run_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773
+  data_partition: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\01_dataset_partition
+  cluster: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\02_cluster_results
+  logs: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\03_training_evaluation
+  models: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\04_model_artifacts
+dataset:
+  type: uci_har
+  root: ./data/uci-har
+num_modalities: 2
+num_classes: 6
+encoder_hidden_dim: 128
+learning_rate: 0.001
+batch_size: 32
+model:
+  encoder:
+    type: cnn_gru
+    conv_channels:
+    - 64
+    - 128
+    kernel_sizes:
+    - 5
+    - 3
+    dropout: 0.1
+partition:
+  output_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\01_dataset_partition
+  clients_per_modality: 10
+pretrain:
+  epochs: 10
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0
+  max_samples: null
+fingerprint:
+  batch_size: 64
+  max_batches: 4
+cluster:
+  output_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\02_cluster_results
+  method: isodata
+  known_k: null
+  use_input_dim_hint: true
+  input_dim_hint_mode: append
+  input_dim_hint_repeat: 64
+  isodata:
+    max_iter: 20
+    min_cluster_size: 2
+    initial_k: 2
+    min_clusters: 2
+    max_clusters: 2
+    split_std_threshold: 1.25
+    merge_distance_threshold: 0.25
+training:
+  global_rounds: 50
+  batch_size: 64
+  eval_batch_size: 128
+  eval_every: 5
+  clients_per_cluster_per_round: 4
+  client_lr: 0.001
+  server_lr: 0.001
+alignment:
+  enabled: true
+  type: classwise_mse
+  lambda_align: 0.05
+  temperature: 0.2
+result:
+  output_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\03_training_evaluation
+result_model:
+  output_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\04_model_artifacts
+d2d:
+  enabled: false
+_cluster_dir: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\02_cluster_results
+_cluster_metrics_path: D:\AAWorkspace\testWorkspace\semantic_split_multimodal\results\uci_har\26_07_18_20_40_05_773\02_cluster_results\cluster_metrics.json

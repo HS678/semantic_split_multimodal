@@ -1,0 +1,37 @@
+{
+  "dataset_type": "mhealth",
+  "dataset_root": "D:\\AAWorkspace\\testWorkspace\\semantic_split_multimodal\\data\\MHEALTHDATASET",
+  "output_dir": "D:\\AAWorkspace\\testWorkspace\\semantic_split_multimodal\\results\\mhealth\\26_07_12_14_05_28_518\\01_dataset_partition",
+  "clients_per_modality": 10,
+  "num_clients": 30,
+  "modalities": [
+    {
+      "modality_id": 0,
+      "modality_name": "chest",
+      "input_dim": 640,
+      "input_shape": [
+        5,
+        128
+      ]
+    },
+    {
+      "modality_id": 1,
+      "modality_name": "left_ankle",
+      "input_dim": 1152,
+      "input_shape": [
+        9,
+        128
+      ]
+    },
+    {
+      "modality_id": 2,
+      "modality_name": "right_lower_arm",
+      "input_dim": 1152,
+      "input_shape": [
+        9,
+        128
+      ]
+    }
+  ],
+  "seed": 42
+}

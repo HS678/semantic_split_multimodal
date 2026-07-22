@@ -1,0 +1,36 @@
+method: isodata
+known_k: None
+Q_star: 3
+clustering_accuracy: 1.000000
+NMI: 1.000000
+ARI: 1.000000
+client_000, true=chest, pred_cluster=0
+client_001, true=chest, pred_cluster=0
+client_002, true=chest, pred_cluster=0
+client_003, true=chest, pred_cluster=0
+client_004, true=chest, pred_cluster=0
+client_005, true=chest, pred_cluster=0
+client_006, true=chest, pred_cluster=0
+client_007, true=chest, pred_cluster=0
+client_008, true=chest, pred_cluster=0
+client_009, true=chest, pred_cluster=0
+client_010, true=left_ankle, pred_cluster=1
+client_011, true=left_ankle, pred_cluster=1
+client_012, true=left_ankle, pred_cluster=1
+client_013, true=left_ankle, pred_cluster=1
+client_014, true=left_ankle, pred_cluster=1
+client_015, true=left_ankle, pred_cluster=1
+client_016, true=left_ankle, pred_cluster=1
+client_017, true=left_ankle, pred_cluster=1
+client_018, true=left_ankle, pred_cluster=1
+client_019, true=left_ankle, pred_cluster=1
+client_020, true=right_lower_arm, pred_cluster=2
+client_021, true=right_lower_arm, pred_cluster=2
+client_022, true=right_lower_arm, pred_cluster=2
+client_023, true=right_lower_arm, pred_cluster=2
+client_024, true=right_lower_arm, pred_cluster=2
+client_025, true=right_lower_arm, pred_cluster=2
+client_026, true=right_lower_arm, pred_cluster=2
+client_027, true=right_lower_arm, pred_cluster=2
+client_028, true=right_lower_arm, pred_cluster=2
+client_029, true=right_lower_arm, pred_cluster=2
