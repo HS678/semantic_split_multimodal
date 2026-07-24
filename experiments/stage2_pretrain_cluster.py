@@ -24,7 +24,7 @@ def main():
     metrics = run_stage2_pretrain_cluster(cfg, ROOT, device)
     print("Stage 2 finished.")
     print(f"run_dir={cfg['results']['run_dir']}")
-    print(f"clustering_accuracy={metrics['clustering_accuracy']:.6f}, NMI={metrics['NMI']:.6f}, ARI={metrics['ARI']:.6f}")
+    print(f"ACC={metrics['ACC']:.6f}, NMI={metrics['NMI']:.6f}, ARI={metrics['ARI']:.6f}")
 
 
 if __name__ == "__main__":

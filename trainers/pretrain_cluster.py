@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import json
 from pathlib import Path
 
@@ -7,57 +7,46 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from clustering.cluster import evaluate_clustering, run_isodata, run_kmeans
+from clustering.cluster import run_hdbscan, run_isodata, run_kmeans
+from clustering.fingerprint import build_fingerprints
+from data.client import Client
 from data.partitioner import resolve_project_path
-from models.encoders import create_client_encoder, resolve_encoder_type
+from evaluation.metrics import discovery_metrics
+from models.encoders import create_client_encoder, flattened_dim
 
 
 def _load_clients(partition_dir: Path):
     train_dir = partition_dir / "train_clients"
-    if not train_dir.exists():
-        raise FileNotFoundError(f"Missing train client directory: {train_dir}. Run Stage 1 first.")
     paths = sorted(train_dir.glob("client_*.pt"))
     if not paths:
         raise FileNotFoundError(f"No client_*.pt files found in {train_dir}. Run Stage 1 first.")
-    return [torch.load(path, map_location="cpu") for path in paths]
+    return [Client.from_payload(torch.load(path, map_location="cpu")) for path in paths]
 
 
 class _AutoEncoder(nn.Module):
-    def __init__(self, client: dict, cfg: dict):
+    def __init__(self, client: Client, cfg: dict):
         super().__init__()
-        input_dim = int(client["input_dim"])
-        hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
-        self.encoder = create_client_encoder(
-            cfg,
-            input_dim=input_dim,
-            input_shape=client.get("input_shape"),
-            modality_name=client.get("modality_name"),
-        )
-        self.decoder = nn.Linear(hidden_dim, input_dim)
+        self.encoder = create_client_encoder(cfg, input_shape=client.input_shape, encoder_type=client.encoder_type)
+        self.decoder = nn.Linear(int(cfg.get("encoder_hidden_dim", 128)), flattened_dim(client.input_shape))
 
     def forward(self, x):
         z = self.encoder(x)
         return self.decoder(z), z
 
 
-def _pretrain_client_encoder(client, cfg, device):
+def _pretrain_client_encoder(client: Client, cfg: dict, device):
     pre_cfg = cfg.get("pretrain", {})
-    input_dim = int(client["input_dim"])
     model = _AutoEncoder(client, cfg).to(device)
-
     epochs = int(pre_cfg.get("epochs", 5))
     batch_size = int(pre_cfg.get("batch_size", cfg.get("batch_size", 64)))
     lr = float(pre_cfg.get("lr", cfg.get("learning_rate", 1e-3)))
-    weight_decay = float(pre_cfg.get("weight_decay", 0.0))
     max_samples = pre_cfg.get("max_samples")
-
-    x = client["x"]
+    x = client.samples
     if max_samples is not None:
         x = x[: min(int(max_samples), int(x.shape[0]))]
     loader = DataLoader(TensorDataset(x), batch_size=batch_size, shuffle=True)
-    opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=float(pre_cfg.get("weight_decay", 0.0)))
     loss_fn = nn.MSELoss()
-
     total = 0.0
     steps = 0
     model.train()
@@ -74,85 +63,6 @@ def _pretrain_client_encoder(client, cfg, device):
     return model.encoder, (total / steps if steps else None)
 
 
-def _fingerprint(encoder, x, cfg, device):
-    fp_cfg = cfg.get("fingerprint", {})
-    batch_size = int(fp_cfg.get("batch_size", cfg.get("batch_size", 64)))
-    max_batches = fp_cfg.get("max_batches", 4)
-    loader = DataLoader(TensorDataset(x), batch_size=batch_size, shuffle=False)
-    zs = []
-    encoder.eval()
-    with torch.no_grad():
-        for i, (xb,) in enumerate(loader):
-            if max_batches is not None and i >= int(max_batches):
-                break
-            zs.append(encoder(xb.to(device)).detach().cpu())
-    if not zs:
-        raise RuntimeError("Cannot extract fingerprint from an empty client dataset.")
-    return torch.cat(zs, dim=0).mean(dim=0).numpy()
-
-
-def _cluster_by_input_dim_if_available(clients, known_k):
-    input_dims = [int(client["input_dim"]) for client in clients]
-    unique_dims = sorted(set(input_dims))
-    if len(unique_dims) != int(known_k):
-        return None
-    dim_to_cluster = {dim: idx for idx, dim in enumerate(unique_dims)}
-    return np.array([dim_to_cluster[dim] for dim in input_dims], dtype=int), dim_to_cluster
-
-
-def _append_input_dim_hint(fingerprints, clients, repeat):
-    repeat = max(1, int(repeat))
-    dims = np.array([float(client["input_dim"]) for client in clients], dtype=np.float32)
-    dims = (dims - dims.mean()) / (dims.std() + 1e-6)
-    hint = np.repeat(dims[:, None], repeat, axis=1)
-    return [row for row in np.concatenate([np.stack(fingerprints), hint], axis=1)]
-
-
-def _signal_stats(client):
-    x = client["x"].float()
-    if x.dim() == 1:
-        x = x.reshape(-1, 1, 1)
-    elif x.dim() == 2:
-        x = x.reshape(x.shape[0], 1, x.shape[1])
-    reduce_dims = tuple(i for i in range(x.dim()) if i != 1)
-    stats = [
-        x.mean(dim=reduce_dims),
-        x.std(dim=reduce_dims),
-        x.abs().mean(dim=reduce_dims),
-        x.amax(dim=reduce_dims),
-        x.amin(dim=reduce_dims),
-    ]
-    return torch.cat(stats).numpy().astype(np.float32)
-
-
-def _append_signal_stats(fingerprints, clients, include_input_dim=False, input_dim_repeat=8):
-    raw_stats = [_signal_stats(client) for client in clients]
-    max_len = max(len(stat) for stat in raw_stats)
-    padded = []
-    for client, stat in zip(clients, raw_stats):
-        row = np.zeros(max_len, dtype=np.float32)
-        row[: len(stat)] = stat
-        if include_input_dim:
-            dim = np.array([float(client["input_dim"])], dtype=np.float32)
-            row = np.concatenate([row, np.repeat(dim, max(1, int(input_dim_repeat)))])
-        padded.append(row)
-    return [row for row in np.concatenate([np.stack(fingerprints), np.stack(padded)], axis=1)]
-
-
-def _signal_stats_features(clients, include_input_dim=False, input_dim_repeat=8):
-    raw_stats = [_signal_stats(client) for client in clients]
-    max_len = max(len(stat) for stat in raw_stats)
-    rows = []
-    for client, stat in zip(clients, raw_stats):
-        row = np.zeros(max_len, dtype=np.float32)
-        row[: len(stat)] = stat
-        if include_input_dim:
-            dim = np.array([float(client["input_dim"])], dtype=np.float32)
-            row = np.concatenate([row, np.repeat(dim, max(1, int(input_dim_repeat)))])
-        rows.append(row)
-    return rows
-
-
 def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/data_partition"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/cluster"))
@@ -162,140 +72,78 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
     result_dir.mkdir(parents=True, exist_ok=True)
 
     clients = _load_clients(partition_dir)
-    fingerprints = []
+    encoders = {}
     losses = {}
     for client in clients:
         encoder, avg_loss = _pretrain_client_encoder(client, cfg, device)
-        fingerprints.append(_fingerprint(encoder, client["x"], cfg, device))
-        losses[client["client_id"]] = avg_loss
+        encoders[client.client_id] = encoder
+        losses[client.client_id] = avg_loss
         torch.save(
             {
-                "client_id": client["client_id"],
-                "modality_id": int(client["modality_id"]),
-                "modality_name": client["modality_name"],
-                "input_dim": int(client["input_dim"]),
-                "input_shape": [int(v) for v in client.get("input_shape", [int(client["input_dim"])])],
+                "client_id": client.client_id,
+                "encoder_type": client.encoder_type,
+                "input_shape": [int(v) for v in client.input_shape],
                 "hidden_dim": int(cfg.get("encoder_hidden_dim", 128)),
-                "encoder_type": resolve_encoder_type(cfg, client.get("modality_name")),
                 "state_dict": encoder.cpu().state_dict(),
             },
-            encoder_dir / f"{client['client_id']}_encoder.pt",
+            encoder_dir / f"{client.client_id}_encoder.pt",
         )
         encoder.to(device)
 
-    fingerprints_np = np.stack(fingerprints)
-    np.save(cluster_dir / "fingerprints.npy", fingerprints_np)
+    fingerprints = build_fingerprints(clients, encoders, cfg, device)
+    np.save(cluster_dir / "fingerprints.npy", fingerprints)
 
     cluster_cfg = cfg.get("cluster", {})
-    method = str(cluster_cfg.get("method", "kmeans")).lower()
-    raw_known_k = cluster_cfg.get("known_k", cfg.get("num_modalities"))
-    if raw_known_k is None or str(raw_known_k).lower() in {"auto", "none", "null"}:
-        known_k = None
-    else:
-        known_k = int(raw_known_k)
+    method = str(cluster_cfg.get("method", "isodata")).lower()
+    raw_k = cluster_cfg.get("known_k")
+    known_k = None if raw_k is None or str(raw_k).lower() in {"auto", "none", "null"} else int(raw_k)
     seed = int(cfg.get("seed", 42))
-    input_dim_hint = {
-        "enabled": bool(cluster_cfg.get("use_input_dim_hint", False)),
-        "mode": "disabled",
-        "dim_to_cluster": None,
-    }
-    fingerprint_source = str(cluster_cfg.get("fingerprint_source", "encoder")).lower()
-    clustering_features = fingerprints
-    signal_stats_hint = {
-        "enabled": bool(cluster_cfg.get("use_signal_stats", False)),
-        "include_input_dim": bool(cluster_cfg.get("signal_stats_include_input_dim", True)),
-        "input_dim_repeat": int(cluster_cfg.get("signal_stats_input_dim_repeat", 8)),
-        "fingerprint_source": fingerprint_source,
-    }
-    if fingerprint_source == "signal_stats":
-        clustering_features = _signal_stats_features(
-            clients,
-            include_input_dim=signal_stats_hint["include_input_dim"],
-            input_dim_repeat=signal_stats_hint["input_dim_repeat"],
-        )
-        signal_stats_hint["enabled"] = True
-    elif signal_stats_hint["enabled"]:
-        clustering_features = _append_signal_stats(
-            clustering_features,
-            clients,
-            include_input_dim=signal_stats_hint["include_input_dim"],
-            input_dim_repeat=signal_stats_hint["input_dim_repeat"],
-        )
-    elif fingerprint_source != "encoder":
-        raise ValueError("cluster.fingerprint_source must be 'encoder' or 'signal_stats'.")
-    if input_dim_hint["enabled"]:
-        hint_mode = str(cluster_cfg.get("input_dim_hint_mode", "append")).lower()
-        exact = _cluster_by_input_dim_if_available(clients, known_k) if known_k is not None else None
-        if exact is not None:
-            pred, dim_to_cluster = exact
-            input_dim_hint["mode"] = "unique_input_dim"
-            input_dim_hint["dim_to_cluster"] = {str(k): int(v) for k, v in dim_to_cluster.items()}
-        else:
-            repeat = int(cluster_cfg.get("input_dim_hint_repeat", 16))
-            clustering_features = _append_input_dim_hint(fingerprints, clients, repeat)
-            input_dim_hint["mode"] = "augmented_fingerprint"
-            input_dim_hint["strategy"] = hint_mode
-            input_dim_hint["repeat"] = repeat
+    if method == "kmeans":
+        pred = run_kmeans(fingerprints, known_k, seed=seed)
+    elif method == "isodata":
+        pred = run_isodata(fingerprints, known_k, seed=seed, **dict(cluster_cfg.get("isodata", {})))
+    elif method == "hdbscan":
+        pred = run_hdbscan(fingerprints, seed=seed, **dict(cluster_cfg.get("hdbscan", {})))
+    else:
+        raise ValueError("cluster.method must be 'kmeans', 'hdbscan', or 'isodata'.")
 
-    if input_dim_hint["mode"] != "unique_input_dim":
-        if method == "kmeans":
-            pred = run_kmeans(clustering_features, known_k, seed=seed)
-        elif method == "isodata":
-            iso_kwargs = dict(cluster_cfg.get("isodata", {}))
-            pred = run_isodata(clustering_features, known_k, seed=seed, **iso_kwargs)
-        else:
-            raise ValueError(f"Unsupported cluster.method: {method}. Expected 'kmeans' or 'isodata'.")
-
-    true = np.array([int(c["modality_id"]) for c in clients])
+    true = np.array([client.hidden_modality_id for client in clients], dtype=int)
     pred = np.asarray(pred, dtype=int)
-    q_star = int(len(np.unique(pred)))
-    true_k = int(len(np.unique(true)))
-    mapping, cm, acc, nmi, ari = evaluate_clustering(true, pred, true_k)
-    metrics = {
-        "clustering_accuracy": acc,
-        "NMI": nmi,
-        "ARI": ari,
-        "confusion_matrix": cm.tolist(),
-        "cluster_to_true_modality_majority": {str(k): int(v) for k, v in mapping.items()},
-        "method": method,
-        "known_k": known_k,
-        "Q_star": q_star,
-        "true_num_modalities": true_k,
-        "input_dim_hint": input_dim_hint,
-        "signal_stats_hint": signal_stats_hint,
-        "pretrain_reconstruction_loss": losses,
-    }
+    metrics = discovery_metrics(true, pred)
+    metrics.update(
+        {
+            "method": method,
+            "known_k": known_k,
+            "true_num_modalities": int(len(np.unique(true))),
+            "pretrain_reconstruction_loss": losses,
+            "fingerprint_type": str(cfg.get("fingerprint", {}).get("type", "hybrid")),
+            "uses_input_dimension_hint": False,
+        }
+    )
 
     rows = []
     for client, pred_cluster in zip(clients, pred):
         rows.append(
             {
-                "client_id": client["client_id"],
-                "true_modality": client["modality_name"],
+                "client_id": client.client_id,
+                "hidden_modality_id": int(client.hidden_modality_id),
                 "pred_cluster": int(pred_cluster),
             }
         )
     with (cluster_dir / "cluster_assignments.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["client_id", "true_modality", "pred_cluster"])
+        writer = csv.DictWriter(f, fieldnames=["client_id", "hidden_modality_id", "pred_cluster"])
         writer.writeheader()
         writer.writerows(rows)
-
-    with (cluster_dir / "cluster_metrics.json").open("w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
+    for path in [cluster_dir / "cluster_metrics.json", result_dir / "cluster_metrics.json"]:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2)
     with (cluster_dir / "cluster_config.json").open("w", encoding="utf-8") as f:
         json.dump({"cluster": cluster_cfg, "pretrain": cfg.get("pretrain", {}), "fingerprint": cfg.get("fingerprint", {})}, f, indent=2)
-
-    with (result_dir / "cluster_metrics.json").open("w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
     with (result_dir / "cluster_result.txt").open("w", encoding="utf-8") as f:
         f.write(f"method: {method}\n")
         f.write(f"known_k: {known_k}\n")
-        f.write(f"Q_star: {q_star}\n")
-        f.write(f"clustering_accuracy: {acc:.6f}\n")
-        f.write(f"NMI: {nmi:.6f}\n")
-        f.write(f"ARI: {ari:.6f}\n")
-        for row in rows:
-            f.write(f"{row['client_id']}, true={row['true_modality']}, pred_cluster={row['pred_cluster']}\n")
-
+        f.write(f"estimated_num_clusters: {metrics['estimated_num_clusters']}\n")
+        f.write(f"ACC: {metrics['ACC']:.6f}\n")
+        f.write(f"NMI: {metrics['NMI']:.6f}\n")
+        f.write(f"ARI: {metrics['ARI']:.6f}\n")
     return metrics
-

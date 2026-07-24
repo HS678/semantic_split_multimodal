@@ -37,22 +37,16 @@ def load_dataset(cfg: dict, project_root: Path) -> dict:
 
 
 def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") -> None:
-    required_top = {"train", "test", "modality_names", "modality_input_dims"}
+    required_top = {"train", "test", "modality_names", "modality_input_shapes"}
     missing_top = sorted(required_top - set(dataset))
     if missing_top:
         raise ValueError(f"Dataset '{dataset_type}' is missing required keys: {missing_top}")
 
     modality_names = list(dataset["modality_names"])
-    input_dims = list(dataset["modality_input_dims"])
-    input_shapes = dataset.get("modality_input_shapes")
+    input_shapes = list(dataset["modality_input_shapes"])
     if len(modality_names) == 0:
         raise ValueError(f"Dataset '{dataset_type}' must define at least one modality.")
-    if len(modality_names) != len(input_dims):
-        raise ValueError(
-            f"Dataset '{dataset_type}' has mismatched modality_names and modality_input_dims lengths: "
-            f"{len(modality_names)} vs {len(input_dims)}"
-        )
-    if input_shapes is not None and len(input_shapes) != len(modality_names):
+    if len(input_shapes) != len(modality_names):
         raise ValueError(
             f"Dataset '{dataset_type}' has mismatched modality_names and modality_input_shapes lengths: "
             f"{len(modality_names)} vs {len(input_shapes)}"
@@ -82,10 +76,12 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
                     f"Dataset '{dataset_type}' split '{split_name}' modality {idx} sample count "
                     f"{int(x.shape[0])} does not match labels {n}."
                 )
-            if int(x.reshape(n, -1).shape[1]) != int(input_dims[idx]):
+            actual_shape = [int(v) for v in x.shape[1:]]
+            expected_shape = [int(v) for v in input_shapes[idx]]
+            if actual_shape != expected_shape:
                 raise ValueError(
-                    f"Dataset '{dataset_type}' split '{split_name}' modality {idx} flattened dim "
-                    f"{int(x.reshape(n, -1).shape[1])} does not match modality_input_dims {int(input_dims[idx])}."
+                    f"Dataset '{dataset_type}' split '{split_name}' modality {idx} shape "
+                    f"{actual_shape} does not match modality_input_shapes {expected_shape}."
                 )
 
 

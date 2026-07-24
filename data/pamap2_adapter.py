@@ -164,10 +164,6 @@ def _remap_labels(train, test):
     return {**train, "labels": train_y}, {**test, "labels": test_y}, mapping
 
 
-def _input_dims(modalities):
-    return [int(x.reshape(int(x.shape[0]), -1).shape[1]) for x in modalities]
-
-
 def _input_shapes(modalities):
     return [[int(v) for v in x.shape[1:]] for x in modalities]
 
@@ -192,7 +188,6 @@ def load_pamap2_dataset(cfg, project_root: Path):
         "test": test,
         "root": str(root),
         "modality_names": modality_names,
-        "modality_input_dims": _input_dims(train["modalities"]),
         "modality_input_shapes": _input_shapes(train["modalities"]),
         "label_mapping": {str(k): int(v) for k, v in label_mapping.items()},
     }

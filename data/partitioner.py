@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 
 from data.dataset_registry import load_dataset
+from data.client import Client
 
 
 def resolve_project_path(project_root: Path, value: str) -> Path:
@@ -30,7 +31,6 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     train = dataset["train"]
     test = dataset["test"]
     modality_names = dataset["modality_names"]
-    input_dims = dataset["modality_input_dims"]
     input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
     seed = int(cfg.get("seed", 42))
@@ -41,35 +41,36 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         splits = _split_indices(int(train["labels"].shape[0]), clients_per_modality, seed + modality_id)
         for idx in splits:
             client_id = f"client_{client_id_num:03d}"
-            payload = {
-                "client_id": client_id,
-                "modality_id": int(modality_id),
-                "modality_name": modality_name,
-                "x": train["modalities"][modality_id][idx].contiguous(),
-                "y": train["labels"][idx].contiguous(),
-                "input_dim": int(input_dims[modality_id]),
-                "input_shape": [int(v) for v in input_shapes[modality_id]],
-            }
+            encoder_type = cfg.get("partition", {}).get("encoder_type") or cfg.get("model", {}).get("encoder", {}).get("type", "time_series")
+            payload = Client(
+                client_id=client_id,
+                hidden_modality_id=int(modality_id),
+                samples=train["modalities"][modality_id][idx].contiguous(),
+                labels=train["labels"][idx].contiguous(),
+                encoder_type=str(encoder_type),
+                input_shape=[int(v) for v in input_shapes[modality_id]],
+            ).to_payload()
+            payload["hidden_modality_name"] = modality_name
             torch.save(payload, train_clients_dir / f"{client_id}.pt")
             client_rows.append(
                 {
                     "client_id": client_id,
-                    "modality_id": int(modality_id),
-                    "modality_name": modality_name,
+                    "hidden_modality_id": int(modality_id),
+                    "hidden_modality_name": modality_name,
                     "num_samples": int(idx.numel()),
+                    "encoder_type": str(encoder_type),
                 }
             )
             client_id_num += 1
 
     test_modalities = {
-        name: test["modalities"][idx].reshape(int(test["labels"].shape[0]), -1).contiguous()
+        name: test["modalities"][idx].contiguous()
         for idx, name in enumerate(modality_names)
     }
     test_payload = {
         "label": test["labels"].contiguous(),
         "modalities": test_modalities,
         "modality_names": list(modality_names),
-        "modality_input_dims": {name: int(dim) for name, dim in zip(modality_names, input_dims)},
         "modality_input_shapes": {name: [int(v) for v in shape] for name, shape in zip(modality_names, input_shapes)},
     }
     for name, tensor in test_modalities.items():
@@ -77,7 +78,10 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     torch.save(test_payload, output_dir / "test_multimodal.pt")
 
     with (output_dir / "client_meta.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["client_id", "modality_id", "modality_name", "num_samples"])
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["client_id", "hidden_modality_id", "hidden_modality_name", "num_samples", "encoder_type"],
+        )
         writer.writeheader()
         writer.writerows(client_rows)
 
@@ -89,9 +93,8 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "num_clients": len(client_rows),
         "modalities": [
             {
-                "modality_id": i,
-                "modality_name": name,
-                "input_dim": int(input_dims[i]),
+                "hidden_modality_id": i,
+                "hidden_modality_name": name,
                 "input_shape": [int(v) for v in input_shapes[i]],
             }
             for i, name in enumerate(modality_names)
@@ -102,4 +105,3 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         json.dump(partition_config, f, indent=2)
 
     return partition_config
-

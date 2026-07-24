@@ -155,7 +155,7 @@ def standardize_features(x):
 
 def run_kmeans(client_reps, known_k, seed=0):
     if known_k is None:
-        raise ValueError("KMeans requires cluster.known_k. Use cluster.method: isodata for automatic Q_star.")
+        known_k = _estimate_k_by_silhouette(client_reps, seed)
     x = standardize_features(np.stack(client_reps))
     model = KMeans(n_clusters=int(known_k), random_state=int(seed), n_init=10)
     return model.fit_predict(x).astype(int)
@@ -165,3 +165,41 @@ def run_isodata(client_reps, known_k=None, seed=0, **kwargs):
     x = standardize_features(np.stack(client_reps))
     target_k = None if known_k is None else int(known_k)
     return ISODATAClusterer(seed=seed, **kwargs).fit_predict(x, target_k)
+
+
+def run_hdbscan(client_reps, seed=0, **kwargs):
+    try:
+        import hdbscan
+    except Exception as exc:
+        raise ImportError("cluster.method: hdbscan requires the optional 'hdbscan' package.") from exc
+    x = standardize_features(np.stack(client_reps))
+    model = hdbscan.HDBSCAN(
+        min_cluster_size=int(kwargs.get("min_cluster_size", 2)),
+        min_samples=kwargs.get("min_samples"),
+        cluster_selection_epsilon=float(kwargs.get("cluster_selection_epsilon", 0.0)),
+    )
+    labels = model.fit_predict(x)
+    if np.any(labels < 0):
+        next_label = int(labels.max()) + 1
+        for i in np.where(labels < 0)[0]:
+            labels[i] = next_label
+            next_label += 1
+    return relabel_contiguous(labels).astype(int)
+
+
+def _estimate_k_by_silhouette(client_reps, seed=0):
+    from sklearn.metrics import silhouette_score
+
+    x = standardize_features(np.stack(client_reps))
+    n = int(x.shape[0])
+    if n <= 2:
+        return 1
+    best_k = 2
+    best_score = -1.0
+    for k in range(2, min(n, 8) + 1):
+        labels = KMeans(n_clusters=k, random_state=int(seed), n_init=10).fit_predict(x)
+        score = silhouette_score(x, labels)
+        if score > best_score:
+            best_k = k
+            best_score = float(score)
+    return best_k

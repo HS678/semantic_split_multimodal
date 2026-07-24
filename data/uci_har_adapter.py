@@ -77,8 +77,6 @@ def _build_modality_vectors(root: Path, split: str):
     body_gyro_z = _read_signal_matrix(sig / f"body_gyro_z_{split}.txt")
 
     labels = np.loadtxt(split_dir / f"y_{split}.txt", dtype=np.int64) - 1
-    n = labels.shape[0]
-
     acc = np.stack(
         [body_acc_x, body_acc_y, body_acc_z, total_acc_x, total_acc_y, total_acc_z],
         axis=1,
@@ -88,7 +86,6 @@ def _build_modality_vectors(root: Path, split: str):
     return {
         "modalities": [torch.tensor(acc, dtype=torch.float32), torch.tensor(gyro, dtype=torch.float32)],
         "labels": torch.tensor(labels, dtype=torch.long),
-        "modality_input_dims": [int(acc.reshape(n, -1).shape[1]), int(gyro.reshape(n, -1).shape[1])],
         "modality_input_shapes": [[int(acc.shape[1]), int(acc.shape[2])], [int(gyro.shape[1]), int(gyro.shape[2])]],
         "modality_names": ["acc", "gyro"],
     }
@@ -109,7 +106,6 @@ def load_uci_har_dataset(cfg, project_root: Path):
         "train": train,
         "test": test,
         "root": str(root),
-        "modality_input_dims": train["modality_input_dims"],
         "modality_input_shapes": train["modality_input_shapes"],
         "modality_names": train["modality_names"],
     }
