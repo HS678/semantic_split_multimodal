@@ -1,6 +1,6 @@
 # Extension Guide
 
-本项目现在只维护未知模态发现 + 未配对 Split Learning 主线。
+本项目主线为未知模态发现 + 簇覆盖调度 + MMBind-style label binding + fusion Split Learning。旧的未配对 shared semantic trainer 保留为 baseline/ablation。
 
 ## 新数据集适配器
 
@@ -60,11 +60,14 @@ cluster:
 
 - 每个 client 独立采样 batch。
 - scheduler 使用 `pred_cluster`。
-- 不做 feature concat。
-- 不做 sample alignment。
-- 不按标签构造伪多模态样本。
-- 分类损失加 prototype alignment 损失。
+- 训练阶段禁止访问 `hidden_modality_id` 和真实 modality name。
+- fusion slot 严格使用 `pred_cluster`。
+- 允许 label-level semantic binding，但不存在 instance-level correspondence。
+- Phase 1 使用 anchor-based same-label random pairing。
+- pseudo sample 必须覆盖所有 `pred_cluster` slot，否则丢弃该 binding。
+- Phase 1 只使用 concat MLP fusion 和分类损失。
+- Phase 1 不使用 weighted contrastive loss、prototype alignment、missing modality mask。
 
 ## D2D
 
-当前只记录 latency/speedup 指标占位。真实 D2D 协作应作为独立模块接入，消费 client/server 元数据和通信/计算 latency profile，不要重新引入样本级融合。
+当前 Phase 1 暂不实现 D2D。后续真实 D2D 协作应作为独立模块接入，消费 client/server 元数据和通信/计算 latency profile。

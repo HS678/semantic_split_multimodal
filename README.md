@@ -12,25 +12,26 @@ Raw multimodal dataset
 -> Fingerprint extraction
 -> Unknown modality discovery
 -> Cluster-based client scheduling
--> Unpaired Split Learning
--> Shared semantic learning
--> Prototype-based cross-modal alignment
+-> MMBind-style label random binding
+-> Pred-cluster-slot concat MLP fusion
+-> Split Learning backward
 -> Evaluation
 ```
 
-已删除旧设计：`pseudo_paired_concat`、样本级 multimodal fusion、按标签构造伪多模态样本、训练阶段依赖真实 modality label、input dimension hint、固定真实模态数的 ISODATA 设置。
+当前主方法允许 label-level semantic binding，但不存在 instance-level correspondence。训练阶段禁止使用真实 modality name 和 `hidden_modality_id`；fusion slot 只由 `pred_cluster` 决定。`unpaired_split_multimodal_trainer.py` 保留为 baseline/ablation。
 
 ## 目录结构
 
 ```text
+binding/        # label random binding 与 pseudo multimodal batch 构造
 clustering/     # KMeans/HDBSCAN/ISODATA 与 fingerprint
-configs/        # 数据集、encoder、cluster、scheduler、alignment 配置
+configs/        # 数据集、encoder、cluster、scheduler、binding/fusion 配置
 data/           # 数据集适配器、Client 对象、独立单模态 client partition
 evaluation/     # discovery/scheduling/learning/D2D 指标
 experiments/    # 三阶段入口
-models/         # encoder registry 与 server 模块
+models/         # encoder registry、server adapter 与 fusion 模块
 scheduling/     # Random/RoundRobin/Oracle/Proposed schedulers
-trainers/       # 预训练聚类与未配对 Split Learning
+trainers/       # 预训练聚类、fusion Split Learning 与 baseline trainer
 utils/          # 配置、设备、随机种子、结果目录
 ```
 
@@ -88,15 +89,15 @@ pred_cluster
 - `VideoEncoder`：预留 3D CNN 接口。
 - `AudioEncoder`：预留 CNN 接口。
 
-服务器端：
+Phase 1 主方法服务器端：
 
 ```text
 ClusterAdapter
--> SharedSemanticBackbone
--> Classifier
+-> pred_cluster slot concat
+-> MLP Classifier
 ```
 
-不同预测簇的 client activation 先经过对应 `ClusterAdapter`，再进入统一 semantic space。
+不同预测簇的 client activation 先经过对应 `ClusterAdapter`，再按排序后的 `pred_cluster` slot 拼接进入 MLP fusion classifier。
 
 ## Fingerprint 与聚类
 
@@ -142,25 +143,28 @@ training:
 
 每轮客户端数量由 `clients_per_round` 固定。Proposed scheduler 优先覆盖所有预测模态簇。
 
-## Unpaired Split Learning
+## MMBind Fusion Split Learning
 
-Stage 3 不做 feature concat，不做 sample alignment，不构造伪多模态样本。每个被选客户端独立采样 batch：
+Stage 3 主方法使用 label-level random binding 构造 pseudo multimodal batch。每轮被选客户端先独立采样 batch：
 
 ```text
 client encoder
 -> activation upload
--> cluster adapter
--> shared semantic backbone
+-> label random binding by pred_cluster slots
+-> cluster adapters
+-> concat MLP fusion
 -> classifier
 ```
 
-损失函数：
+Phase 1 只使用分类损失：
 
 ```text
-L = L_cls + lambda * L_align
+L = L_cls
 ```
 
-`L_align` 使用 `PrototypeBank`，按 `(cluster_id, class_id)` 维护 EMA prototype。
+pseudo sample 只有在 selected clients 覆盖完整 `pred_cluster` slot 且所有 slot 能按同一 label 抽样时才生成，否则丢弃该 binding。暂不启用 weighted contrastive loss、prototype alignment、missing modality mask 和 D2D。
+
+`trainers/unpaired_split_multimodal_trainer.py` 保留为 unpaired shared semantic baseline。
 
 ## Evaluation
 
@@ -182,15 +186,15 @@ cluster:
   known_k: null
 
 training:
-  multimodal_mode: unpaired_split_learning
+  multimodal_mode: mmbind_fusion_split_learning
   scheduler: proposed_cluster_coverage
   clients_per_round: 8
 
-alignment:
-  enabled: true
-  type: prototype
-  lambda_align: 0.05
-  ema_momentum: 0.9
+binding:
+  type: label_random
+
+fusion:
+  type: concat_mlp
 ```
 
 ## 当前验证状态
@@ -201,4 +205,4 @@ alignment:
 python -m py_compile $(rg --files -g '*.py')
 ```
 
-未能在当前环境跑完整训练 smoke test，因为 Python 环境缺少 `torch`。安装依赖后建议先用较小 `global_rounds` 验证三阶段端到端运行。
+建议使用 conda `mpsl` 环境运行测试和训练。

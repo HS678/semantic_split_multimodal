@@ -1,4 +1,5 @@
 from models.encoders import AudioEncoder, ImageEncoder, TimeSeriesEncoder, VideoEncoder, create_client_encoder
+from models.fusion import ConcatMLPFusionServer
 from models.modules import ClassifierHead, ClusterAdapter, SharedSemanticBackbone
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "ClusterAdapter",
     "SharedSemanticBackbone",
     "ClassifierHead",
+    "ConcatMLPFusionServer",
 ]

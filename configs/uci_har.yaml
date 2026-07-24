@@ -61,9 +61,10 @@ cluster:
     merge_distance_threshold: 0.25
 
 training:
-  multimodal_mode: unpaired_split_learning
+  multimodal_mode: mmbind_fusion_split_learning
   scheduler: proposed_cluster_coverage
   global_rounds: 50
+  local_steps: 1
   batch_size: 64
   eval_batch_size: 128
   eval_every: 5
@@ -71,8 +72,19 @@ training:
   client_lr: 0.001
   server_lr: 0.001
 
+binding:
+  type: label_random
+  batch_size: 64
+
+fusion:
+  type: concat_mlp
+  adapter_dim: 128
+  hidden_dim: 128
+  num_layers: 1
+  dropout: 0.0
+
 alignment:
-  enabled: true
+  enabled: false
   type: prototype
   lambda_align: 0.05
   ema_momentum: 0.9

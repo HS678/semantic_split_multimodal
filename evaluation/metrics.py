@@ -17,6 +17,9 @@ def discovery_metrics(true_modality, pred_cluster):
         "ARI": float(adjusted_rand_score(true, pred)),
         "NMI": float(normalized_mutual_info_score(true, pred)),
         "ACC": float(accuracy_score(true, mapped)),
+        "true_Q": int(len(np.unique(true))),
+        "estimated_Q": int(len(np.unique(pred))),
+        "abs_Q_error": int(abs(len(np.unique(pred)) - len(np.unique(true)))),
         "estimated_num_clusters": int(len(np.unique(pred))),
         "cluster_to_true_modality_majority": {str(k): int(v) for k, v in mapping.items()},
     }

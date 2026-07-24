@@ -142,6 +142,9 @@ def run_stage2_pretrain_cluster(cfg: dict, project_root: Path, device: torch.dev
     with (result_dir / "cluster_result.txt").open("w", encoding="utf-8") as f:
         f.write(f"method: {method}\n")
         f.write(f"known_k: {known_k}\n")
+        f.write(f"true_Q: {metrics['true_Q']}\n")
+        f.write(f"estimated_Q: {metrics['estimated_Q']}\n")
+        f.write(f"abs_Q_error: {metrics['abs_Q_error']}\n")
         f.write(f"estimated_num_clusters: {metrics['estimated_num_clusters']}\n")
         f.write(f"ACC: {metrics['ACC']:.6f}\n")
         f.write(f"NMI: {metrics['NMI']:.6f}\n")
