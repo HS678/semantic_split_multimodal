@@ -199,6 +199,21 @@ def _prediction_metrics(y_true, y_pred, labels):
     }
 
 
+def _fuse_logits(logits_list, strategy):
+    stacked = torch.stack(logits_list, dim=0)
+    strategy = str(strategy).lower()
+    if strategy == "mean":
+        return stacked.mean(dim=0)
+    if strategy in {"confidence_weighted", "entropy_weighted"}:
+        probs = torch.softmax(stacked, dim=-1)
+        entropy = -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=-1)
+        max_entropy = torch.log(torch.tensor(float(stacked.shape[-1]), dtype=stacked.dtype, device=stacked.device))
+        confidence = 1.0 - entropy / max_entropy.clamp_min(1e-12)
+        weights = confidence / confidence.sum(dim=0, keepdim=True).clamp_min(1e-12)
+        return (weights.unsqueeze(-1) * stacked).sum(dim=0)
+    raise ValueError("evaluation.fusion_strategy must be 'mean' or 'confidence_weighted'.")
+
+
 def _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device):
     cluster_to_true = _cluster_to_test_modality(cfg, cluster_ids)
     modality_names = list(test_payload.get("modality_names", []))
@@ -230,6 +245,7 @@ def _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device
     labels = list(range(int(cfg.get("num_classes", 6))))
     fusion_cfg = cfg.get("evaluation", {})
     requested = set(fusion_cfg.get("fusion_modes", ["single", "pairwise", "all"]))
+    fusion_strategy = str(fusion_cfg.get("fusion_strategy", "mean")).lower()
     all_outputs = {"single": {}, "pairwise": {}, "all": None}
 
     server.eval()
@@ -264,12 +280,12 @@ def _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device
             all_outputs["single"][str(cid)] = metric
     if "pairwise" in requested and len(valid_cluster_ids) >= 2:
         for a, b in itertools.combinations(valid_cluster_ids, 2):
-            logits = (logits_by_cluster[a] + logits_by_cluster[b]) / 2.0
+            logits = _fuse_logits([logits_by_cluster[a], logits_by_cluster[b]], fusion_strategy)
             metric = _prediction_metrics(y_true, logits.argmax(dim=1).tolist(), labels)
             metric["loss"] = float(ce_cpu(logits, y_true_tensor).item() / max(1, len(y_true)))
             all_outputs["pairwise"][f"{a},{b}"] = metric
     if "all" in requested:
-        logits = torch.stack([logits_by_cluster[cid] for cid in valid_cluster_ids], dim=0).mean(dim=0)
+        logits = _fuse_logits([logits_by_cluster[cid] for cid in valid_cluster_ids], fusion_strategy)
         metric = _prediction_metrics(y_true, logits.argmax(dim=1).tolist(), labels)
         metric["loss"] = float(ce_cpu(logits, y_true_tensor).item() / max(1, len(y_true)))
         all_outputs["all"] = metric
@@ -288,6 +304,7 @@ def _evaluate(server, cluster_ids, cluster_to_clients, cfg, test_payload, device
     primary["single"] = all_outputs["single"]
     primary["pairwise"] = all_outputs["pairwise"]
     primary["evaluated_cluster_ids"] = valid_cluster_ids
+    primary["fusion_strategy"] = fusion_strategy
     return primary
 
 
