@@ -33,6 +33,8 @@ data/pamap2+physical+activity+monitoring/
 # generated pipeline artifacts
 results/
 results_smoke_*/
+results_unpaired/
+results_unpaired_tuning/
 presude-results/
 
 # legacy generated output locations; all new outputs must go under results/
