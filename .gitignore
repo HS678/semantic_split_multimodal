@@ -1,53 +1,23 @@
-﻿__pycache__/
+local/
+
+__pycache__/
 *.py[cod]
 
-# virtual environments
+.pytest_cache/
+.mypy_cache/
+
 .venv/
 venv/
 env/
 
-# test / type-check caches
-.pytest_cache/
-.mypy_cache/
-
-# IDE/editor
 .vscode/
 .idea/
 
-# OS
 .DS_Store
 Thumbs.db
 
-# logs
 *.log
-log/
-
-# local reference materials
-docs/local_references/
-
-# local datasets
-data/uci-har/
-data/MHEALTHDATASET/
-data/pamap2+physical+activity+monitoring/
-
-# generated pipeline artifacts
-results/
-results_smoke_*/
-results_unpaired/
-results_unpaired_tuning/
-presude-results/
-
-# legacy generated output locations; all new outputs must go under results/
-# data_partition/
-# cluster/
-# result/
-# result_model/
-
-# model/data binaries
 *.pt
 *.pth
+*.ckpt
 *.npy
-
-# keep experiment outputs versioned
-!results/
-!results/**

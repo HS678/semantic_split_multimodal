@@ -3,14 +3,14 @@ device: auto
 experiment_name: uci_har_three_stage
 
 results:
-  base_dir: ./results
+  base_dir: ./local/results
 
 # UCI-HAR should contain train/test folders and train/test/Inertial Signals/*.txt files.
 dataset:
-  # dataset.type is resolved by data/dataset_registry.py.
+  # dataset.type is resolved by src/semantic_split_multimodal/data/registry.py.
   # Add a loader there when introducing a new dataset.
   type: uci_har
-  root: ./data/uci-har
+  root: ./local/datasets/uci_har
 
 num_modalities: 2
 num_classes: 6
@@ -32,7 +32,7 @@ model:
     semantic_dim: 128
 
 partition:
-  output_dir: ./results/data_partition
+  output_dir: ./local/results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -48,7 +48,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
-  output_dir: ./results/cluster
+  output_dir: ./local/results/cluster
   method: isodata
   known_k: null
   isodata:
@@ -93,10 +93,10 @@ evaluation:
   metrics: [accuracy, macro_f1, per_modality_accuracy]
 
 result:
-  output_dir: ./results/logs
+  output_dir: ./local/logs
 
 result_model:
-  output_dir: ./results/models
+  output_dir: ./local/checkpoints
 
 d2d:
   enabled: false

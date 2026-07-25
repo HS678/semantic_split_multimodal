@@ -3,15 +3,15 @@ device: auto
 experiment_name: pamap2_three_stage
 
 results:
-  base_dir: ./results
+  base_dir: ./local/results
 
 # PAMAP2 Protocol data:
-#   data/pamap2+physical+activity+monitoring/PAMAP2_Dataset/PAMAP2_Dataset/Protocol/subject101.dat
+#   local/datasets/pamap2/PAMAP2_Dataset/PAMAP2_Dataset/Protocol/subject101.dat
 #   ...
 #   subject109.dat
 dataset:
   type: pamap2
-  root: ./data/pamap2+physical+activity+monitoring
+  root: ./local/datasets/pamap2
   modality_scheme: sensor_type
   include_heart_rate: false
   train_subjects: [101, 102, 103, 104, 105, 106, 107]
@@ -42,7 +42,7 @@ model:
     semantic_dim: 128
 
 partition:
-  output_dir: ./results/data_partition
+  output_dir: ./local/results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -58,7 +58,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
-  output_dir: ./results/cluster
+  output_dir: ./local/results/cluster
   method: isodata
   known_k: null
   isodata:
@@ -103,10 +103,10 @@ evaluation:
   metrics: [accuracy, macro_f1, per_modality_accuracy]
 
 result:
-  output_dir: ./results/logs
+  output_dir: ./local/logs
 
 result_model:
-  output_dir: ./results/models
+  output_dir: ./local/checkpoints
 
 d2d:
   enabled: false

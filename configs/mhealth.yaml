@@ -3,15 +3,15 @@ device: auto
 experiment_name: mhealth_three_stage
 
 results:
-  base_dir: ./results
+  base_dir: ./local/results
 
 # MHEALTH contains 10 subject log files:
-#   data/MHEALTHDATASET/mHealth_subject1.log
+#   local/datasets/mhealth/mHealth_subject1.log
 #   ...
-#   data/MHEALTHDATASET/mHealth_subject10.log
+#   local/datasets/mhealth/mHealth_subject10.log
 dataset:
   type: mhealth
-  root: ./data/MHEALTHDATASET
+  root: ./local/datasets/mhealth
   modality_scheme: sensor_type
   train_subjects: [1, 2, 3, 4, 5, 6, 7, 8]
   test_subjects: [9, 10]
@@ -41,7 +41,7 @@ model:
     semantic_dim: 128
 
 partition:
-  output_dir: ./results/data_partition
+  output_dir: ./local/results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -57,7 +57,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
-  output_dir: ./results/cluster
+  output_dir: ./local/results/cluster
   method: isodata
   known_k: null
   isodata:
@@ -102,10 +102,10 @@ evaluation:
   metrics: [accuracy, macro_f1, per_modality_accuracy]
 
 result:
-  output_dir: ./results/logs
+  output_dir: ./local/logs
 
 result_model:
-  output_dir: ./results/models
+  output_dir: ./local/checkpoints
 
 d2d:
   enabled: false
