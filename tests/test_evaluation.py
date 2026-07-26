@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from semantic_split_multimodal.evaluation.fusion_eval import evaluate_naturally_paired_fusion
+from semantic_split_multimodal.evaluation.baseline_eval import evaluate_naturally_paired_unpaired_baseline
 from semantic_split_multimodal.evaluation.oracle_mapping import (
     MERGED_TRUE_MODALITY_FAILURE,
     SPLIT_TRUE_MODALITY_FAILURE,
@@ -42,6 +43,25 @@ class TraceServer(nn.Module):
         self.seen_slots.append({k: v.detach().cpu().clone() for k, v in slot_activations.items()})
         fused = torch.cat([slot_activations[5], slot_activations[9]], dim=1)
         return self.fc(fused), fused
+
+
+class BaselineTraceServer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.training = True
+        self.forward_calls = []
+
+    def forward_cluster(self, cluster_id, activation):
+        cluster_id = int(cluster_id)
+        self.forward_calls.append((cluster_id, activation.detach().cpu().clone()))
+        value = activation[:, :1]
+        if cluster_id == 5:
+            logits = torch.cat([value, torch.zeros_like(value)], dim=1)
+        elif cluster_id == 9:
+            logits = torch.cat([torch.zeros_like(value), value], dim=1)
+        else:
+            raise AssertionError(f"Unexpected cluster id: {cluster_id}")
+        return logits, activation
 
 
 def test_fusion_eval_uses_naturally_paired_indices_and_not_label_selection(tmp_path):
@@ -96,6 +116,67 @@ def test_fusion_eval_returns_unavailable_metrics_when_mapping_fails(tmp_path):
 
     assert metrics["eval_status"] == "failed"
     assert metrics["eval_failure_reason"] == "split_true_modality_failure"
+    assert metrics["accuracy"] is None
+    assert metrics["macro_f1"] is None
+    assert metrics["loss"] is None
+
+
+def test_baseline_naturally_paired_eval_reads_test_multimodal_and_averages_logits(tmp_path):
+    test_path = tmp_path / "test_multimodal.pt"
+    mod0 = torch.tensor([[4.0], [1.0], [6.0]])
+    mod1 = torch.tensor([[2.0], [8.0], [6.0]])
+    labels = torch.tensor([0, 1, 0])
+    torch.save(
+        {
+            "label": labels,
+            "modalities": {"m0": mod0, "m1": mod1},
+            "modality_names": ["m0", "m1"],
+            "modality_input_shapes": {"m0": [1], "m1": [1]},
+        },
+        test_path,
+    )
+    enc0 = TraceEncoder(offset=0.0)
+    enc1 = TraceEncoder(offset=0.0)
+    server = BaselineTraceServer()
+    mapping = {
+        "status": "success",
+        "mapping_type": "oracle_evaluation_only",
+        "modality_to_cluster": {"0": 5, "1": 9},
+        "representative_clients": {"0": "client_001", "1": "client_010"},
+    }
+
+    metrics = evaluate_naturally_paired_unpaired_baseline(
+        server,
+        {"client_001": EvalClient("client_001", enc0), "client_010": EvalClient("client_010", enc1)},
+        test_path,
+        mapping,
+        {"training": {"eval_batch_size": 3}},
+        torch.device("cpu"),
+    )
+
+    assert metrics["eval_status"] == "success"
+    assert metrics["num_eval_samples"] == 3
+    assert metrics["logit_aggregation"] == "mean"
+    assert torch.equal(enc0.seen[0], mod0)
+    assert torch.equal(enc1.seen[0], mod1)
+    # Mean logits are [[2, 1], [0.5, 4], [3, 3]], so predictions are [0, 1, 0].
+    assert metrics["accuracy"] == 1.0
+    assert metrics["macro_f1"] == 1.0
+    assert [cluster_id for cluster_id, _ in server.forward_calls] == [5, 9]
+
+
+def test_baseline_naturally_paired_eval_returns_null_metrics_when_mapping_fails(tmp_path):
+    metrics = evaluate_naturally_paired_unpaired_baseline(
+        BaselineTraceServer(),
+        {},
+        tmp_path / "missing.pt",
+        {"status": "failed", "failure_reason": "merged_true_modality_failure"},
+        {"training": {"eval_batch_size": 3}},
+        torch.device("cpu"),
+    )
+
+    assert metrics["eval_status"] == "failed"
+    assert metrics["eval_failure_reason"] == "merged_true_modality_failure"
     assert metrics["accuracy"] is None
     assert metrics["macro_f1"] is None
     assert metrics["loss"] is None

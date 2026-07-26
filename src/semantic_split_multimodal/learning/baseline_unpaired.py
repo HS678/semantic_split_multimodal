@@ -10,7 +10,9 @@ import yaml
 
 from semantic_split_multimodal.data.client import Client
 from semantic_split_multimodal.data.partitioner import resolve_project_path
+from semantic_split_multimodal.evaluation.baseline_eval import evaluate_naturally_paired_unpaired_baseline
 from semantic_split_multimodal.evaluation.metrics import d2d_metrics, learning_metrics
+from semantic_split_multimodal.evaluation.oracle_mapping import build_oracle_eval_mapping
 from semantic_split_multimodal.learning.models import (
     ClassifierHead,
     ClusterAdapter,
@@ -273,9 +275,23 @@ def run_unpaired_stage3_split_training(cfg: dict, project_root: Path, device: to
         "speedup",
         "selected_clients_json",
     ]
-    eval_fields = ["round", "loss", "accuracy", "macro_f1", "per_modality_accuracy_json"]
+    eval_fields = [
+        "round",
+        "eval_status",
+        "eval_failure_reason",
+        "loss",
+        "accuracy",
+        "macro_f1",
+        "diagnostic_client_loss",
+        "diagnostic_client_accuracy",
+        "diagnostic_client_macro_f1",
+        "diagnostic_client_per_modality_accuracy_json",
+    ]
     best_metrics = {"macro_f1": -1.0}
     final_eval = None
+    diagnostic_eval = None
+    oracle_mapping = None
+    clients_by_id = None
     with (result_dir / "train_log.csv").open("w", newline="", encoding="utf-8") as train_f, (
         result_dir / "eval_log.csv"
     ).open("w", newline="", encoding="utf-8") as eval_f:
@@ -302,17 +318,40 @@ def run_unpaired_stage3_split_training(cfg: dict, project_root: Path, device: to
                 }
             )
             if round_idx % eval_every == 0 or round_idx == rounds:
-                final_eval = _evaluate(server, clients, cfg, device)
+                diagnostic_eval = _evaluate(server, clients, cfg, device)
+                oracle_mapping = build_oracle_eval_mapping(
+                    partition_dir / "client_meta.csv",
+                    cluster_dir / "cluster_assignments.csv",
+                    model_dir / "oracle_eval_modality_to_cluster.json",
+                )
+                if clients_by_id is None:
+                    clients_by_id = {client.client_id: client for client in clients}
+                final_eval = evaluate_naturally_paired_unpaired_baseline(
+                    server,
+                    clients_by_id,
+                    partition_dir / "test_multimodal.pt",
+                    oracle_mapping,
+                    cfg,
+                    device,
+                )
                 eval_writer.writerow(
                     {
                         "round": round_idx,
+                        "eval_status": final_eval["eval_status"],
+                        "eval_failure_reason": final_eval["eval_failure_reason"],
                         "loss": final_eval["loss"],
                         "accuracy": final_eval["accuracy"],
                         "macro_f1": final_eval["macro_f1"],
-                        "per_modality_accuracy_json": json.dumps(final_eval["per_modality_accuracy"], sort_keys=True),
+                        "diagnostic_client_loss": diagnostic_eval["loss"],
+                        "diagnostic_client_accuracy": diagnostic_eval["accuracy"],
+                        "diagnostic_client_macro_f1": diagnostic_eval["macro_f1"],
+                        "diagnostic_client_per_modality_accuracy_json": json.dumps(
+                            diagnostic_eval["per_modality_accuracy"],
+                            sort_keys=True,
+                        ),
                     }
                 )
-                if final_eval["macro_f1"] > best_metrics["macro_f1"]:
+                if final_eval["eval_status"] == "success" and final_eval["macro_f1"] > best_metrics["macro_f1"]:
                     best_metrics = {"round": round_idx, **final_eval}
                     torch.save(server.state_dict(), model_dir / "best_server_model.pt")
                     for client in clients:
@@ -330,6 +369,10 @@ def run_unpaired_stage3_split_training(cfg: dict, project_root: Path, device: to
 
     final_metrics = {
         "final_eval": final_eval,
+        "diagnostic_client_eval": diagnostic_eval,
+        "eval_status": None if final_eval is None else final_eval["eval_status"],
+        "eval_failure_reason": None if final_eval is None else final_eval["eval_failure_reason"],
+        "oracle_eval_mapping": oracle_mapping,
         "cluster_ids": cluster_ids,
         "estimated_num_clusters": len(cluster_ids),
         "clients_per_round": clients_per_round,
