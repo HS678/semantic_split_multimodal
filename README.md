@@ -36,6 +36,52 @@ local/      # 本地数据、运行结果和 checkpoint；不提交
 
 把 config 替换为 `configs/mhealth.yaml` 或 `configs/pamap2.yaml` 可运行其他数据集。Stage 3 入口只有正式 fusion Split Learning 路径，不再暴露旧方法选择。
 
+## 本地防覆盖运行
+
+`scripts/stage1_partition.py` 在 config 没有 `results.run_id` 时会创建 timestamp run；但如果 config 写死了 `results.run_id`，重复运行同一套配置会覆盖同一个结果目录。为了做 smoke、复现实验或临时检查，推荐使用本地 runner 自动生成不重复的 `run_id`：
+
+```bash
+/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
+  --config local/configs/formal/uci_har_known_q.yaml \
+  --base-dir local/results/smoke \
+  --tag quick_check
+```
+
+runner 会：
+
+- 读取模板 config，但不修改原文件；
+- 生成类似 `quick_check_20260727_173012` 的 `run_id`；
+- 把运行副本写到 `local/configs/smoke/`；
+- 依次运行 Stage 1、Stage 2、Stage 3；
+- 如果目标 `run_dir` 已存在，直接拒绝运行，避免覆盖。
+
+输出目录示例：
+
+```text
+local/results/smoke/uci_har/quick_check_20260727_173012/
+  01_dataset_partition/
+  02_cluster_results/
+  03_training_evaluation/
+  04_model_artifacts/
+```
+
+常用选项：
+
+```bash
+# 只预览，不写文件、不运行 stage
+/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
+  --config local/configs/formal/uci_har_known_q.yaml \
+  --base-dir local/results/smoke \
+  --tag quick_check \
+  --dry-run
+
+# 明确指定 run_id
+/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
+  --config local/configs/formal/uci_har_known_q.yaml \
+  --base-dir local/results/formal \
+  --run-id known_q_rerun_20260727_01
+```
+
 ## 关键输出
 
 默认运行目录由 `results.base_dir` 和 `results.run_id` 决定，典型结构为：
