@@ -249,12 +249,14 @@ def load_mhealth_dataset(cfg, project_root: Path):
         train, test = _mhealth_normalize(train, test)
 
     modality_names = list(_mhealth_resolve_modalities(dataset_cfg).keys())
+    input_shapes = _mhealth_input_shapes(train["modalities"])
     return {
         "train": train,
         "test": test,
         "root": str(root),
         "modality_names": modality_names,
-        "modality_mhealth_input_shapes": _mhealth_input_shapes(train["modalities"]),
+        "modality_input_shapes": input_shapes,
+        "modality_mhealth_input_shapes": input_shapes,
     }
 
 
@@ -437,11 +439,13 @@ def load_pamap2_dataset(cfg, project_root: Path):
         train, test = _pamap2_normalize(train, test)
 
     modality_names = list(_pamap2_modality_columns(dataset_cfg).keys())
+    input_shapes = _pamap2_input_shapes(train["modalities"])
     return {
         "train": train,
         "test": test,
         "root": str(root),
         "modality_names": modality_names,
-        "modality_pamap2_input_shapes": _pamap2_input_shapes(train["modalities"]),
+        "modality_input_shapes": input_shapes,
+        "modality_pamap2_input_shapes": input_shapes,
         "label_mapping": {str(k): int(v) for k, v in label_mapping.items()},
     }
