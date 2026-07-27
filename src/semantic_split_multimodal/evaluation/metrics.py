@@ -41,12 +41,3 @@ def learning_metrics(y_true, y_pred, modality_ids=None):
                 float(accuracy_score(y_true[mask], y_pred[mask])) if mask.any() else 0.0
             )
     return out
-
-
-def d2d_metrics(latency_without_d2d, latency_with_d2d):
-    base = float(latency_without_d2d)
-    current = float(latency_with_d2d)
-    return {
-        "latency": current,
-        "speedup": float(base / current) if current > 0 else 0.0,
-    }

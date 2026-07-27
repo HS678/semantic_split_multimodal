@@ -70,7 +70,6 @@ cluster:
     merge_distance_threshold: 0.25
 
 training:
-  multimodal_mode: mmbind_fusion_split_learning
   scheduler: proposed_cluster_coverage
   global_rounds: 50
   local_steps: 1
@@ -91,12 +90,6 @@ fusion:
   hidden_dim: 128
   num_layers: 1
   dropout: 0.0
-
-alignment:
-  enabled: false
-  type: prototype
-  lambda_align: 0.05
-  ema_momentum: 0.9
 
 evaluation:
   metrics: [accuracy, macro_f1, per_modality_accuracy]

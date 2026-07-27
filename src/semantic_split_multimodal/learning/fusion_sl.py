@@ -459,7 +459,6 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "local_step_binding_success_rate": float(total_effective_local_steps / max(1, total_attempted_local_steps)),
         "binding_success_rate": float(successful_binding_rounds / max(1, rounds)),
         "scheduler": cfg.get("training", {}).get("scheduler", "proposed_cluster_coverage"),
-        "multimodal_mode": "mmbind_fusion_split_learning",
         "binding": "label_random",
         "fusion": "concat_mlp",
     }

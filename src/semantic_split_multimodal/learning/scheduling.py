@@ -55,14 +55,6 @@ class RoundRobinScheduler(BaseScheduler):
         return self._record(selected)
 
 
-class OracleModalityScheduler(BaseScheduler):
-    def sample_round(self):
-        by_modality = defaultdict(list)
-        for client in self.clients:
-            by_modality[int(client.hidden_modality_id)].append(client)
-        return self._record(_coverage_sample(by_modality, self.clients, self.clients_per_round, self.rng))
-
-
 class ProposedClusterCoverageScheduler(BaseScheduler):
     def sample_round(self):
         by_cluster = defaultdict(list)
@@ -93,8 +85,6 @@ def build_scheduler(name, clients, clients_per_round, seed=0):
         return RandomScheduler(clients, clients_per_round, seed)
     if key == "round_robin":
         return RoundRobinScheduler(clients, clients_per_round, seed)
-    if key == "oracle_modality":
-        return OracleModalityScheduler(clients, clients_per_round, seed)
     if key in {"proposed_cluster_coverage", "cluster_coverage", "proposed"}:
         return ProposedClusterCoverageScheduler(clients, clients_per_round, seed)
     raise ValueError(f"Unsupported scheduler: {name}")

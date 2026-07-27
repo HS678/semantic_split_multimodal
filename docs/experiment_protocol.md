@@ -1,29 +1,33 @@
 # Experiment Protocol
 
-## Unknown Modality 假设
+## 假设
 
-训练阶段服务器不知道真实模态数量、真实模态名称和客户端真实模态归属。`hidden_modality_id` 只允许用于 Stage 2 discovery metrics 和 evaluation-only oracle mapping。
+训练阶段服务器不知道真实模态数量、真实模态名称和客户端真实模态归属。Stage 2 可以为了 discovery metrics 读取 `hidden_modality_id`；Stage 3 final evaluation 可以为了 evaluation-only oracle mapping 读取 `hidden_modality_id`。除此之外，训练协议不得使用真实模态身份。
 
-## Training Pseudo Binding
+## Stage 1
 
-训练允许使用 training label 进行 exact same-label random pseudo binding。该 binding 不使用 instance-level correspondence，也不读取 test label。fusion slot 只由 `pred_cluster` 和 `cluster_to_slot` 决定。
+输入是 naturally paired 多模态数据集。loader 输出统一 contract：`train.modalities`、`train.labels`、`test.modalities`、`test.labels`、`modality_names` 和 `modality_input_shapes`。partitioner 将 train split 按模态拆成多个单模态 client，同时保存自然配对的 `test_multimodal.pt`。
 
-## Naturally Paired Testing
+## Stage 2
 
-正式 evaluation 使用 Stage 1 保存的 `test_multimodal.pt`。所有模态按同一个 sample index 构造输入；test label 只用于 loss、accuracy、macro-F1，不参与 binding、筛选或排序。
+每个单模态 client encoder 先做 autoencoder pretraining。随后从 encoder 和数据统计中提取 fingerprint，并对 fingerprint 聚类得到 `pred_cluster`。known-Q 实验使用 `cluster.known_k`；unknown-Q 仍需实验验证，不能默认视为稳定结论。
 
-## Global Round / Local Step
+## Stage 3
 
-每个 global round 调用一次 scheduler。被选客户端集合在该 round 的所有 `local_steps` 内固定；每个 local step 独立采样 batch。empty binding 只跳过当前 local step，所有 local step 均失败时记录 `empty_binding_round`。
+每个 global round 使用 `proposed_cluster_coverage` scheduler，保证选中客户端覆盖所有预测簇。每个 selected client 独立采样 labeled batch，forward 后上传 detached activation。server 用 exact same-label random binding 构造 pseudo multimodal tuple：每个 tuple 在所有 cluster slot 上 label 相同，但不表示这些样本在实例级 naturally paired。
 
-## Metrics
+fusion slot 由 `pred_cluster` 和 `cluster_to_slot` 固定映射决定。`ConcatMLPFusionServer` 对每个 slot 使用 `ClusterAdapter`，拼接所有 adapted activation，经 MLP classifier 输出 logits。训练 loss 是 `CrossEntropyLoss(logits, pseudo_labels)`。server backward 后，activation gradient 只路由回参与该 pseudo batch 的客户端 encoder。
 
-Stage 2 discovery 输出 `true_Q`、`estimated_Q`、`abs_Q_error`、`ACC`、`NMI`、`ARI`。Stage 3 输出训练日志、learning metrics 和 naturally paired evaluation metrics。
+## Evaluation
 
-## Mapping Failure
+正式 evaluation 读取 Stage 1 保存的 `test_multimodal.pt`，按相同 sample index 同时取所有模态。test label 只用于 CE loss、accuracy 和 macro-F1，不参与输入构造、binding、筛选、排序或模态选择。
 
-oracle mapping 仅用于 evaluation。真实模态被拆分或预测簇合并真实模态时，`accuracy`、`macro_f1`、`loss` 为 `null`，不做 majority 静默修复。
+evaluation-only oracle mapping 只用于把真实测试模态 id 映射到 Stage 2 的 `pred_cluster`，并选择 representative client encoder。若一个真实模态被拆成多个 cluster，或一个 cluster 合并多个真实模态，则 evaluation 返回 failed，`loss`、`accuracy` 和 `macro_f1` 为 `null`。
 
-## Baseline 和消融
+## 限制
 
-`unpaired_split_learning` 保留 shared semantic baseline、`PrototypeBank` 和 `SharedSemanticBackbone`。baseline 不能改写为主线方法，主线也不引入 baseline 的 prototype alignment 作为默认训练目标。
+- 不做 FedAvg。
+- 不运行旧 unpaired 方法。
+- 不实现或启用 D2D；`d2d.enabled` 当前应保持 `false`。
+- 不把 same-label binding 解释成实例级自然配对。
+- 不把 unknown-Q discovery 结果当作已稳定主结论。
