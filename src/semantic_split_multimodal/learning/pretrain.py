@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from semantic_split_multimodal.discovery.clustering import run_hdbscan, run_isodata, run_kmeans
+from semantic_split_multimodal.discovery.clustering import adaptive_isodata, run_hdbscan, run_isodata, run_kmeans
 from semantic_split_multimodal.discovery.fingerprint import build_fingerprints
 from semantic_split_multimodal.data.client import Client
 from semantic_split_multimodal.data.partitioner import resolve_project_path
@@ -98,14 +98,23 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
     raw_k = cluster_cfg.get("known_k")
     known_k = None if raw_k is None or str(raw_k).lower() in {"auto", "none", "null"} else int(raw_k)
     seed = int(cfg.get("seed", 42))
+    adaptive_diagnostics = None
     if method == "kmeans":
         pred = run_kmeans(fingerprints, known_k, seed=seed)
     elif method == "isodata":
         pred = run_isodata(fingerprints, known_k, seed=seed, **dict(cluster_cfg.get("isodata", {})))
+    elif method in {"adaptive_isodata", "adaptive"}:
+        if known_k is not None:
+            raise ValueError("cluster.known_k must be null when cluster.method is adaptive_isodata.")
+        pred, adaptive_diagnostics = adaptive_isodata(
+            fingerprints,
+            seed=seed,
+            **dict(cluster_cfg.get("adaptive", {})),
+        )
     elif method == "hdbscan":
         pred = run_hdbscan(fingerprints, seed=seed, **dict(cluster_cfg.get("hdbscan", {})))
     else:
-        raise ValueError("cluster.method must be 'kmeans', 'hdbscan', or 'isodata'.")
+        raise ValueError("cluster.method must be 'kmeans', 'hdbscan', 'isodata', or 'adaptive_isodata'.")
 
     true = np.array([client.hidden_modality_id for client in clients], dtype=int)
     pred = np.asarray(pred, dtype=int)
@@ -120,6 +129,31 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
             "uses_input_dimension_hint": False,
         }
     )
+    if adaptive_diagnostics is not None:
+        metrics.update(
+            {
+                "q_source": adaptive_diagnostics["q_source"],
+                "adaptive_estimated_Q": adaptive_diagnostics["estimated_Q"],
+                "cluster_sizes": adaptive_diagnostics["cluster_sizes"],
+                "pca_diagnostics": adaptive_diagnostics["preprocessing"],
+                "split_history": adaptive_diagnostics["split_history"],
+                "merge_history": adaptive_diagnostics["merge_history"],
+                "split_count": adaptive_diagnostics["split_count"],
+                "merge_count": adaptive_diagnostics["merge_count"],
+                "convergence_reason": adaptive_diagnostics["convergence_reason"],
+                "per_seed_estimated_Q": adaptive_diagnostics["per_seed_estimated_Q"],
+                "q_stability": adaptive_diagnostics["q_stability"],
+                "assignment_stability": adaptive_diagnostics["assignment_stability"],
+                "selection_confidence": adaptive_diagnostics["selection_confidence"],
+                "boundary_saturation": adaptive_diagnostics["boundary_saturation"],
+                "minimum_cluster_size": adaptive_diagnostics["minimum_cluster_size"],
+                "small_cluster_present": adaptive_diagnostics["small_cluster_present"],
+                "silhouette": adaptive_diagnostics["silhouette"],
+                "DBI": adaptive_diagnostics["DBI"],
+                "CH": adaptive_diagnostics["CH"],
+                "adaptive_algorithm_config": adaptive_diagnostics["algorithm_config"],
+            }
+        )
 
     rows = []
     for client, pred_cluster in zip(clients, pred):
@@ -139,13 +173,25 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
             json.dump(metrics, f, indent=2)
     with (cluster_dir / "cluster_config.json").open("w", encoding="utf-8") as f:
         json.dump({"cluster": cluster_cfg, "pretrain": cfg.get("pretrain", {}), "fingerprint": cfg.get("fingerprint", {})}, f, indent=2)
+    if adaptive_diagnostics is not None:
+        with (cluster_dir / "adaptive_diagnostics.json").open("w", encoding="utf-8") as f:
+            json.dump(adaptive_diagnostics, f, indent=2)
+        with (result_dir / "adaptive_diagnostics.json").open("w", encoding="utf-8") as f:
+            json.dump(adaptive_diagnostics, f, indent=2)
     with (result_dir / "cluster_result.txt").open("w", encoding="utf-8") as f:
         f.write(f"method: {method}\n")
         f.write(f"known_k: {known_k}\n")
+        if adaptive_diagnostics is not None:
+            f.write(f"q_source: {adaptive_diagnostics['q_source']}\n")
+            f.write(f"boundary_saturation: {adaptive_diagnostics['boundary_saturation']}\n")
+            f.write(f"selection_confidence: {adaptive_diagnostics['selection_confidence']}\n")
+            f.write(f"assignment_stability: {adaptive_diagnostics['assignment_stability']}\n")
         f.write(f"true_Q: {metrics['true_Q']}\n")
         f.write(f"estimated_Q: {metrics['estimated_Q']}\n")
         f.write(f"abs_Q_error: {metrics['abs_Q_error']}\n")
         f.write(f"estimated_num_clusters: {metrics['estimated_num_clusters']}\n")
+        f.write(f"discovery_status: {metrics['discovery_status']}\n")
+        f.write(f"hungarian_ACC: {metrics['hungarian_ACC']:.6f}\n")
         f.write(f"ACC: {metrics['ACC']:.6f}\n")
         f.write(f"NMI: {metrics['NMI']:.6f}\n")
         f.write(f"ARI: {metrics['ARI']:.6f}\n")
