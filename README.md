@@ -36,6 +36,21 @@ local/      # 本地数据、运行结果和 checkpoint；不提交
 
 把 config 替换为 `configs/mhealth.yaml` 或 `configs/pamap2.yaml` 可运行其他数据集。Stage 3 入口只有正式 fusion Split Learning 路径，不再暴露旧方法选择。
 
+只检查第一阶段数据划分时，可以使用脚本入口：
+
+```bash
+# 单个数据集
+scripts/run_stage1_partitions.sh uci_har
+
+# 三个数据集依次划分
+scripts/run_stage1_partitions.sh all
+
+# 如需指定解释器
+PYTHON_BIN=/home/shuang/miniconda3/envs/mpsl/bin/python scripts/run_stage1_partitions.sh all
+```
+
+该脚本只运行 Stage 1，不运行 discovery 或训练。每次运行会通过 `scripts/stage1_partition.py` 创建新的 timestamp run，输出到 `local/results/<dataset>/<run_id>/01_dataset_partition/`。
+
 ## 本地防覆盖运行
 
 `scripts/stage1_partition.py` 在 config 没有 `results.run_id` 时会创建 timestamp run；但如果 config 写死了 `results.run_id`，重复运行同一套配置会覆盖同一个结果目录。为了做 smoke、复现实验或临时检查，推荐使用本地 runner 自动生成不重复的 `run_id`：

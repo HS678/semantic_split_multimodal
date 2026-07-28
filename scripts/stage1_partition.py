@@ -14,7 +14,7 @@ from semantic_split_multimodal.utils.seed import set_seed
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Stage 1: UCI-HAR data partition")
+    parser = argparse.ArgumentParser(description="Stage 1: data partition")
     parser.add_argument("--config", required=True, help="Path to yaml config")
     args = parser.parse_args()
 
