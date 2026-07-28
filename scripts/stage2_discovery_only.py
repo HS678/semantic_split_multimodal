@@ -154,7 +154,7 @@ def parse_args(argv=None):
         description="Stage 2 only: run modality discovery from a read-only Stage1 partition."
     )
     parser.add_argument("--config", required=True, help="Path to yaml config")
-    parser.add_argument("--stage1-dir", help="Existing 01_dataset_partition directory, read-only input")
+    parser.add_argument("--stage1-dir", help="Existing Stage 1 partition directory, read-only input")
     parser.add_argument("--output-root", help="Root directory for isolated Stage2-only outputs")
     parser.add_argument("--tag", help="Run tag under output-root/<dataset>/")
     parser.add_argument("--run-type", choices=["codex_test", "user_formal"], default="codex_test")

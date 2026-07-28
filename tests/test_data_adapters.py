@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 import torch
 
+import semantic_split_multimodal.data.partitioner as partitioner
 from semantic_split_multimodal.data.partitioner import run_stage1_partition
 from semantic_split_multimodal.data.registry import load_dataset
 from semantic_split_multimodal.utils.config import load_config
+from semantic_split_multimodal.utils.results import configure_result_run
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -92,3 +94,42 @@ def test_stage1_writes_metadata_and_naturally_paired_test_payload(
         assert torch.equal(test_payload[name], tensor)
         assert int(tensor.shape[0]) == int(labels.shape[0])
         assert [int(v) for v in tensor.shape[1:]] == expected_shape
+
+
+def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwrite(monkeypatch, tmp_path):
+    def fake_load_dataset(_cfg, _root):
+        train_labels = torch.tensor([0, 1, 0, 1])
+        test_labels = torch.tensor([0, 1])
+        return {
+            "root": str(tmp_path / "dataset"),
+            "modality_names": ["acc", "gyro"],
+            "modality_input_shapes": [[1], [1]],
+            "train": {
+                "labels": train_labels,
+                "modalities": [torch.zeros(4, 1), torch.ones(4, 1)],
+            },
+            "test": {
+                "labels": test_labels,
+                "modalities": [torch.zeros(2, 1), torch.ones(2, 1)],
+            },
+        }
+
+    monkeypatch.setattr(partitioner, "load_dataset", fake_load_dataset)
+    cfg = {
+        "seed": 3,
+        "dataset": {"type": "synthetic_layout"},
+        "results": {"base_dir": str(tmp_path / "results")},
+        "partition": {"clients_per_modality": 2},
+        "model": {"encoder": {"type": "time_series"}},
+    }
+    cfg = configure_result_run(cfg, tmp_path, stage="stage1_partition", create_new=True)
+
+    info = run_stage1_partition(cfg, tmp_path)
+
+    expected = tmp_path / "results" / "partition" / "synthetic_layout" / "acc-gyro_2clients"
+    assert Path(info["output_dir"]) == expected.resolve()
+    assert (expected / "train_clients").exists()
+    assert not (tmp_path / "results" / "partition" / "synthetic_layout" / "latest_run.txt").exists()
+
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        run_stage1_partition(cfg, tmp_path)

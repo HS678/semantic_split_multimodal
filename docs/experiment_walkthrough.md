@@ -19,7 +19,8 @@
 - 对应文件：`scripts/stage1_partition.py`、`data/registry.py`、`data/datasets.py`、`data/partitioner.py`
 - 关键函数：`load_dataset`、`run_stage1_partition`
 - 读取字段：`dataset.type`、`dataset.root`、数据集窗口参数、`partition.clients_per_modality`、`partition.output_dir`
-- 生成结果文件：`01_dataset_partition/train_clients/client_*.pt`、`01_dataset_partition/client_meta.csv`、`01_dataset_partition/test_multimodal.pt`、`01_dataset_partition/partition_config.json`
+- 生成结果目录：`local/results/partition/<dataset>/<modality_names>_<clients_per_modality>clients/`
+- 生成结果文件：`train_clients/client_*.pt`、`client_meta.csv`、`test_multimodal.pt`、`partition_config.json`
 - 协议限制：train clients 是单模态；`test_multimodal.pt` 保留自然配对样本索引，仅供 evaluation
 
 ## 3. Loader
@@ -49,7 +50,7 @@
 - 对应文件：`data/partitioner.py`
 - 关键函数：`run_stage1_partition`
 - 读取字段：`modality_names`、`modality_input_shapes`
-- 生成结果文件：`01_dataset_partition/test_multimodal.pt`
+- 生成结果文件：`test_multimodal.pt`
 - 协议限制：test label 不参与训练或测试输入构造
 
 ## 6. Stage 2
@@ -59,7 +60,8 @@
 - 对应文件：`scripts/stage2_discovery_only.py`、`learning/pretrain.py`
 - 关键函数：`run_stage2_discovery`
 - 读取字段：`pretrain.epochs`、`pretrain.batch_size`、`fingerprint.type`、`cluster.method`、`cluster.known_k`
-- 生成结果文件：`02_cluster_results/pretrained_encoders/*_encoder.pt`、`fingerprints.npy`、`cluster_assignments.csv`、`cluster_metrics.json`
+- 生成结果目录：`local/results/experiment/<dataset>/<run_id>/02_cluster_results/`
+- 生成结果文件：`pretrained_encoders/*_encoder.pt`、`fingerprints.npy`、`cluster_assignments.csv`、`cluster_metrics.json`
 - 协议限制：`hidden_modality_id` 只用于 discovery metrics；unknown-Q discovery 当前仍需实验验证
 
 ## 7. Encoder Pretraining
@@ -99,6 +101,7 @@
 - 对应文件：`scripts/stage3_train_only.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`
 - 读取字段：`training.*`、`binding.*`、`fusion.*`、`result.*`、`result_model.*`
+- 生成结果目录：`local/results/experiment/<dataset>/<run_id>/`
 - 生成结果文件：`03_training_evaluation/train_log.csv`、`eval_log.csv`、`final_metrics.json`、`04_model_artifacts/*`
 - 协议限制：Stage 3 入口只有正式 fusion Split Learning
 

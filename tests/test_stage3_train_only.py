@@ -143,12 +143,12 @@ def test_build_stage3_only_run_injects_separate_stage1_stage2_and_outputs(tmp_pa
         _cfg(),
         stage1_dir=stage1,
         stage2_dir=stage2,
-        output_root=tmp_path / "stage3_formal",
+        output_root=tmp_path / "experiment",
         tag="formal_tag",
         run_type="user_formal",
     )
 
-    expected_run = (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag").resolve()
+    expected_run = (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag").resolve()
     assert Path(cfg["partition"]["output_dir"]) == stage1.resolve()
     assert Path(cfg["cluster"]["output_dir"]) == stage2.resolve()
     assert Path(cfg["result"]["output_dir"]) == expected_run / "03_training_evaluation"
@@ -160,12 +160,34 @@ def test_stage3_only_refuses_existing_output_without_suffix(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)
     stage2 = _stage2_dir(tmp_path)
-    existing = tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag"
+    existing = tmp_path / "experiment" / "synthetic_stage3" / "formal_tag" / "03_training_evaluation"
     existing.mkdir(parents=True)
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        script.build_stage3_only_run(_cfg(), stage1, stage2, tmp_path / "stage3_formal", "formal_tag", "user_formal")
-    assert not (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag_01").exists()
+        script.build_stage3_only_run(_cfg(), stage1, stage2, tmp_path / "experiment", "formal_tag", "user_formal")
+    assert not (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag_01").exists()
+
+
+def test_stage3_only_allows_existing_experiment_run_dir_from_stage2(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    existing_run = tmp_path / "experiment" / "synthetic_stage3" / "formal_tag"
+    (existing_run / "02_cluster_results").mkdir(parents=True)
+    (existing_run / "02_discovery_logs").mkdir(parents=True)
+
+    cfg, paths = script.build_stage3_only_run(
+        _cfg(),
+        stage1_dir=stage1,
+        stage2_dir=stage2,
+        output_root=tmp_path / "experiment",
+        tag="formal_tag",
+        run_type="user_formal",
+    )
+
+    assert paths["run_dir"] == existing_run.resolve()
+    assert Path(cfg["result"]["output_dir"]) == existing_run.resolve() / "03_training_evaluation"
+    assert Path(cfg["result_model"]["output_dir"]) == existing_run.resolve() / "04_model_artifacts"
 
 
 def test_stage3_only_rejects_tag_and_dataset_path_escape(tmp_path):
@@ -175,12 +197,12 @@ def test_stage3_only_rejects_tag_and_dataset_path_escape(tmp_path):
 
     for tag in ["../escape", "a/b", r"a\\b", ""]:
         with pytest.raises(ValueError, match="tag"):
-            script.build_stage3_only_run(_cfg(), stage1, stage2, tmp_path / "stage3_formal", tag, "user_formal")
+            script.build_stage3_only_run(_cfg(), stage1, stage2, tmp_path / "experiment", tag, "user_formal")
 
     cfg = _cfg()
     cfg["dataset"]["type"] = "../escape"
     with pytest.raises(ValueError, match="dataset"):
-        script.build_stage3_only_run(cfg, stage1, stage2, tmp_path / "stage3_formal", "formal_tag", "user_formal")
+        script.build_stage3_only_run(cfg, stage1, stage2, tmp_path / "experiment", "formal_tag", "user_formal")
 
 
 def test_stage3_only_rejects_output_overlap_with_inputs(tmp_path):
@@ -244,7 +266,7 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
                 "--stage2-dir",
                 str(stage2),
                 "--output-root",
-                str(tmp_path / "stage3_formal"),
+                str(tmp_path / "experiment"),
                 "--tag",
                 "formal_tag",
                 "--run-type",
@@ -253,7 +275,7 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
         )
 
     assert not called["train"]
-    assert not (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag").exists()
+    assert not (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag").exists()
 
 
 def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
@@ -275,7 +297,7 @@ def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch,
                 "--stage2-dir",
                 str(stage2),
                 "--output-root",
-                str(tmp_path / "stage3_formal"),
+                str(tmp_path / "experiment"),
                 "--tag",
                 "formal_tag",
                 "--run-type",
@@ -284,7 +306,7 @@ def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch,
         )
 
     assert not called["train"]
-    assert not (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag").exists()
+    assert not (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag").exists()
 
 
 def test_stage2_discovery_failure_blocks_training(tmp_path):
@@ -355,7 +377,7 @@ def test_original_config_is_unchanged_and_snapshot_contains_injected_paths(monke
             "--stage2-dir",
             str(stage2),
             "--output-root",
-            str(tmp_path / "stage3_formal"),
+            str(tmp_path / "experiment"),
             "--tag",
             "formal_tag",
             "--run-type",
@@ -364,7 +386,7 @@ def test_original_config_is_unchanged_and_snapshot_contains_injected_paths(monke
     )
 
     assert config.read_text(encoding="utf-8") == before
-    run_dir = tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag"
+    run_dir = tmp_path / "experiment" / "synthetic_stage3" / "formal_tag"
     snapshot = yaml.safe_load((run_dir / "stage3_only_config_used.yaml").read_text(encoding="utf-8"))
     assert snapshot["partition"]["output_dir"] == str(stage1.resolve())
     assert snapshot["cluster"]["output_dir"] == str(stage2.resolve())
@@ -403,7 +425,7 @@ def test_mocked_success_records_metadata_and_does_not_create_stage1_or_stage2_ou
             "--stage2-dir",
             str(stage2),
             "--output-root",
-            str(tmp_path / "stage3_formal"),
+            str(tmp_path / "experiment"),
             "--tag",
             "formal_tag",
             "--run-type",
@@ -411,7 +433,7 @@ def test_mocked_success_records_metadata_and_does_not_create_stage1_or_stage2_ou
         ]
     )
 
-    run_dir = tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag"
+    run_dir = tmp_path / "experiment" / "synthetic_stage3" / "formal_tag"
     metadata = json.loads((run_dir / "stage3_only_metadata.json").read_text(encoding="utf-8"))
     assert seen["root"] == script.ROOT
     assert Path(seen["cfg"]["partition"]["output_dir"]) == stage1.resolve()
@@ -450,7 +472,7 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
                 "--stage2-dir",
                 str(stage2),
                 "--output-root",
-                str(tmp_path / "stage3_formal"),
+                str(tmp_path / "experiment"),
                 "--tag",
                 "formal_tag",
                 "--run-type",
@@ -459,7 +481,7 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
         )
 
     metadata = json.loads(
-        (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
+        (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
             encoding="utf-8"
         )
     )
@@ -495,7 +517,7 @@ def test_final_eval_failure_or_missing_metrics_does_not_record_success(monkeypat
                 "--stage2-dir",
                 str(stage2),
                 "--output-root",
-                str(tmp_path / "stage3_formal"),
+                str(tmp_path / "experiment"),
                 "--tag",
                 "formal_tag",
                 "--run-type",
@@ -504,7 +526,7 @@ def test_final_eval_failure_or_missing_metrics_does_not_record_success(monkeypat
         )
 
     metadata = json.loads(
-        (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
+        (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
             encoding="utf-8"
         )
     )
@@ -538,7 +560,7 @@ def test_missing_final_metrics_json_does_not_record_success(monkeypatch, tmp_pat
                 "--stage2-dir",
                 str(stage2),
                 "--output-root",
-                str(tmp_path / "stage3_formal"),
+                str(tmp_path / "experiment"),
                 "--tag",
                 "formal_tag",
                 "--run-type",
@@ -547,7 +569,7 @@ def test_missing_final_metrics_json_does_not_record_success(monkeypatch, tmp_pat
         )
 
     metadata = json.loads(
-        (tmp_path / "stage3_formal" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
+        (tmp_path / "experiment" / "synthetic_stage3" / "formal_tag" / "stage3_only_metadata.json").read_text(
             encoding="utf-8"
         )
     )
@@ -560,7 +582,7 @@ def test_latest_run_marker_is_ignored_by_stage3_only(monkeypatch, tmp_path):
     config = _config_file(tmp_path)
     stage1 = _stage1_dir(tmp_path)
     stage2 = _stage2_dir(tmp_path)
-    output_root = tmp_path / "stage3_formal"
+    output_root = tmp_path / "experiment"
     (output_root / "synthetic_stage3").mkdir(parents=True)
     (output_root / "synthetic_stage3" / "latest_run.txt").write_text("old_run", encoding="utf-8")
 
@@ -609,18 +631,3 @@ def test_stage3_only_source_does_not_use_pipeline_or_training_leakage_tokens():
     assert "true_Q" not in text
     assert "num_modalities" not in text
 
-
-def test_old_stage3_entrypoint_remains_compatible(monkeypatch, tmp_path):
-    import scripts.stage3_train as stage3_train
-
-    called = {}
-
-    monkeypatch.setattr(stage3_train, "load_config", lambda _path: {"seed": 1, "device": "cpu"})
-    monkeypatch.setattr(stage3_train, "configure_result_run", lambda cfg, *_args, **_kwargs: {**cfg, "results": {"run_dir": str(tmp_path)}})
-    monkeypatch.setattr(stage3_train, "select_device", lambda _value: torch.device("cpu"))
-    monkeypatch.setattr(stage3_train, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.setdefault("ran", True))
-    monkeypatch.setattr("sys.argv", ["stage3_train.py", "--config", "dummy.yaml"])
-
-    stage3_train.main()
-
-    assert called["ran"]

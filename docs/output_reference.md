@@ -1,8 +1,8 @@
 # Output Reference
 
-当前 run 目录由 `utils.results.configure_result_run` 解析。正式配置默认写入 `local/results/<dataset>/<run_id>/`；formal 实验配置可写入 `local/results/formal/<dataset>/known_q/`。
+Stage 1 partition 和后续 experiment run 分开保存。Stage 1 默认写入 `local/results/partition/<dataset>/<modality_names>_<clients_per_modality>clients/`，Stage 2、Stage 3 和后续 D2D 实验默认写入 `local/results/experiment/<dataset>/<run_id>/`。
 
-## 01_dataset_partition
+## Stage 1 Partition
 
 - `train_clients/client_*.pt`：单模态 client payload，包含 samples、labels、`hidden_modality_id`、encoder type 和 input shape。
 - `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 metrics 和 evaluation-only oracle mapping。

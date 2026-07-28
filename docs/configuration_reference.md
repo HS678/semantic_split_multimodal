@@ -7,8 +7,8 @@
 - `seed`：随机种子。
 - `device`：`auto`、`cpu`、`cuda` 或 `mps`。
 - `experiment_name`：实验名，主要用于记录。
-- `results.base_dir`：当前 run 的根目录基准。
-- `results.run_id`：当前 run 名称。
+- `results.base_dir`：结果根目录基准，默认 `./local/results`。
+- `results.run_id`：experiment run 名称。Stage 2、Stage 3 和后续 D2D 推荐使用同一个 `run_id`，例如 `run_1`、`run_2`。
 - `num_modalities`：数据集真实模态数，用于配置和 sanity check；训练期不作为真实模态 oracle 使用。
 - `num_classes`：分类类别数。
 - `encoder_hidden_dim`：client encoder 输出维度。
@@ -31,7 +31,7 @@
 
 ## partition
 
-- `partition.output_dir`：Stage 1 输出目录，经过 `utils.results.configure_result_run` 后会落在当前 run 的 `01_dataset_partition/`。
+- `partition.output_dir`：Stage 1 输出根目录。经过 `utils.results.configure_result_run` 后会落在 `local/results/partition/<dataset>/`，实际划分目录由 loader 返回的模态名和 `clients_per_modality` 组成，例如 `acc-gyro_10clients/`。
 - `partition.clients_per_modality`：每个真实模态拆分出的单模态客户端数量。
 
 ## pretrain
@@ -50,7 +50,7 @@
 
 ## cluster
 
-- `cluster.output_dir`：Stage 2 输出目录，当前 run 中为 `02_cluster_results/`。
+- `cluster.output_dir`：Stage 2 输出目录。Stage2-only 推荐写入 `local/results/experiment/<dataset>/<run_id>/02_cluster_results/`。
 - `cluster.method`：`kmeans`、`hdbscan` 或 `isodata`。
 - `cluster.known_k`：known-Q 实验的聚类数量。
 - `cluster.isodata.*`：ISODATA 参数。
@@ -86,8 +86,8 @@
 
 ## result 和 result_model
 
-- `result.output_dir`：Stage 3 训练/eval 日志目录。
-- `result_model.output_dir`：checkpoint 和 mapping 产物目录。
+- `result.output_dir`：Stage 3 训练/eval 日志目录，推荐写入 `local/results/experiment/<dataset>/<run_id>/03_training_evaluation/`。
+- `result_model.output_dir`：checkpoint 和 mapping 产物目录，推荐写入 `local/results/experiment/<dataset>/<run_id>/04_model_artifacts/`。
 
 ## d2d
 

@@ -132,11 +132,11 @@ def build_stage3_only_run(cfg: dict, stage1_dir, stage2_dir, output_root, tag, r
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
         if _paths_overlap(run_dir, input_path):
             raise ValueError(f"Stage3 run directory must not overlap {input_label} input directory: {input_path}")
-    if run_dir.exists():
-        raise FileExistsError(f"Refusing to overwrite existing Stage3 run directory: {run_dir}")
-
     result_dir = run_dir / "03_training_evaluation"
     model_dir = run_dir / "04_model_artifacts"
+    for output_dir in [result_dir, model_dir]:
+        if output_dir.exists():
+            raise FileExistsError(f"Refusing to overwrite existing Stage3 output directory: {output_dir}")
     run_cfg = dict(cfg)
     run_cfg["partition"] = {**run_cfg.get("partition", {}), "output_dir": str(stage1_path)}
     run_cfg["cluster"] = {**run_cfg.get("cluster", {}), "output_dir": str(stage2_path)}
@@ -402,7 +402,7 @@ _metadata.start_monotonic = 0.0
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 3 only: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
     parser.add_argument("--config", required=True, help="Path to yaml config")
-    parser.add_argument("--stage1-dir", required=True, help="Frozen 01_dataset_partition directory")
+    parser.add_argument("--stage1-dir", required=True, help="Frozen Stage 1 partition directory")
     parser.add_argument("--stage2-dir", required=True, help="Frozen 02_cluster_results directory")
     parser.add_argument("--output-root", required=True, help="Root directory for isolated Stage3 outputs")
     parser.add_argument("--tag", required=True, help="Run tag under output-root/<dataset>/")
@@ -423,7 +423,7 @@ def main(argv=None):
     )
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
-    paths["run_dir"].mkdir(parents=True, exist_ok=False)
+    paths["run_dir"].mkdir(parents=True, exist_ok=True)
     paths["result_dir"].mkdir(parents=True, exist_ok=False)
     paths["model_dir"].mkdir(parents=True, exist_ok=False)
     _write_yaml(paths["config_snapshot"], run_cfg)

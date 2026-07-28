@@ -6,6 +6,7 @@ import torch
 
 from semantic_split_multimodal.data.client import Client
 from semantic_split_multimodal.data.registry import load_dataset
+from semantic_split_multimodal.utils.results import partition_signature
 
 
 def resolve_project_path(project_root: Path, value: str) -> Path:
@@ -25,14 +26,18 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     dataset = load_dataset(cfg, project_root)
     partition_cfg = cfg.get("partition", {})
     output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "local/results/data_partition"))
-    train_clients_dir = output_dir / "train_clients"
-    train_clients_dir.mkdir(parents=True, exist_ok=True)
-
     train = dataset["train"]
     test = dataset["test"]
     modality_names = dataset["modality_names"]
     input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
+    if bool(partition_cfg.get("auto_signature_dir", False)):
+        output_dir = output_dir / partition_signature(modality_names, clients_per_modality)
+    if output_dir.exists() and any(output_dir.iterdir()) and not bool(partition_cfg.get("allow_existing", False)):
+        raise FileExistsError(f"Refusing to overwrite existing Stage1 partition directory: {output_dir}")
+    train_clients_dir = output_dir / "train_clients"
+    train_clients_dir.mkdir(parents=True, exist_ok=True)
+
     seed = int(cfg.get("seed", 42))
 
     client_rows = []

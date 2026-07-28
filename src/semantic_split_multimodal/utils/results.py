@@ -1,7 +1,11 @@
 from datetime import datetime
 from pathlib import Path
+import re
 
 import yaml
+
+
+SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _resolve_project_path(project_root: Path, value: str) -> Path:
@@ -21,12 +25,49 @@ def dataset_result_name(cfg: dict) -> str:
     return str(dataset_cfg.get("name", dataset_cfg.get("type", "dataset"))).strip().lower()
 
 
+def safe_result_component(value) -> str:
+    text = str(value).strip().lower()
+    text = SAFE_COMPONENT.sub("_", text)
+    text = text.strip("._-")
+    return text or "default"
+
+
+def partition_signature(modality_names, clients_per_modality: int) -> str:
+    modality_part = "-".join(safe_result_component(name) for name in modality_names)
+    return f"{modality_part}_{int(clients_per_modality)}clients"
+
+
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
     cfg = dict(cfg)
     result_cfg = dict(cfg.get("results", {}))
     base_dir = _resolve_project_path(project_root, result_cfg.get("base_dir", "./local/results"))
     dataset_name = dataset_result_name(cfg)
-    dataset_dir = base_dir / dataset_name
+    if stage == "stage1_partition":
+        dataset_dir = base_dir / "partition" / dataset_name
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        clients_per_modality = int(
+            cfg.get("partition", {}).get("clients_per_modality", cfg.get("clients_per_modality", 10))
+        )
+        paths = {
+            "base_dir": str(base_dir),
+            "dataset_dir": str(dataset_dir),
+            "run_id": "",
+            "run_dir": str(dataset_dir),
+            "data_partition": str(dataset_dir),
+            "cluster": "",
+            "logs": "",
+            "models": "",
+        }
+        cfg["results"] = {**result_cfg, **paths}
+        cfg["partition"] = {
+            **cfg.get("partition", {}),
+            "output_dir": str(dataset_dir),
+            "auto_signature_dir": True,
+            "clients_per_modality": clients_per_modality,
+        }
+        return cfg
+
+    dataset_dir = base_dir / "experiment" / dataset_name
     latest_path = dataset_dir / "latest_run.txt"
 
     run_id = result_cfg.get("run_id")

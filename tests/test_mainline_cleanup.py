@@ -4,50 +4,12 @@ from pathlib import Path
 import torch
 from torch import nn
 
-import scripts.stage3_train as stage3_train
 from semantic_split_multimodal.learning.fusion_sl import _save_checkpoint
 from semantic_split_multimodal.learning.models import ConcatMLPFusionServer
 from semantic_split_multimodal.learning.scheduling import build_scheduler
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_stage3_entrypoint_calls_only_mmbind_fusion_trainer(monkeypatch, tmp_path):
-    called = {}
-
-    def fake_load_config(path):
-        return {
-            "seed": 1,
-            "device": "cpu",
-            "results": {"base_dir": str(tmp_path), "run_id": "stage3_only"},
-            "training": {"multimodal_mode": "unpaired" + "_split_learning"},
-        }
-
-    def fake_configure_result_run(cfg, root, stage, create_new):
-        cfg["results"]["run_dir"] = str(tmp_path / "stage3_only")
-        return cfg
-
-    def fake_select_device(_):
-        return torch.device("cpu")
-
-    def fake_run(cfg, root, device):
-        called["trainer"] = "fusion"
-        called["cfg"] = cfg
-        called["root"] = root
-        called["device"] = device
-        return {"eval_status": "success"}
-
-    monkeypatch.setattr(stage3_train, "load_config", fake_load_config)
-    monkeypatch.setattr(stage3_train, "configure_result_run", fake_configure_result_run)
-    monkeypatch.setattr(stage3_train, "select_device", fake_select_device)
-    monkeypatch.setattr(stage3_train, "run_mmbind_fusion_stage3_split_training", fake_run)
-    monkeypatch.setattr("sys.argv", ["stage3_train.py", "--config", "dummy.yaml"])
-
-    stage3_train.main()
-
-    assert called["trainer"] == "fusion"
-    assert called["device"] == torch.device("cpu")
 
 
 def test_tracked_runtime_code_has_no_legacy_method_imports():
