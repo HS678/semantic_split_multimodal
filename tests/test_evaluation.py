@@ -110,7 +110,7 @@ def _write_csv(path: Path, fieldnames, rows):
 
 def _write_inputs(tmp_path: Path, meta_rows, assignment_rows):
     meta = tmp_path / "client_meta.csv"
-    assignments = tmp_path / "cluster_assignments.csv"
+    assignments = tmp_path / "pred_cluster.csv"
     _write_csv(meta, ["client_id", "hidden_modality_id"], meta_rows)
     _write_csv(assignments, ["client_id", "pred_cluster"], assignment_rows)
     return meta, assignments

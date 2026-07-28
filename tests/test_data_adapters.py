@@ -126,7 +126,7 @@ def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwr
 
     info = run_stage1_partition(cfg, tmp_path)
 
-    expected = tmp_path / "results" / "partition" / "synthetic_layout" / "acc-gyro_2clients"
+    expected = tmp_path / "results" / "partition" / "synthetic_layout" / "acc_2clients_gyro_2clients"
     assert Path(info["output_dir"]) == expected.resolve()
     assert (expected / "train_clients").exists()
     assert not (tmp_path / "results" / "partition" / "synthetic_layout" / "latest_run.txt").exists()

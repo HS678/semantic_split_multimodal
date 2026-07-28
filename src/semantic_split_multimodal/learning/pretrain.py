@@ -1,5 +1,4 @@
 import csv
-import json
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +6,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from semantic_split_multimodal.discovery.clustering import adaptive_isodata, run_hdbscan, run_isodata, run_kmeans
+from semantic_split_multimodal.discovery.clustering import adaptive_isodata, run_kmeans
 from semantic_split_multimodal.discovery.fingerprint import build_fingerprints
 from semantic_split_multimodal.data.client import Client
 from semantic_split_multimodal.data.partitioner import resolve_project_path
@@ -66,10 +65,8 @@ def _pretrain_client_encoder(client: Client, cfg: dict, device):
 def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "local/results/data_partition"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "local/results/cluster"))
-    result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "local/logs"))
     encoder_dir = cluster_dir / "pretrained_encoders"
     encoder_dir.mkdir(parents=True, exist_ok=True)
-    result_dir.mkdir(parents=True, exist_ok=True)
 
     clients = _load_clients(partition_dir)
     encoders = {}
@@ -91,19 +88,18 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
         encoder.to(device)
 
     fingerprints = build_fingerprints(clients, encoders, cfg, device)
-    np.save(cluster_dir / "fingerprints.npy", fingerprints)
 
     cluster_cfg = cfg.get("cluster", {})
-    method = str(cluster_cfg.get("method", "isodata")).lower()
+    method = str(cluster_cfg.get("method", "adaptive_isodata")).lower()
+    if method == "adaptive":
+        method = "adaptive_isodata"
     raw_k = cluster_cfg.get("known_k")
     known_k = None if raw_k is None or str(raw_k).lower() in {"auto", "none", "null"} else int(raw_k)
     seed = int(cfg.get("seed", 42))
     adaptive_diagnostics = None
     if method == "kmeans":
         pred = run_kmeans(fingerprints, known_k, seed=seed)
-    elif method == "isodata":
-        pred = run_isodata(fingerprints, known_k, seed=seed, **dict(cluster_cfg.get("isodata", {})))
-    elif method in {"adaptive_isodata", "adaptive"}:
+    elif method == "adaptive_isodata":
         if known_k is not None:
             raise ValueError("cluster.known_k must be null when cluster.method is adaptive_isodata.")
         pred, adaptive_diagnostics = adaptive_isodata(
@@ -111,10 +107,8 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
             seed=seed,
             **dict(cluster_cfg.get("adaptive", {})),
         )
-    elif method == "hdbscan":
-        pred = run_hdbscan(fingerprints, seed=seed, **dict(cluster_cfg.get("hdbscan", {})))
     else:
-        raise ValueError("cluster.method must be 'kmeans', 'hdbscan', 'isodata', or 'adaptive_isodata'.")
+        raise ValueError("cluster.method must be 'kmeans' or 'adaptive_isodata'.")
 
     true = np.array([client.hidden_modality_id for client in clients], dtype=int)
     pred = np.asarray(pred, dtype=int)
@@ -155,44 +149,27 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
             }
         )
 
-    rows = []
+    true_rows = []
+    pred_rows = []
     for client, pred_cluster in zip(clients, pred):
-        rows.append(
+        true_rows.append(
             {
                 "client_id": client.client_id,
-                "hidden_modality_id": int(client.hidden_modality_id),
+                "true_cluster": int(client.hidden_modality_id),
+            }
+        )
+        pred_rows.append(
+            {
+                "client_id": client.client_id,
                 "pred_cluster": int(pred_cluster),
             }
         )
-    with (cluster_dir / "cluster_assignments.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["client_id", "hidden_modality_id", "pred_cluster"])
+    with (cluster_dir / "true_cluster.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["client_id", "true_cluster"])
         writer.writeheader()
-        writer.writerows(rows)
-    for path in [cluster_dir / "cluster_metrics.json", result_dir / "cluster_metrics.json"]:
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
-    with (cluster_dir / "cluster_config.json").open("w", encoding="utf-8") as f:
-        json.dump({"cluster": cluster_cfg, "pretrain": cfg.get("pretrain", {}), "fingerprint": cfg.get("fingerprint", {})}, f, indent=2)
-    if adaptive_diagnostics is not None:
-        with (cluster_dir / "adaptive_diagnostics.json").open("w", encoding="utf-8") as f:
-            json.dump(adaptive_diagnostics, f, indent=2)
-        with (result_dir / "adaptive_diagnostics.json").open("w", encoding="utf-8") as f:
-            json.dump(adaptive_diagnostics, f, indent=2)
-    with (result_dir / "cluster_result.txt").open("w", encoding="utf-8") as f:
-        f.write(f"method: {method}\n")
-        f.write(f"known_k: {known_k}\n")
-        if adaptive_diagnostics is not None:
-            f.write(f"q_source: {adaptive_diagnostics['q_source']}\n")
-            f.write(f"boundary_saturation: {adaptive_diagnostics['boundary_saturation']}\n")
-            f.write(f"selection_confidence: {adaptive_diagnostics['selection_confidence']}\n")
-            f.write(f"assignment_stability: {adaptive_diagnostics['assignment_stability']}\n")
-        f.write(f"true_Q: {metrics['true_Q']}\n")
-        f.write(f"estimated_Q: {metrics['estimated_Q']}\n")
-        f.write(f"abs_Q_error: {metrics['abs_Q_error']}\n")
-        f.write(f"estimated_num_clusters: {metrics['estimated_num_clusters']}\n")
-        f.write(f"discovery_status: {metrics['discovery_status']}\n")
-        f.write(f"hungarian_ACC: {metrics['hungarian_ACC']:.6f}\n")
-        f.write(f"ACC: {metrics['ACC']:.6f}\n")
-        f.write(f"NMI: {metrics['NMI']:.6f}\n")
-        f.write(f"ARI: {metrics['ARI']:.6f}\n")
+        writer.writerows(true_rows)
+    with (cluster_dir / "pred_cluster.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["client_id", "pred_cluster"])
+        writer.writeheader()
+        writer.writerows(pred_rows)
     return metrics

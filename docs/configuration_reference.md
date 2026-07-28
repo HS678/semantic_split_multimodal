@@ -1,6 +1,6 @@
 # Configuration Reference
 
-三个正式配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml` 和 `configs/pamap2.yaml`。Stage 3 不再需要方法选择字段，入口固定执行正式 fusion Split Learning。
+三个正式配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml` 和 `configs/pamap2.yaml`。
 
 ## 顶层字段
 
@@ -8,8 +8,7 @@
 - `device`：`auto`、`cpu`、`cuda` 或 `mps`。
 - `experiment_name`：实验名，主要用于记录。
 - `results.base_dir`：结果根目录基准，默认 `./local/results`。
-- `results.run_id`：experiment run 名称。Stage 2、Stage 3 和后续 D2D 推荐使用同一个 `run_id`，例如 `run_1`、`run_2`。
-- `num_modalities`：数据集真实模态数，用于配置和 sanity check；训练期不作为真实模态 oracle 使用。
+- `num_modalities`：数据集真实模态数，只用于配置记录和 sanity check；训练阶段不作为 oracle 使用。
 - `num_classes`：分类类别数。
 - `encoder_hidden_dim`：client encoder 输出维度。
 - `learning_rate`、`batch_size`：兼容默认值；Stage 3 优先读取 `training.*`。
@@ -21,18 +20,17 @@
 - `dataset.modality_scheme`：传感器到模态的划分方案。
 - `dataset.train_subjects` / `dataset.test_subjects`：subject split。
 - `dataset.window_size` / `dataset.stride`：时间序列窗口设置。
-- 其他数据集字段：过滤、归一化和标签纯度设置，按 loader 实际支持字段读取。
-
-## model
-
-- `model.encoder.type`：当前三数据集使用 `time_series`。
-- `model.encoder.conv_channels`、`kernel_sizes`、`dropout`：1D encoder 参数。
-- `model.server.*`：server/fusion 的默认维度来源；`fusion.*` 会覆盖 fusion server 的主要参数。
 
 ## partition
 
-- `partition.output_dir`：Stage 1 输出根目录。经过 `utils.results.configure_result_run` 后会落在 `local/results/partition/<dataset>/`，实际划分目录由 loader 返回的模态名和 `clients_per_modality` 组成，例如 `acc-gyro_10clients/`。
+- `partition.output_dir`：Stage 1 输出目录。正式脚本会写入 `local/results/partition/<dataset>/<partition_signature>/`。
 - `partition.clients_per_modality`：每个真实模态拆分出的单模态客户端数量。
+
+`partition_signature` 由模态名和客户端数量组成，例如：
+
+```text
+acc_10clients_gyro_10clients
+```
 
 ## pretrain
 
@@ -50,10 +48,10 @@
 
 ## cluster
 
-- `cluster.output_dir`：Stage 2 输出目录。Stage2-only 推荐写入 `local/results/experiment/<dataset>/<run_id>/02_cluster_results/`。
-- `cluster.method`：`kmeans`、`hdbscan` 或 `isodata`。
-- `cluster.known_k`：known-Q 实验的聚类数量。
-- `cluster.isodata.*`：ISODATA 参数。
+- `cluster.output_dir`：Stage 2 输出目录。正式 CLI 会注入为 `local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/`。
+- `cluster.method`：只支持 `kmeans` 或 `adaptive_isodata`。
+- `cluster.known_k`：known-Q kmeans 实验的聚类数量；unknown-Q adaptive ISODATA 应为 `null`。
+- `cluster.adaptive.*`：adaptive ISODATA 参数，三个公开数据集应保持统一。
 
 ## training
 
@@ -80,14 +78,15 @@
 - `fusion.num_layers`：concat MLP hidden layer 数。
 - `fusion.dropout`：fusion dropout。
 
-## evaluation
-
-- `evaluation.metrics`：记录期望输出的 learning metrics。正式 evaluation 实际输出 loss、accuracy、macro-F1 和样本数。
-
 ## result 和 result_model
 
-- `result.output_dir`：Stage 3 训练/eval 日志目录，推荐写入 `local/results/experiment/<dataset>/<run_id>/03_training_evaluation/`。
-- `result_model.output_dir`：checkpoint 和 mapping 产物目录，推荐写入 `local/results/experiment/<dataset>/<run_id>/04_model_artifacts/`。
+Stage 3 CLI 会把二者都注入到：
+
+```text
+local/results/experiments/<dataset>/<run_id>/
+```
+
+训练日志、评估日志、最佳指标、最终指标、最佳模型和最终模型都直接保存在该目录下。
 
 ## d2d
 

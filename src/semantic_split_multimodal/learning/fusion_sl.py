@@ -5,7 +5,6 @@ from pathlib import Path
 
 import torch
 from torch import nn
-import yaml
 
 from semantic_split_multimodal.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch, common_labels_for_clusters
 from semantic_split_multimodal.data.partitioner import resolve_project_path
@@ -61,7 +60,7 @@ def _read_assignments(path: Path):
 
 
 def _load_clients(cfg, partition_dir: Path, cluster_dir: Path, device):
-    assignments = _read_assignments(cluster_dir / "cluster_assignments.csv")
+    assignments = _read_assignments(cluster_dir / "pred_cluster.csv")
     encoder_dir = cluster_dir / "pretrained_encoders"
     clients = []
     for path in sorted((partition_dir / "train_clients").glob("client_*.pt")):
@@ -264,16 +263,13 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "local/results/cluster"))
     result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "local/logs"))
     model_dir = resolve_project_path(project_root, cfg.get("result_model", {}).get("output_dir", "local/checkpoints"))
-    best_client_dir = model_dir / "best_client_encoders"
     result_dir.mkdir(parents=True, exist_ok=True)
-    best_client_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
 
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     clients_by_id = {client.client_id: client for client in clients}
     cluster_ids = sorted({int(client.pred_cluster) for client in clients})
     cluster_to_slot = {int(cluster_id): int(slot) for slot, cluster_id in enumerate(cluster_ids)}
-    with (model_dir / "cluster_to_slot.json").open("w", encoding="utf-8") as f:
-        json.dump({str(cluster_id): slot for cluster_id, slot in cluster_to_slot.items()}, f, indent=2, sort_keys=True)
     clients_per_cluster = cfg.get("training", {}).get("clients_per_cluster_per_round")
     if clients_per_cluster is not None:
         clients_per_round = int(clients_per_cluster) * len(cluster_ids)
@@ -396,8 +392,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             if round_idx % eval_every == 0 or round_idx == rounds:
                 oracle_mapping = build_oracle_eval_mapping(
                     partition_dir / "client_meta.csv",
-                    cluster_dir / "cluster_assignments.csv",
-                    model_dir / "oracle_eval_modality_to_cluster.json",
+                    cluster_dir / "pred_cluster.csv",
                 )
                 final_eval = evaluate_naturally_paired_fusion(
                     server,
@@ -419,19 +414,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                 )
                 if final_eval["eval_status"] == "success" and final_eval["macro_f1"] > best_metrics["macro_f1"]:
                     best_metrics = {"round": round_idx, **final_eval}
-                    torch.save(server.state_dict(), model_dir / "best_server_model.pt")
-                    for client in clients:
-                        torch.save(
-                            {
-                                "client_id": client.client_id,
-                                "pred_cluster": int(client.pred_cluster),
-                                "state_dict": client.encoder.cpu().state_dict(),
-                            },
-                            best_client_dir / f"{client.client_id}_encoder.pt",
-                        )
-                        client.encoder.to(device)
                     _save_checkpoint(
-                        model_dir / "best_mmbind_fusion_checkpoint.pt",
+                        model_dir / "best_model.pt",
                         server,
                         clients,
                         cfg,
@@ -466,12 +450,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         json.dump(final_metrics, f, indent=2)
     with (result_dir / "best_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(best_metrics, f, indent=2)
-    with (result_dir / "config_used.yaml").open("w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, sort_keys=False)
-    with (model_dir / "best_model_info.json").open("w", encoding="utf-8") as f:
-        json.dump({"best_metrics": best_metrics, "cluster_ids": cluster_ids, "cluster_to_slot": cluster_to_slot}, f, indent=2)
     _save_checkpoint(
-        model_dir / "last_mmbind_fusion_checkpoint.pt",
+        model_dir / "final_model.pt",
         server,
         clients,
         cfg,

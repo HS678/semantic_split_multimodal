@@ -9,9 +9,7 @@ import subprocess
 import sys
 import time
 
-import numpy as np
 import torch
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -101,13 +99,7 @@ def _load_json(path: Path, label: str):
         return json.load(f)
 
 
-def _load_yaml(path: Path, label: str):
-    _require_readable_file(path, label)
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def build_stage3_only_run(cfg: dict, stage1_dir, stage2_dir, output_root, tag, run_type="codex_test"):
+def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id, run_type="codex_test"):
     run_type = str(run_type)
     if run_type not in {"codex_test", "user_formal"}:
         raise ValueError("run_type must be 'codex_test' or 'user_formal'.")
@@ -121,48 +113,41 @@ def build_stage3_only_run(cfg: dict, stage1_dir, stage2_dir, output_root, tag, r
         raise ValueError(f"codex_test output_root must be under {CODEX_RESULTS_ROOT}, got {output_root_path}")
 
     dataset_name = _validate_path_component(dataset_result_name(cfg), "dataset")
-    run_tag = _validate_path_component(tag, "tag")
+    resolved_run_id = _validate_path_component(run_id, "run_id")
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
         if _paths_overlap(output_root_path, input_path):
             raise ValueError(f"output_root must not overlap {input_label} input directory: {input_path}")
 
-    run_dir = (output_root_path / dataset_name / run_tag).resolve()
+    run_dir = (output_root_path / dataset_name / resolved_run_id).resolve()
     if not _is_relative_to(run_dir, output_root_path):
         raise ValueError(f"Stage3 run directory escaped output_root: {run_dir}")
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
         if _paths_overlap(run_dir, input_path):
             raise ValueError(f"Stage3 run directory must not overlap {input_label} input directory: {input_path}")
-    result_dir = run_dir / "03_training_evaluation"
-    model_dir = run_dir / "04_model_artifacts"
-    for output_dir in [result_dir, model_dir]:
-        if output_dir.exists():
-            raise FileExistsError(f"Refusing to overwrite existing Stage3 output directory: {output_dir}")
+    if run_dir.exists() and any(run_dir.iterdir()):
+        raise FileExistsError(f"Refusing to overwrite existing Stage3 run directory: {run_dir}")
+
     run_cfg = dict(cfg)
     run_cfg["partition"] = {**run_cfg.get("partition", {}), "output_dir": str(stage1_path)}
     run_cfg["cluster"] = {**run_cfg.get("cluster", {}), "output_dir": str(stage2_path)}
-    run_cfg["result"] = {**run_cfg.get("result", {}), "output_dir": str(result_dir)}
-    run_cfg["result_model"] = {**run_cfg.get("result_model", {}), "output_dir": str(model_dir)}
-    run_cfg["stage3_only"] = {
+    run_cfg["result"] = {**run_cfg.get("result", {}), "output_dir": str(run_dir)}
+    run_cfg["result_model"] = {**run_cfg.get("result_model", {}), "output_dir": str(run_dir)}
+    run_cfg["stage3"] = {
         "run_type": run_type,
         "stage1_dir": str(stage1_path),
         "stage2_dir": str(stage2_path),
         "output_root": str(output_root_path),
         "run_dir": str(run_dir),
-        "result_dir": str(result_dir),
-        "model_dir": str(model_dir),
-        "tag": run_tag,
+        "run_id": resolved_run_id,
     }
     paths = {
         "stage1_dir": stage1_path,
         "stage2_dir": stage2_path,
         "output_root": output_root_path,
         "run_dir": run_dir,
-        "result_dir": result_dir,
-        "model_dir": model_dir,
-        "config_snapshot": run_dir / "stage3_only_config_used.yaml",
-        "metadata": run_dir / "stage3_only_metadata.json",
+        "metadata": run_dir / "stage3_metadata.json",
         "run_type": run_type,
-        "tag": run_tag,
+        "run_id": resolved_run_id,
         "dataset": dataset_name,
     }
     return run_cfg, paths
@@ -238,46 +223,51 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
 
 def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
     if not stage2_dir.exists() or not stage2_dir.is_dir():
-        raise FileNotFoundError(f"Missing Stage2 cluster results directory: {stage2_dir}")
-    assignments_path = stage2_dir / "cluster_assignments.csv"
-    metrics = _load_json(stage2_dir / "cluster_metrics.json", "Stage2 cluster_metrics.json")
-    diagnostics = _load_json(stage2_dir / "adaptive_diagnostics.json", "Stage2 adaptive_diagnostics.json")
-    _require_readable_file(stage2_dir / "fingerprints.npy", "Stage2 fingerprints.npy")
-    stage2_config_path = stage2_dir / "stage2_only_config_used.yaml"
-    stage2_config = _load_yaml(stage2_config_path, "Stage2 config snapshot") if stage2_config_path.exists() else None
-    metadata_path = stage2_dir / "stage2_only_metadata.json"
-    stage2_metadata = _load_json(metadata_path, "Stage2 metadata") if metadata_path.exists() else None
+        raise FileNotFoundError(f"Missing Stage2 cluster directory: {stage2_dir}")
+    pred_path = stage2_dir / "pred_cluster.csv"
+    true_path = stage2_dir / "true_cluster.csv"
+    metadata_path = stage2_dir / "stage2_metadata.json"
+    _require_readable_file(pred_path, "Stage2 pred_cluster.csv")
+    _require_readable_file(true_path, "Stage2 true_cluster.csv")
+    stage2_metadata = _load_json(metadata_path, "Stage2 stage2_metadata.json")
     encoder_dir = stage2_dir / "pretrained_encoders"
     if not encoder_dir.exists() or not encoder_dir.is_dir():
         raise FileNotFoundError(f"Missing Stage2 pretrained_encoders directory: {encoder_dir}")
 
+    metrics = stage2_metadata.get("metrics", {})
     if metrics.get("discovery_status") != "discovery_success":
         raise ValueError(f"Stage2 discovery_status must be discovery_success, got {metrics.get('discovery_status')}")
-    if metrics.get("method") not in {"adaptive_isodata", "adaptive"}:
-        raise ValueError(f"Stage2 input must come from adaptive discovery, got method={metrics.get('method')}")
-
+    method = stage2_metadata.get("cluster_method") or metrics.get("method")
+    if method not in {"kmeans", "adaptive_isodata"}:
+        raise ValueError(f"Stage2 input must come from kmeans or adaptive_isodata, got method={method}")
+    metadata_dataset = str(stage2_metadata.get("dataset", "")).strip().lower()
     cfg_dataset = dataset_result_name(cfg)
-    if stage2_config:
-        stage2_dataset = dataset_result_name(stage2_config)
-        if stage2_dataset != cfg_dataset:
-            raise ValueError(f"Stage2 dataset mismatch: config={cfg_dataset}, stage2={stage2_dataset}")
+    if metadata_dataset and metadata_dataset != cfg_dataset:
+        raise ValueError(f"Stage2 dataset mismatch: config={cfg_dataset}, stage2={metadata_dataset}")
 
-    rows = _read_csv_rows(assignments_path)
+    rows = _read_csv_rows(pred_path)
     if not rows:
-        raise ValueError("Stage2 cluster_assignments.csv is empty.")
+        raise ValueError("Stage2 pred_cluster.csv is empty.")
     if "pred_cluster" not in rows[0]:
-        raise ValueError("Stage2 cluster_assignments.csv must contain pred_cluster.")
+        raise ValueError("Stage2 pred_cluster.csv must contain pred_cluster.")
     assignment_ids = [row.get("client_id") for row in rows]
     if any(not client_id for client_id in assignment_ids):
-        raise ValueError("Stage2 cluster_assignments.csv must contain non-empty client_id values.")
+        raise ValueError("Stage2 pred_cluster.csv must contain non-empty client_id values.")
     if len(set(assignment_ids)) != len(assignment_ids):
-        raise ValueError("Stage2 cluster_assignments.csv contains duplicate client_id values.")
+        raise ValueError("Stage2 pred_cluster.csv contains duplicate client_id values.")
     stage1_ids = set(stage1_audit["client_ids"])
     assignment_set = set(assignment_ids)
     if assignment_set != stage1_ids:
         missing = sorted(stage1_ids - assignment_set)
         unknown = sorted(assignment_set - stage1_ids)
         raise ValueError(f"Stage2 client IDs mismatch Stage1: missing={missing}, unknown={unknown}")
+
+    true_rows = _read_csv_rows(true_path)
+    true_ids = {row.get("client_id") for row in true_rows}
+    if true_ids != stage1_ids:
+        missing = sorted(stage1_ids - true_ids)
+        unknown = sorted(true_ids - stage1_ids)
+        raise ValueError(f"Stage2 true cluster IDs mismatch Stage1: missing={missing}, unknown={unknown}")
 
     clusters = []
     for row in rows:
@@ -289,17 +279,11 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
             raise ValueError(f"pred_cluster must be non-negative, got {cluster_id}")
         clusters.append(cluster_id)
     cluster_ids = sorted(set(clusters))
-    estimated_q = int(metrics.get("estimated_Q", metrics.get("estimated_num_clusters", 0)))
+    estimated_q = int(metrics.get("estimated_Q", metrics.get("estimated_num_clusters", len(cluster_ids))))
     if estimated_q <= 0:
         raise ValueError(f"Stage2 estimated_Q must be positive, got {estimated_q}")
     if len(cluster_ids) != estimated_q:
         raise ValueError(f"Stage2 estimated_Q mismatch: unique_pred_clusters={len(cluster_ids)}, estimated_Q={estimated_q}")
-    if diagnostics.get("estimated_Q") is not None and int(diagnostics["estimated_Q"]) != len(cluster_ids):
-        raise ValueError("Stage2 adaptive diagnostics estimated_Q does not match cluster assignments.")
-
-    fingerprints = np.load(stage2_dir / "fingerprints.npy")
-    if int(fingerprints.shape[0]) != len(stage1_ids):
-        raise ValueError(f"Stage2 fingerprints row count mismatch: {fingerprints.shape[0]} vs clients={len(stage1_ids)}")
 
     encoder_files = sorted(encoder_dir.glob("*_encoder.pt"))
     encoder_client_ids = [path.name[: -len("_encoder.pt")] for path in encoder_files]
@@ -311,24 +295,18 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
         _require_readable_file(encoder_dir / f"{client_id}_encoder.pt", f"Stage2 encoder for {client_id}")
 
     return {
-        "cluster_assignments_path": str(assignments_path),
-        "cluster_metrics_path": str(stage2_dir / "cluster_metrics.json"),
-        "adaptive_diagnostics_path": str(stage2_dir / "adaptive_diagnostics.json"),
-        "fingerprints_path": str(stage2_dir / "fingerprints.npy"),
+        "pred_cluster_path": str(pred_path),
+        "true_cluster_path": str(true_path),
+        "metadata_path": str(metadata_path),
         "pretrained_encoders_dir": str(encoder_dir),
         "client_ids": sorted(assignment_ids),
         "num_clients": len(assignment_ids),
         "cluster_ids": cluster_ids,
         "estimated_Q": estimated_q,
         "discovery_status": metrics.get("discovery_status"),
-        "method": metrics.get("method"),
+        "method": method,
         "stage2_metadata": stage2_metadata,
     }
-
-
-def _write_yaml(path: Path, data: dict):
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
 
 
 def _write_json(path: Path, data: dict):
@@ -343,8 +321,10 @@ def _is_finite_number(value) -> bool:
 def _formal_completion_status(metrics: dict | None, paths: dict):
     if not isinstance(metrics, dict):
         return "failed", "training_function_returned_non_dict_metrics"
-    if not (paths["result_dir"] / "final_metrics.json").exists():
-        return "failed", "missing_final_metrics_json"
+    run_dir = paths["run_dir"]
+    for name in ["train_log.csv", "eval_log.csv", "final_metrics.json", "best_metrics.json", "best_model.pt", "final_model.pt"]:
+        if not (run_dir / name).exists():
+            return "failed", f"missing_{name}"
     final_eval = metrics.get("final_eval")
     if not isinstance(final_eval, dict):
         return "failed", "missing_final_eval"
@@ -362,19 +342,17 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
     stage2_audit = audit.get("stage2", {}) if audit else {}
     stage2_metadata = stage2_audit.get("stage2_metadata")
     return {
+        "stage": "stage3_train",
         "run_type": paths["run_type"],
-        "tag": paths["tag"],
+        "run_id": paths["run_id"],
         "dataset": paths["dataset"],
         "status": status,
         "failure_reason": failure_reason,
         "original_config_path": str(_resolve(args.config)),
-        "stage3_only_config_path": str(paths["config_snapshot"]),
         "stage1_dir": str(paths["stage1_dir"]),
         "stage2_dir": str(paths["stage2_dir"]),
         "output_root": str(paths["output_root"]),
         "run_dir": str(paths["run_dir"]),
-        "result_dir": str(paths["result_dir"]),
-        "model_dir": str(paths["model_dir"]),
         "git_branch": _git_branch(),
         "git_commit": _git_commit(),
         "git_dirty": _git_dirty(),
@@ -390,8 +368,9 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "fusion_mode": cfg.get("fusion", {}).get("type", "concat_mlp"),
         "estimated_Q": stage2_audit.get("estimated_Q"),
         "stage2_discovery_status": stage2_audit.get("discovery_status"),
+        "stage2_git_commit": None if not isinstance(stage2_metadata, dict) else stage2_metadata.get("git_commit"),
         "stage2_source_metadata": stage2_metadata,
-        "stage2_adaptive_discovery_freeze_sha": None if not stage2_metadata else stage2_metadata.get("git_commit"),
+        "config_snapshot": cfg,
         "metrics": metrics,
     }
 
@@ -400,33 +379,37 @@ _metadata.start_monotonic = 0.0
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Stage 3 only: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
+    parser = argparse.ArgumentParser(description="Stage 3: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
     parser.add_argument("--config", required=True, help="Path to yaml config")
     parser.add_argument("--stage1-dir", required=True, help="Frozen Stage 1 partition directory")
-    parser.add_argument("--stage2-dir", required=True, help="Frozen 02_cluster_results directory")
-    parser.add_argument("--output-root", required=True, help="Root directory for isolated Stage3 outputs")
-    parser.add_argument("--tag", required=True, help="Run tag under output-root/<dataset>/")
+    parser.add_argument("--stage2-dir", required=True, help="Frozen Stage 2 cluster directory")
+    parser.add_argument("--output-root", help="Root directory for Stage3 experiment outputs")
+    parser.add_argument("--run-id", required=True, help="Run id under output-root/<dataset>/")
     parser.add_argument("--run-type", choices=["codex_test", "user_formal"], required=True)
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
+    output_root = args.output_root
+    if not output_root:
+        if args.run_type == "codex_test":
+            output_root = CODEX_RESULTS_ROOT / "experiments"
+        else:
+            output_root = ROOT / "local" / "results" / "experiments"
+
     cfg = load_config(args.config)
-    run_cfg, paths = build_stage3_only_run(
+    run_cfg, paths = build_stage3_run(
         cfg,
         stage1_dir=args.stage1_dir,
         stage2_dir=args.stage2_dir,
-        output_root=args.output_root,
-        tag=args.tag,
+        output_root=output_root,
+        run_id=args.run_id,
         run_type=args.run_type,
     )
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)
-    paths["result_dir"].mkdir(parents=True, exist_ok=False)
-    paths["model_dir"].mkdir(parents=True, exist_ok=False)
-    _write_yaml(paths["config_snapshot"], run_cfg)
 
     start = _utc_now()
     _metadata.start_monotonic = time.time()
@@ -443,8 +426,8 @@ def main(argv=None):
     status, failure_reason = _formal_completion_status(metrics, paths)
     _write_json(paths["metadata"], _metadata(args, run_cfg, paths, audit, status, failure_reason, start, end, metrics=metrics))
     if status != "success":
-        raise RuntimeError(f"Stage3-only run did not complete successfully: {failure_reason}")
-    print("Stage 3 only finished.")
+        raise RuntimeError(f"Stage3 run did not complete successfully: {failure_reason}")
+    print("Stage 3 finished.")
     print(f"run_type={paths['run_type']}")
     print(f"stage1_dir={paths['stage1_dir']}")
     print(f"stage2_dir={paths['stage2_dir']}")

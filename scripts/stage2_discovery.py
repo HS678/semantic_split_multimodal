@@ -1,0 +1,171 @@
+﻿import argparse
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from semantic_split_multimodal.learning.pretrain import run_stage2_discovery
+from semantic_split_multimodal.utils.config import load_config
+from semantic_split_multimodal.utils.device import select_device
+from semantic_split_multimodal.utils.results import dataset_result_name, safe_result_component
+from semantic_split_multimodal.utils.seed import set_seed
+
+
+CODEX_RESULTS_ROOT = (ROOT / "local" / "results" / "codex").resolve()
+
+
+def _resolve(path_value):
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = ROOT / path
+    return path.resolve()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _git_commit():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _cluster_method_name(cfg: dict) -> str:
+    method = str(cfg.get("cluster", {}).get("method", "adaptive_isodata")).lower()
+    if method == "adaptive":
+        method = "adaptive_isodata"
+    if method not in {"kmeans", "adaptive_isodata"}:
+        raise ValueError("cluster.method must be 'kmeans' or 'adaptive_isodata'.")
+    return safe_result_component(method)
+
+
+def build_stage2_run(cfg: dict, stage1_dir, output_root, run_type="codex_test"):
+    run_type = str(run_type)
+    if run_type not in {"codex_test", "user_formal"}:
+        raise ValueError("run_type must be 'codex_test' or 'user_formal'.")
+
+    partition_dir = _resolve(stage1_dir)
+    if not partition_dir.exists():
+        raise FileNotFoundError(f"Missing Stage1 directory: {partition_dir}")
+    if not (partition_dir / "train_clients").exists():
+        raise FileNotFoundError(f"Missing train_clients under Stage1 directory: {partition_dir}")
+
+    output_root_path = _resolve(output_root)
+    if run_type == "codex_test" and not _is_relative_to(output_root_path, CODEX_RESULTS_ROOT):
+        raise ValueError(f"codex_test output_root must be under {CODEX_RESULTS_ROOT}, got {output_root_path}")
+    dataset_name = safe_result_component(dataset_result_name(cfg))
+    partition_name = safe_result_component(partition_dir.name)
+    method_name = _cluster_method_name(cfg)
+    cluster_dir = (output_root_path / dataset_name / partition_name / method_name).resolve()
+    if cluster_dir.exists():
+        raise FileExistsError(f"Refusing to overwrite existing Stage2 output directory: {cluster_dir}")
+
+    run_cfg = dict(cfg)
+    run_cfg["partition"] = {**run_cfg.get("partition", {}), "output_dir": str(partition_dir)}
+    run_cfg["cluster"] = {**run_cfg.get("cluster", {}), "output_dir": str(cluster_dir), "method": method_name}
+    run_cfg["result"] = {**run_cfg.get("result", {}), "output_dir": str(cluster_dir)}
+    run_cfg["stage2"] = {
+        "run_type": run_type,
+        "stage1_dir": str(partition_dir),
+        "output_root": str(output_root_path),
+        "cluster_dir": str(cluster_dir),
+        "dataset": dataset_name,
+        "partition_signature": partition_name,
+        "cluster_method": method_name,
+    }
+    return run_cfg, {
+        "partition_dir": partition_dir,
+        "output_root": output_root_path,
+        "cluster_dir": cluster_dir,
+        "run_type": run_type,
+        "dataset": dataset_name,
+        "partition_signature": partition_name,
+        "cluster_method": method_name,
+    }
+
+
+def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_seconds: float):
+    paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "stage": "stage2_discovery",
+        "run_type": paths["run_type"],
+        "dataset": paths["dataset"],
+        "partition_signature": paths["partition_signature"],
+        "cluster_method": paths["cluster_method"],
+        "stage1_dir": str(paths["partition_dir"]),
+        "output_root": str(paths["output_root"]),
+        "cluster_dir": str(paths["cluster_dir"]),
+        "git_commit": _git_commit(),
+        "runtime_seconds": float(runtime_seconds),
+        "seed": int(cfg.get("seed", 42)),
+        "config_snapshot": cfg,
+        "metrics": metrics,
+    }
+    with (paths["cluster_dir"] / "stage2_metadata.json").open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Stage 2: discover modality clusters from a frozen Stage1 partition.")
+    parser.add_argument("--config", required=True, help="Path to yaml config")
+    parser.add_argument("--stage1-dir", required=True, help="Existing Stage 1 partition directory, read-only input")
+    parser.add_argument("--output-root", help="Root directory for Stage2 cluster outputs")
+    parser.add_argument("--run-type", choices=["codex_test", "user_formal"], default="codex_test")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if not args.output_root:
+        if args.run_type == "codex_test":
+            output_root = CODEX_RESULTS_ROOT / "cluster"
+        else:
+            output_root = ROOT / "local" / "results" / "cluster"
+    else:
+        output_root = args.output_root
+
+    cfg = load_config(args.config)
+    cfg, paths = build_stage2_run(
+        cfg,
+        stage1_dir=args.stage1_dir,
+        output_root=output_root,
+        run_type=args.run_type,
+    )
+    paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
+
+    start = time.time()
+    set_seed(int(cfg.get("seed", 42)))
+    device = select_device(cfg.get("device", "auto"))
+    metrics = run_stage2_discovery(cfg, ROOT, device)
+    runtime_seconds = time.time() - start
+    _write_metadata(paths, cfg, metrics, runtime_seconds)
+
+    print("Stage 2 finished.")
+    print(f"run_type={paths['run_type']}")
+    print(f"stage1_dir={paths['partition_dir']}")
+    print(f"cluster_dir={paths['cluster_dir']}")
+    print(f"estimated_Q={metrics['estimated_Q']}")
+    print(f"abs_Q_error={metrics['abs_Q_error']}")
+    print(f"discovery_status={metrics['discovery_status']}")
+    print(f"ACC={metrics['ACC']:.6f}, NMI={metrics['NMI']:.6f}, ARI={metrics['ARI']:.6f}")
+
+
+if __name__ == "__main__":
+    main()

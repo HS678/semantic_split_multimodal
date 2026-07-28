@@ -20,7 +20,7 @@
 
 - 每个 modality tensor 的第 0 维必须与 labels 对齐。
 - Stage 1 会独立切分每个模态，生成单模态 clients。
-- 真实 modality name/id 只用于 discovery metrics 和 evaluation-only oracle mapping。
+- 真实 modality name/id 只用于 discovery audit 和 evaluation-only oracle mapping。
 - 不要把真实模态数或真实模态名传入训练、binding、fusion slot 构造。
 
 ## Encoder
@@ -37,7 +37,18 @@ model:
 
 ## 聚类
 
-fingerprint 与 clustering 位于 `src/semantic_split_multimodal/discovery/`。支持 `kmeans`、`hdbscan`、`isodata`，`known_k: null` 时保持现有估计逻辑。
+fingerprint 与 clustering 位于 `src/semantic_split_multimodal/discovery/`。当前只保留：
+
+- `kmeans`
+- `adaptive_isodata`
+
+新增聚类算法前，需要同步：
+
+- `discovery/clustering.py`
+- `learning/pretrain.py`
+- `scripts/stage2_discovery.py`
+- Stage 2 输出审计测试
+- README 和 `docs/output_reference.md`
 
 ## Stage 3 约束
 
@@ -47,7 +58,7 @@ fingerprint 与 clustering 位于 `src/semantic_split_multimodal/discovery/`。�
 - selected clients 在一个 global round 的所有 `local_steps` 内固定。
 - 每个 local step 独立采样 batch。
 - binding 使用 exact same-label random pseudo batch。
-- fusion slot 严格由 `pred_cluster` 和 `cluster_to_slot` 决定。
+- fusion slot 严格由 `pred_cluster` 和固定 `cluster_to_slot` 决定。
 - 主线只使用 CE loss、server backward、activation gradient routing、client optimizer update。
 - empty binding 只跳过当前 local step；整轮失败时记录 `empty_binding_round`。
 

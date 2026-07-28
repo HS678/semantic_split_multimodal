@@ -33,8 +33,10 @@ def safe_result_component(value) -> str:
 
 
 def partition_signature(modality_names, clients_per_modality: int) -> str:
-    modality_part = "-".join(safe_result_component(name) for name in modality_names)
-    return f"{modality_part}_{int(clients_per_modality)}clients"
+    return "_".join(
+        f"{safe_result_component(name)}_{int(clients_per_modality)}clients"
+        for name in modality_names
+    )
 
 
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
@@ -67,7 +69,7 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
         }
         return cfg
 
-    dataset_dir = base_dir / "experiment" / dataset_name
+    dataset_dir = base_dir / "experiments" / dataset_name
     latest_path = dataset_dir / "latest_run.txt"
 
     run_id = result_cfg.get("run_id")
@@ -92,10 +94,10 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
         "dataset_dir": str(dataset_dir),
         "run_id": str(run_id),
         "run_dir": str(run_dir),
-        "data_partition": str(run_dir / "01_dataset_partition"),
-        "cluster": str(run_dir / "02_cluster_results"),
-        "logs": str(run_dir / "03_training_evaluation"),
-        "models": str(run_dir / "04_model_artifacts"),
+        "data_partition": str(base_dir / "partition" / dataset_name),
+        "cluster": str(base_dir / "cluster" / dataset_name),
+        "logs": str(run_dir),
+        "models": str(run_dir),
     }
 
     cfg["results"] = {**result_cfg, **paths}

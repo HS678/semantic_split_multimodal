@@ -13,7 +13,6 @@ from semantic_split_multimodal.discovery.clustering import (
     _best_split_proposal,
     _partition_bic,
     adaptive_isodata,
-    run_isodata,
 )
 from semantic_split_multimodal.evaluation.metrics import discovery_metrics
 
@@ -251,13 +250,6 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
         adaptive_blocks.append(cluster["adaptive"])
 
     assert adaptive_blocks[0] == adaptive_blocks[1] == adaptive_blocks[2]
-
-
-def test_known_q_isodata_path_remains_available():
-    x, _ = _blobs(3)
-    pred = run_isodata(x, known_k=3, seed=42, initial_k=3, min_cluster_size=2)
-
-    assert len(set(pred)) == 3
 
 
 def test_discovery_metrics_distinguish_overclustering_from_success():

@@ -1,50 +1,63 @@
 # Output Reference
 
-Stage 1 partition 和后续 experiment run 分开保存。Stage 1 默认写入 `local/results/partition/<dataset>/<modality_names>_<clients_per_modality>clients/`，Stage 2、Stage 3 和后续 D2D 实验默认写入 `local/results/experiment/<dataset>/<run_id>/`。
-
 ## Stage 1 Partition
 
+默认目录：
+
+```text
+local/results/partition/<dataset>/<partition_signature>/
+```
+
+文件：
+
 - `train_clients/client_*.pt`：单模态 client payload，包含 samples、labels、`hidden_modality_id`、encoder type 和 input shape。
-- `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 metrics 和 evaluation-only oracle mapping。
+- `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 audit 和 evaluation-only oracle mapping。
 - `test_multimodal.pt`：naturally paired test payload，包含 `modalities`、`modality_names`、`modality_input_shapes` 和 `label`。
 - `partition_config.json`：Stage 1 运行配置摘要。
 
-## 02_cluster_results
+## Stage 2 Cluster
 
+默认目录：
+
+```text
+local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
+```
+
+文件：
+
+- `true_cluster.csv`：`client_id -> true_cluster`，仅用于 post-hoc audit。
+- `pred_cluster.csv`：`client_id -> pred_cluster`，Stage 3 的训练输入。
 - `pretrained_encoders/client_XXX_encoder.pt`：Stage 2 预训练 encoder state dict。
-- `fingerprints.npy`：client fingerprint matrix。
-- `cluster_assignments.csv`：`client_id -> pred_cluster`。
-- `cluster_metrics.json`：discovery metrics，包括 `true_Q`、`estimated_Q`、`ACC`、`NMI`、`ARI`。
-- `cluster_config.json`：clustering 配置摘要。
+- `stage2_metadata.json`：完整配置快照、Git SHA、runtime、Stage 1 输入路径、聚类方法和 discovery metrics。
 
-## 03_training_evaluation
+Stage 2 不保留单独的 fingerprint 文件或独立 diagnostics 文件。相关审计信息写入 `stage2_metadata.json`。
+
+## Stage 3 Experiment
+
+默认目录：
+
+```text
+local/results/experiments/<dataset>/<run_id>/
+```
+
+文件：
 
 - `train_log.csv`：每轮训练指标，包括 selected clients、selected clusters、binding 成功率、pseudo batch size、coverage 和参数更新量。
 - `eval_log.csv`：周期性 naturally paired evaluation 指标。
-- `final_metrics.json`：最终 evaluation、round 汇总、oracle eval mapping、cluster ids 和协议字段。
-- `best_metrics.json`：macro-F1 最优轮的 evaluation metrics。
-- `config_used.yaml`：解析后的运行配置。
-- `cluster_result.txt`、`cluster_metrics.json`：复制或记录 discovery 结果，便于 Stage 3 目录自包含审计。
-
-## 04_model_artifacts
-
-- `best_mmbind_fusion_checkpoint.pt`：最优主线 checkpoint，包含 server state、client encoder states、`pred_cluster_assignments`、`cluster_ids`、`cluster_to_slot`、resolved config 和 metrics。
-- `last_mmbind_fusion_checkpoint.pt`：最后一轮主线 checkpoint。
-- `best_server_model.pt`：最优 fusion server state dict。
-- `best_client_encoders/client_XXX_encoder.pt`：最优轮 client encoder state dict。
-- `cluster_to_slot.json`：`pred_cluster -> fusion slot` 映射。
-- `oracle_eval_modality_to_cluster.json`：evaluation-only oracle mapping 结果。
-- `best_model_info.json`：最优指标和 cluster slot 摘要。
+- `final_metrics.json`：最终轮 evaluation、round 汇总、oracle eval mapping、cluster ids 和协议字段。
+- `best_metrics.json`：macro-F1 最优轮的 evaluation metrics，作为论文主结果。
+- `best_model.pt`：最优主线 checkpoint。
+- `final_model.pt`：最后一轮 checkpoint。
+- `stage3_metadata.json`：完整配置快照、Git SHA、runtime、Stage 1 输入、Stage 2 输入、scheduler、run type 和完成状态。
 
 ## final_metrics.json 关键字段
 
 - `final_eval.eval_status`：`success` 或 `failed`。
 - `final_eval.eval_failure_reason`：mapping failure 或 `null`。
-- `final_eval.loss`、`accuracy`、`macro_f1`：正式 naturally paired evaluation 指标；mapping failure 时为 `null`。
+- `final_eval.loss`、`accuracy`、`macro_f1`：naturally paired evaluation 指标。
 - `oracle_eval_mapping.mapping_type`：固定为 `oracle_evaluation_only`。
 - `total_global_rounds`、`effective_global_rounds`、`empty_binding_rounds`：global round 统计。
-- `total_attempted_local_steps`、`total_effective_local_steps`、`total_empty_binding_local_steps`：local step 统计。
 - `binding_success_rate`、`local_step_binding_success_rate`：binding 有效性统计。
 - `scheduler`、`binding`、`fusion`：记录当前主线协议组件。
 
-论文主结果应读取 `final_eval` 的 naturally paired metrics，不应使用诊断性 client-only 指标。
+论文主结果读取 `best_metrics.json`；`final_metrics.json` 保留为最终轮诊断。
