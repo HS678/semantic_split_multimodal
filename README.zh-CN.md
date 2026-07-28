@@ -18,7 +18,7 @@ English README: [README.md](README.md)。
 
 训练阶段不使用真实模态名称、真实模态 ID、真实 Q，也不使用 oracle modality scheduler。Stage 1 保存的 `hidden_modality_id` 只允许用于 discovery 完成后的 post-hoc audit 和 evaluation-only oracle mapping。
 
-Stage 3 使用 predicted-cluster coverage scheduling、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。最终评估读取冻结 Stage 1 的 `test_multimodal.pt`；测试标签只用于计算指标，不用于构造测试输入。
+Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。最终评估读取冻结 Stage 1 的 `test_multimodal.pt`；测试标签只用于计算指标，不用于构造测试输入。
 
 当前只保留两种聚类方法：
 

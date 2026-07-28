@@ -270,15 +270,16 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     clients_by_id = {client.client_id: client for client in clients}
     cluster_ids = sorted({int(client.pred_cluster) for client in clients})
     cluster_to_slot = {int(cluster_id): int(slot) for slot, cluster_id in enumerate(cluster_ids)}
-    clients_per_cluster = cfg.get("training", {}).get("clients_per_cluster_per_round")
-    if clients_per_cluster is not None:
-        clients_per_round = int(clients_per_cluster) * len(cluster_ids)
-    else:
-        clients_per_round = int(cfg.get("training", {}).get("clients_per_round", len(cluster_ids)))
+    training_cfg = cfg.get("training", {})
+    clients_per_cluster = training_cfg.get("clients_per_cluster_per_round")
+    if clients_per_cluster is None:
+        raise ValueError("training.clients_per_cluster_per_round is required for balanced cluster scheduling.")
+    clients_per_cluster = int(clients_per_cluster)
+    clients_per_round = clients_per_cluster * len(cluster_ids)
     scheduler = build_scheduler(
-        cfg.get("training", {}).get("scheduler", "proposed_cluster_coverage"),
+        training_cfg.get("scheduler", "balanced_cluster_round_robin"),
         clients,
-        clients_per_round=clients_per_round,
+        clients_per_cluster_per_round=clients_per_cluster,
         seed=int(cfg.get("seed", 42)),
     )
     server = ConcatMLPFusionServer(
@@ -325,6 +326,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "selected_client_ids",
         "selected_cluster_ids",
         "expected_cluster_ids",
+        "clients_per_cluster_per_round",
+        "per_cluster_selected_json",
         "round_status",
     ]
     eval_fields = ["round", "eval_status", "eval_failure_reason", "loss", "accuracy", "macro_f1"]
@@ -386,6 +389,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "selected_client_ids": json.dumps([c.client_id for c in selected]),
                     "selected_cluster_ids": json.dumps(sorted({int(c.pred_cluster) for c in selected})),
                     "expected_cluster_ids": json.dumps(cluster_ids),
+                    "clients_per_cluster_per_round": sched_metrics["clients_per_cluster_per_round"],
+                    "per_cluster_selected_json": json.dumps(sched_metrics["per_cluster_selected"]),
                     "round_status": train_metrics["round_status"],
                 }
             )
@@ -433,6 +438,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "cluster_to_slot": cluster_to_slot,
         "estimated_num_clusters": len(cluster_ids),
         "clients_per_round": clients_per_round,
+        "clients_per_cluster_per_round": clients_per_cluster,
         "configured_local_steps": int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1))),
         "total_global_rounds": int(rounds),
         "effective_global_rounds": int(successful_binding_rounds),
@@ -442,7 +448,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "total_empty_binding_local_steps": int(total_empty_binding_local_steps),
         "local_step_binding_success_rate": float(total_effective_local_steps / max(1, total_attempted_local_steps)),
         "binding_success_rate": float(successful_binding_rounds / max(1, rounds)),
-        "scheduler": cfg.get("training", {}).get("scheduler", "proposed_cluster_coverage"),
+        "scheduler": training_cfg.get("scheduler", "balanced_cluster_round_robin"),
         "binding": "label_random",
         "fusion": "concat_mlp",
     }

@@ -55,13 +55,13 @@ acc_10clients_gyro_10clients
 
 ## training
 
-- `training.scheduler`：正式主线使用 `proposed_cluster_coverage`。
+- `training.scheduler`：正式主线使用 `balanced_cluster_round_robin`。
 - `training.global_rounds`：Stage 3 global round 数。
 - `training.local_steps`：每个 global round 内复用 selected clients 的 local step 数。
 - `training.batch_size`：client local batch size。
 - `training.eval_batch_size`：naturally paired evaluation batch size。
 - `training.eval_every`：evaluation 频率。
-- `training.clients_per_round`：每轮选中客户端数量。
+- `training.clients_per_cluster_per_round`：每个预测簇每轮选中的客户端数量 `r`。每轮总客户端数为 `r * estimated_Q`，其中 `estimated_Q` 来自 Stage 2 的 `pred_cluster`，不是训练阶段读取的真实 Q。
 - `training.client_lr`：client encoder 学习率。
 - `training.server_lr`：fusion server 学习率。
 

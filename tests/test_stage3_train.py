@@ -25,10 +25,11 @@ def _cfg():
         "device": "cpu",
         "dataset": {"type": "synthetic_stage3"},
         "training": {
-            "scheduler": "proposed_cluster_coverage",
+            "scheduler": "balanced_cluster_round_robin",
             "global_rounds": 2,
             "local_steps": 1,
             "batch_size": 4,
+            "clients_per_cluster_per_round": 1,
             "server_lr": 0.1,
             "client_lr": 0.1,
         },

@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 import torch
 from torch import nn
 
@@ -48,20 +49,46 @@ class SchedulerClient:
         raise AssertionError("Mainline scheduler must not read hidden_modality_id.")
 
 
-def test_proposed_scheduler_covers_pred_clusters_without_hidden_modality_id():
+def test_balanced_scheduler_samples_equal_clients_per_cluster_without_hidden_modality_id():
     clients = [
-        SchedulerClient("c0", 0),
-        SchedulerClient("c1", 0),
-        SchedulerClient("c2", 1),
-        SchedulerClient("c3", 1),
-        SchedulerClient("c4", 2),
-        SchedulerClient("c5", 2),
+        *(SchedulerClient(f"c0_{idx}", 0) for idx in range(8)),
+        *(SchedulerClient(f"c1_{idx}", 1) for idx in range(8)),
     ]
-    scheduler = build_scheduler("proposed_cluster_coverage", clients, clients_per_round=3, seed=7)
+    scheduler = build_scheduler("balanced_cluster_round_robin", clients, clients_per_cluster_per_round=3, seed=7)
 
-    selected = scheduler.sample_round()
+    rounds = [scheduler.sample_round() for _ in range(3)]
 
-    assert sorted({client.pred_cluster for client in selected}) == [0, 1, 2]
+    for selected in rounds:
+        counts = {0: 0, 1: 0}
+        for client in selected:
+            counts[int(client.pred_cluster)] += 1
+        assert counts == {0: 3, 1: 3}
+        assert len({client.client_id for client in selected}) == 6
+
+    cluster0_seen_before_round3 = {
+        client.client_id
+        for selected in rounds[:2]
+        for client in selected
+        if int(client.pred_cluster) == 0
+    }
+    cluster0_round3 = [
+        client.client_id
+        for client in rounds[2]
+        if int(client.pred_cluster) == 0
+    ]
+    assert len(cluster0_seen_before_round3) == 6
+    assert sum(client_id not in cluster0_seen_before_round3 for client_id in cluster0_round3) == 2
+    assert sum(client_id in cluster0_seen_before_round3 for client_id in cluster0_round3) == 1
+
+
+def test_balanced_scheduler_rejects_unsupported_names_and_oversized_r():
+    clients = [SchedulerClient("c0", 0), SchedulerClient("c1", 0), SchedulerClient("c2", 1), SchedulerClient("c3", 1)]
+
+    with pytest.raises(ValueError, match="balanced_cluster_round_robin"):
+        build_scheduler("unsupported_scheduler", clients, clients_per_cluster_per_round=1, seed=7)
+
+    with pytest.raises(ValueError, match="cannot exceed"):
+        build_scheduler("balanced_cluster_round_robin", clients, clients_per_cluster_per_round=3, seed=7)
 
 
 class CheckpointClient:

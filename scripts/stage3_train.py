@@ -362,7 +362,7 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "end_time": end_time,
         "runtime_seconds": None if end_time is None else float(time.time() - _metadata.start_monotonic),
         "seed": int(cfg.get("seed", 42)),
-        "scheduler": cfg.get("training", {}).get("scheduler", "proposed_cluster_coverage"),
+        "scheduler": cfg.get("training", {}).get("scheduler", "balanced_cluster_round_robin"),
         "training_mode": "mmbind_fusion_split_learning",
         "binding_mode": cfg.get("binding", {}).get("type", "label_random"),
         "fusion_mode": cfg.get("fusion", {}).get("type", "concat_mlp"),

@@ -76,13 +76,13 @@ cluster:
     split_kmeans_restarts: 50
 
 training:
-  scheduler: proposed_cluster_coverage
+  scheduler: balanced_cluster_round_robin
   global_rounds: 100
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
   eval_every: 5
-  clients_per_round: 12
+  clients_per_cluster_per_round: 4
   client_lr: 0.0005
   server_lr: 0.0005
 

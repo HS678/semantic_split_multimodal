@@ -6,7 +6,7 @@
 
 1. Stage 1：raw naturally paired multimodal dataset -> single-modality client partition -> `test_multimodal.pt`
 2. Stage 2：client encoder autoencoder pretraining -> fingerprint extraction -> clustering -> `pred_cluster`
-3. Stage 3：predicted-cluster coverage scheduling -> same-label pseudo binding -> ClusterAdapter -> concat MLP fusion -> classifier -> CE loss -> Split Learning backward -> naturally paired evaluation
+3. Stage 3：balanced per-cluster random round-robin scheduling -> same-label pseudo binding -> ClusterAdapter -> concat MLP fusion -> classifier -> CE loss -> Split Learning backward -> naturally paired evaluation
 
 项目不是 Federated Learning，不做 FedAvg。每个客户端只训练自己的 encoder；服务器训练 fusion server，并把 activation gradient 返回给产生该 activation 的客户端。
 
@@ -34,7 +34,7 @@ scripts/
 - `discovery/fingerprint.py`：从预训练 encoder 提取客户端 fingerprint。
 - `discovery/clustering.py`：执行 `kmeans` 或 `adaptive_isodata` 聚类。
 - `learning/pretrain.py`：Stage 2 主流程，负责 encoder pretraining、fingerprint、clustering 和 discovery metrics。
-- `learning/scheduling.py`：基于 `pred_cluster` 做 predicted-cluster coverage scheduling。
+- `learning/scheduling.py`：基于 `pred_cluster` 做每簇均衡的随机轮询调度。
 - `learning/binding.py`：根据训练 label 和 `pred_cluster` 构造 same-label pseudo multimodal batch。
 - `learning/models.py`：定义 client encoder、autoencoder、`ClusterAdapter` 和 `ConcatMLPFusionServer`。
 - `learning/fusion_sl.py`：Stage 3 fusion Split Learning trainer、checkpoint 保存和 naturally paired final evaluation 调用。

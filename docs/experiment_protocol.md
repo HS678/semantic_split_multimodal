@@ -14,7 +14,9 @@
 
 ## Stage 3
 
-每个 global round 使用 `proposed_cluster_coverage` scheduler，保证选中客户端覆盖所有预测簇。每个 selected client 独立采样 labeled batch，forward 后上传 detached activation。server 用 exact same-label random binding 构造 pseudo multimodal tuple：每个 tuple 在所有 cluster slot 上 label 相同，但不表示这些样本在实例级 naturally paired。
+每个 global round 使用 `balanced_cluster_round_robin` scheduler。设 Stage 2 得到的预测簇集合为 `C`，配置 `training.clients_per_cluster_per_round = r`，则每轮从每个 `pred_cluster` 独立选择 `r` 个客户端，总客户端数为 `r * |C|`。每个 cluster 内维护独立随机轮询池：池内无放回随机抽样；当剩余客户端不足以补满本轮 `r` 个时，先取完剩余客户端，再将该 cluster 的池重置为排除本轮已选客户端后的其余客户端，并继续随机补足。
+
+每个 selected client 独立采样 labeled batch，forward 后上传 detached activation。server 用 exact same-label random binding 构造 pseudo multimodal tuple：每个 tuple 在所有 cluster slot 上 label 相同，但不表示这些样本在实例级 naturally paired。
 
 fusion slot 由 `pred_cluster` 和 `cluster_to_slot` 固定映射决定。`ConcatMLPFusionServer` 对每个 slot 使用 `ClusterAdapter`，拼接所有 adapted activation，经 MLP classifier 输出 logits。训练 loss 是 `CrossEntropyLoss(logits, pseudo_labels)`。server backward 后，activation gradient 只路由回参与该 pseudo batch 的客户端 encoder。
 

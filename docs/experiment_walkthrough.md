@@ -72,8 +72,8 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。
 - 输入：所有 train clients 的 `pred_cluster`
 - 输出：每轮 selected clients
 - 对应文件：`learning/scheduling.py`
-- 关键函数：`build_scheduler`、`ProposedClusterCoverageScheduler.sample_round`
-- 协议限制：scheduler 不读取 `hidden_modality_id`
+- 关键函数：`build_scheduler`、`BalancedClusterRoundRobinScheduler.sample_round`
+- 协议限制：scheduler 只读取 `pred_cluster`；每个预测簇每轮固定选择 `training.clients_per_cluster_per_round` 个客户端；簇内随机轮询池无放回抽样，耗尽后排除本轮已选客户端再重置
 
 ## 10. Same-Label Binding
 

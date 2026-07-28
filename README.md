@@ -18,7 +18,7 @@ The project is not Federated Learning and does not use FedAvg. Clients upload de
 
 Training does not use true modality names, true modality IDs, true Q, or an oracle modality scheduler. `hidden_modality_id` is saved by Stage 1 only for post-hoc discovery audit and evaluation-only oracle mapping.
 
-Stage 3 uses predicted-cluster coverage scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. Final evaluation reads the frozen Stage 1 `test_multimodal.pt`; test labels are used only to compute metrics.
+Stage 3 uses balanced per-cluster random round-robin scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. Final evaluation reads the frozen Stage 1 `test_multimodal.pt`; test labels are used only to compute metrics.
 
 Supported clustering methods are:
 
