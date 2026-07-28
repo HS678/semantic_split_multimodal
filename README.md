@@ -1,121 +1,211 @@
 # semantic_split_multimodal
 
-这是一个用于论文实验的分布式多模态 Split Learning 项目。当前活动主线唯一为 `mmbind_fusion_split_learning`：先把 naturally paired 多模态数据拆成单模态客户端，再发现未知客户端模态簇，最后基于 `pred_cluster` 做 full-coverage scheduling、same-label pseudo binding 和 concat MLP fusion Split Learning。
+Semantic-aligned distributed Split Multimodal Learning in unknown modality environments.
 
-项目不是 Federated Learning，不做 FedAvg；客户端上传 detached activation，服务器计算 CE loss 和 backward，再把 activation gradient 路由回对应客户端 encoder。
+This repository contains a clean three-stage experiment framework for distributed multimodal Split Learning. The active method line is `mmbind_fusion_split_learning`: naturally paired multimodal training data is first partitioned into single-modality clients, client modalities are discovered without using modality identities, and Stage 3 trains an MMBind-style fusion Split Learning model from the predicted clusters.
 
-## 环境
+The project is not Federated Learning and does not use FedAvg. Clients send detached activations to the server; the server computes cross-entropy loss, backpropagates through the fusion model, and routes activation gradients back to the originating client encoders.
 
-建议使用固定解释器：
+## Research Question
+
+The framework studies whether multimodal Split Learning can recover and use semantic modality structure when clients arrive as single-modality holders and their true modality identities are unknown during training.
+
+## Method Line
+
+The current public branch keeps one active method:
+
+1. Stage 1: single-modality client partition
+2. Stage 2: adaptive ISODATA modality discovery
+3. Stage 3: MMBind-style fusion Split Learning
+
+The Stage 2 output is `pred_cluster`. Stage 3 scheduling, binding, ClusterAdapter slots, concat fusion, classifier training, and Split Learning backward all use `pred_cluster`, not true modality identity.
+
+## Unknown-Modality Constraint
+
+Training does not use true modality names, true modality IDs, true Q, or an oracle modality scheduler. The `hidden_modality_id` field is saved by Stage 1 only for post-hoc discovery audit and evaluation-only oracle mapping. It must not feed PCA, split/merge decisions, Q selection, seed selection, scheduling, binding, fusion slots, model input construction, or training loss.
+
+Naturally paired final evaluation reads `01_dataset_partition/test_multimodal.pt`. The evaluation-only oracle mapping is used only to map test modalities to discovered cluster slots after discovery and training have already fixed their decisions. Test labels are used only to compute metrics.
+
+## Installation
+
+Create and activate a Python environment, then install dependencies and the package:
 
 ```bash
-/home/shuang/miniconda3/envs/mpsl/bin/python -m pip install -r requirements.txt
-/home/shuang/miniconda3/envs/mpsl/bin/python -m pip install -e .
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-`hdbscan` 只在选择 HDBSCAN 聚类时需要。
+`hdbscan` is optional and only needed when using the HDBSCAN clustering mode. The default unknown-Q configs use adaptive ISODATA.
 
-## 目录
+## Data Layout
+
+Datasets are not included in this repository. Place raw datasets under:
 
 ```text
-configs/    # 三个数据集的正式配置
-scripts/    # Stage 1 / Stage 2 / Stage 3 入口
-src/        # semantic_split_multimodal package
-tests/      # 主线单元与回归测试
-docs/       # 架构、协议、配置、输出和交接文档
-local/      # 本地数据、运行结果和 checkpoint；不提交
+local/datasets/
 ```
 
-## 三阶段运行
+Reference materials are local-only and should stay under:
 
-```bash
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage1_partition.py --config configs/uci_har.yaml
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage2_discovery.py --config configs/uci_har.yaml
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage3_train.py --config configs/uci_har.yaml
+```text
+local/references/
 ```
 
-把 config 替换为 `configs/mhealth.yaml` 或 `configs/pamap2.yaml` 可运行其他数据集。Stage 3 入口只有正式 fusion Split Learning 路径，不再暴露旧方法选择。
+The entire `local/` tree is ignored by Git. Do not commit datasets, references, checkpoints, logs, fingerprints, generated configs, or formal experiment results.
 
-只检查第一阶段数据划分时，可以使用脚本入口：
+Expected dataset roots:
+
+```text
+local/datasets/uci_har/
+local/datasets/mhealth/
+local/datasets/pamap2/
+```
+
+## Configs
+
+The public configs are:
+
+```text
+configs/uci_har.yaml
+configs/mhealth.yaml
+configs/pamap2.yaml
+```
+
+Each config defines dataset loading, Stage 1 partitioning, Stage 2 adaptive discovery, Stage 3 training, binding, fusion, and evaluation settings. The true `num_modalities` value is kept as dataset metadata and for audit sanity checks; it is not used as the unknown-Q discovery answer during Stage 3 training.
+
+## Stage 1
+
+Run one dataset:
 
 ```bash
-# 单个数据集
+python scripts/stage1_partition.py --config configs/uci_har.yaml
+```
+
+Or use the convenience runner:
+
+```bash
 scripts/run_stage1_partitions.sh uci_har
-
-# 三个数据集依次划分
 scripts/run_stage1_partitions.sh all
-
-# 如需指定解释器
-PYTHON_BIN=/home/shuang/miniconda3/envs/mpsl/bin/python scripts/run_stage1_partitions.sh all
 ```
 
-该脚本只运行 Stage 1，不运行 discovery 或训练。每次运行会通过 `scripts/stage1_partition.py` 创建新的 timestamp run，输出到 `local/results/<dataset>/<run_id>/01_dataset_partition/`。
-
-## 本地防覆盖运行
-
-`scripts/stage1_partition.py` 在 config 没有 `results.run_id` 时会创建 timestamp run；但如果 config 写死了 `results.run_id`，重复运行同一套配置会覆盖同一个结果目录。为了做 smoke、复现实验或临时检查，推荐使用本地 runner 自动生成不重复的 `run_id`：
-
-```bash
-/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
-  --config local/configs/formal/uci_har_known_q.yaml \
-  --base-dir local/results/smoke \
-  --tag quick_check
-```
-
-runner 会：
-
-- 读取模板 config，但不修改原文件；
-- 生成类似 `quick_check_20260727_173012` 的 `run_id`；
-- 把运行副本写到 `local/configs/smoke/`；
-- 依次运行 Stage 1、Stage 2、Stage 3；
-- 如果目标 `run_dir` 已存在，直接拒绝运行，避免覆盖。
-
-输出目录示例：
+Stage 1 creates a new timestamped run directory under:
 
 ```text
-local/results/smoke/uci_har/quick_check_20260727_173012/
-  01_dataset_partition/
-  02_cluster_results/
-  03_training_evaluation/
-  04_model_artifacts/
+local/results/<dataset>/<run_id>/01_dataset_partition/
 ```
 
-常用选项：
-
-```bash
-# 只预览，不写文件、不运行 stage
-/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
-  --config local/configs/formal/uci_har_known_q.yaml \
-  --base-dir local/results/smoke \
-  --tag quick_check \
-  --dry-run
-
-# 明确指定 run_id
-/home/shuang/miniconda3/envs/mpsl/bin/python local/tools/run_pipeline.py \
-  --config local/configs/formal/uci_har_known_q.yaml \
-  --base-dir local/results/formal \
-  --run-id known_q_rerun_20260727_01
-```
-
-## 关键输出
-
-默认运行目录由 `results.base_dir` 和 `results.run_id` 决定，典型结构为：
+Important outputs:
 
 ```text
-local/results/<dataset>/<run_id>/
-  01_dataset_partition/
-  02_cluster_results/
-  03_training_evaluation/
-  04_model_artifacts/
+train_clients/client_*.pt
+client_meta.csv
+test_multimodal.pt
+partition_config.json
 ```
 
-正式评估读取 `01_dataset_partition/test_multimodal.pt`，输出写入 `03_training_evaluation/final_metrics.json`。best checkpoint 写入 `04_model_artifacts/best_mmbind_fusion_checkpoint.pt`。
+## Stage 2
 
-## 文档阅读顺序
+For formal unknown-Q discovery, use the Stage2-only entry so Stage 1 input and Stage 2 output stay separated:
 
-1. `docs/architecture.md`
-2. `docs/experiment_protocol.md`
-3. `docs/experiment_walkthrough.md`
-4. `docs/configuration_reference.md`
-5. `docs/output_reference.md`
-6. `docs/handoff.md`
+```bash
+python scripts/stage2_discovery_only.py \
+  --config configs/uci_har.yaml \
+  --stage1-dir local/results/uci_har/<stage1_run_id>/01_dataset_partition \
+  --output-root local/results/stage2_frozen \
+  --tag uci_har_stage2_adaptive_<sha> \
+  --run-type user_formal
+```
+
+Stage 2 writes:
+
+```text
+local/results/stage2_frozen/<dataset>/<tag>/02_cluster_results/
+local/results/stage2_frozen/<dataset>/<tag>/02_discovery_logs/
+```
+
+Important outputs:
+
+```text
+02_cluster_results/pretrained_encoders/*_encoder.pt
+02_cluster_results/fingerprints.npy
+02_cluster_results/cluster_assignments.csv
+02_cluster_results/cluster_metrics.json
+02_cluster_results/adaptive_diagnostics.json
+```
+
+The legacy `scripts/stage2_discovery.py` entry remains as a compatibility wrapper for configs that use a single shared run directory.
+
+## Stage 3
+
+For formal training from frozen Stage 1 and Stage 2 inputs, use the Stage3-only entry:
+
+```bash
+python scripts/stage3_train_only.py \
+  --config configs/uci_har.yaml \
+  --stage1-dir local/results/uci_har/<stage1_run_id>/01_dataset_partition \
+  --stage2-dir local/results/stage2_frozen/uci_har/<stage2_run_id>/02_cluster_results \
+  --output-root local/results/stage3_formal \
+  --tag uci_har_stage3_adaptive_<sha> \
+  --run-type user_formal
+```
+
+Stage 3 writes:
+
+```text
+local/results/stage3_formal/<dataset>/<tag>/03_training_evaluation/
+local/results/stage3_formal/<dataset>/<tag>/04_model_artifacts/
+```
+
+Important outputs:
+
+```text
+03_training_evaluation/train_log.csv
+03_training_evaluation/eval_log.csv
+03_training_evaluation/final_metrics.json
+04_model_artifacts/best_mmbind_fusion_checkpoint.pt
+04_model_artifacts/last_mmbind_fusion_checkpoint.pt
+04_model_artifacts/cluster_to_slot.json
+```
+
+The legacy `scripts/stage3_train.py` entry remains as a compatibility wrapper for configs that use a single shared run directory.
+
+## Output Policy
+
+Generated outputs are local artifacts and are not part of the public repository:
+
+```text
+local/results/
+local/checkpoints/
+local/logs/
+```
+
+The Stage2-only and Stage3-only entries refuse to silently overwrite existing run directories. Use a new `--tag` for each formal run.
+
+## Tests
+
+Run syntax checks:
+
+```bash
+python -m compileall src scripts tests
+```
+
+Run the full test suite:
+
+```bash
+PYTHONPATH=src python -m pytest tests -q
+```
+
+The tests cover dataset adapters, Stage 1 partitioning, adaptive discovery, discovery audit metrics, Stage2-only output isolation, scheduler behavior, label-guided pseudo binding, ClusterAdapter and concat fusion, Split Learning training, naturally paired evaluation, Stage3-only output isolation, and hidden-modality leakage guards.
+
+## Project Structure
+
+```text
+configs/    # UCI-HAR, MHEALTH, and PAMAP2 configs
+docs/       # protocol, architecture, output, and handoff notes
+scripts/    # Stage 1, Stage 2-only, Stage 3-only, and compatibility CLIs
+src/        # semantic_split_multimodal package
+tests/      # unit and regression tests for the active method line
+local/      # ignored local datasets, references, outputs, and checkpoints
+```
+
+This repository does not publish datasets, checkpoints, formal results, or unreleased ablation claims.

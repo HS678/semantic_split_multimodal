@@ -10,7 +10,7 @@
 2. `scripts/stage1_partition.py`：理解数据如何进入 run 目录。
 3. `src/semantic_split_multimodal/data/datasets.py`：理解三个数据集的统一 loader contract。
 4. `src/semantic_split_multimodal/data/partitioner.py`：理解单模态 client 和 `test_multimodal.pt`。
-5. `scripts/stage2_discovery.py` 与 `learning/pretrain.py`：理解 encoder pretraining、fingerprint 和 clustering。
+5. `scripts/stage2_discovery_only.py` 与 `learning/pretrain.py`：理解 encoder pretraining、fingerprint 和 clustering。
 6. `learning/scheduling.py`：理解 predicted-cluster coverage scheduler。
 7. `learning/binding.py`：理解 same-label pseudo binding。
 8. `learning/models.py`：理解 encoder、`ClusterAdapter` 和 `ConcatMLPFusionServer`。
@@ -32,12 +32,12 @@
 维护者修改代码后应至少运行：
 
 ```bash
-/home/shuang/miniconda3/envs/mpsl/bin/python -m compileall src scripts tests
-/home/shuang/miniconda3/envs/mpsl/bin/python -c "import semantic_split_multimodal"
-/home/shuang/miniconda3/envs/mpsl/bin/python -m pytest tests
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage1_partition.py --help
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage2_discovery.py --help
-/home/shuang/miniconda3/envs/mpsl/bin/python scripts/stage3_train.py --help
+python -m compileall src scripts tests
+python -c "import semantic_split_multimodal"
+python -m pytest tests
+python scripts/stage1_partition.py --help
+python scripts/stage2_discovery_only.py --help
+python scripts/stage3_train_only.py --help
 ```
 
 正式实验前，再按 `docs/experiment_walkthrough.md` 顺序检查 Stage 1、Stage 2、Stage 3 的输入输出目录。

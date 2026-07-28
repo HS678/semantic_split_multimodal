@@ -40,7 +40,9 @@ src/semantic_split_multimodal/
 scripts/
   stage1_partition.py
   stage2_discovery.py
+  stage2_discovery_only.py
   stage3_train.py
+  stage3_train_only.py
 ```
 
 ## 文件职责
@@ -64,8 +66,10 @@ scripts/
 - `utils/results.py`：把 config 中的输出目录解析为当前 run 的四阶段目录。
 - `utils/seed.py`：设置 Python、NumPy 和 PyTorch 随机种子。
 - `scripts/stage1_partition.py`：Stage 1 CLI。
-- `scripts/stage2_discovery.py`：Stage 2 CLI。
-- `scripts/stage3_train.py`：Stage 3 CLI，直接调用正式 fusion Split Learning trainer。
+- `scripts/stage2_discovery_only.py`：Stage 2-only CLI，从冻结的 Stage 1 partition 读取输入并写入独立输出目录。
+- `scripts/stage3_train_only.py`：Stage 3-only CLI，从冻结的 Stage 1/Stage 2 输入训练正式 fusion Split Learning 模型并写入独立输出目录。
+- `scripts/stage2_discovery.py`：Stage 2 兼容 CLI，用于单一共享 run 目录配置。
+- `scripts/stage3_train.py`：Stage 3 兼容 CLI，用于单一共享 run 目录配置。
 
 ## 边界
 

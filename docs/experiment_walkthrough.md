@@ -6,7 +6,7 @@
 
 - 输入：`configs/uci_har.yaml`
 - 输出：Python dict config
-- 对应文件：`scripts/stage1_partition.py`、`scripts/stage2_discovery.py`、`scripts/stage3_train.py`
+- 对应文件：`scripts/stage1_partition.py`、`scripts/stage2_discovery_only.py`、`scripts/stage3_train_only.py`
 - 关键函数：`semantic_split_multimodal.utils.config.load_config`
 - 读取字段：全部 YAML 字段，后续 stage 只读取自己需要的部分
 - 结果文件：无
@@ -56,7 +56,7 @@
 
 - 输入：Stage 1 train clients、`pretrain.*`、`fingerprint.*`、`cluster.*`
 - 输出：pretrained encoders、fingerprints、`pred_cluster`
-- 对应文件：`scripts/stage2_discovery.py`、`learning/pretrain.py`
+- 对应文件：`scripts/stage2_discovery_only.py`、`learning/pretrain.py`
 - 关键函数：`run_stage2_discovery`
 - 读取字段：`pretrain.epochs`、`pretrain.batch_size`、`fingerprint.type`、`cluster.method`、`cluster.known_k`
 - 生成结果文件：`02_cluster_results/pretrained_encoders/*_encoder.pt`、`fingerprints.npy`、`cluster_assignments.csv`、`cluster_metrics.json`
@@ -96,7 +96,7 @@
 
 - 输入：Stage 1 clients、Stage 2 assignments 和 pretrained encoders
 - 输出：训练日志、evaluation metrics、checkpoint
-- 对应文件：`scripts/stage3_train.py`、`learning/fusion_sl.py`
+- 对应文件：`scripts/stage3_train_only.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`
 - 读取字段：`training.*`、`binding.*`、`fusion.*`、`result.*`、`result_model.*`
 - 生成结果文件：`03_training_evaluation/train_log.csv`、`eval_log.csv`、`final_metrics.json`、`04_model_artifacts/*`
