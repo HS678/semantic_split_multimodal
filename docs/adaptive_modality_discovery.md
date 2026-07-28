@@ -48,21 +48,24 @@ eligible for the candidate path when:
 
 - both child clusters satisfy the unified minimum cluster size;
 - the global BIC-like score improvement is positive after the complexity penalty;
-- after at least one cluster already exists, the proposed split is
-  contextually separated from the nearest external cluster.
+- the proposed partition has not already appeared in the current run;
+- the run has not reached `q_max`.
 
 Among eligible split proposals, the estimator accepts the one with the largest
 global BIC-like score improvement into the candidate path. The final selected partition is
 chosen later by label-free model selection over the path, which lets hierarchical
 structures pass through a temporary silhouette dip.
 
-The contextual split check is label-free. It prevents repeatedly carving an
-already discovered compact cluster into small internal pieces unless the child
-centers are at least as separated from each other as the parent is from nearby
-external clusters. The unified threshold is `context_separation >= 1.1`, where
-`context_separation` is the child-center distance divided by the distance from
-the parent center to the nearest external cluster center. It does not use true
-modality count, modality ID, modality name, labels, or dataset names.
+The contextual split evidence is label-free diagnostic metadata only. It records
+`context_separation`, the child-center distance divided by the distance from the
+parent center to the nearest external cluster center, and
+`context_role=diagnostic_only`. This value is useful for auditing the geometry
+of a split path, but it has no veto power over split acceptance. External
+cluster distance is not a necessary condition for a real modality split: valid
+modalities can have uneven spacing, so requiring a child split to be farther
+apart than already discovered external clusters would incorrectly reject dense
+or nearby modalities. The diagnostic does not use true modality count, modality
+ID, modality name, labels, or dataset names.
 
 `min_split_silhouette` is not a split-acceptance rule. It is a final
 candidate-selection gate: among the accepted candidate path, only multi-cluster

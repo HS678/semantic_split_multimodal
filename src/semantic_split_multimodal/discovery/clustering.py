@@ -483,12 +483,9 @@ def _best_split_proposal(
         improvement = float(new_bic - current_bic)
         new_silhouette = _silhouette_or_none(x, new_labels)
         context_separation = _split_context_separation(x, labels, new_labels, int(cluster_id))
-        context_ok = context_separation is None or context_separation >= 1.1
         reason = "bic_improved"
         if improvement <= bic_improvement_min:
             reason = "bic_penalty_not_paid"
-        elif not context_ok:
-            reason = "split_not_contextually_separated"
         proposal = {
             "type": "split",
             "cluster_id": int(cluster_id),
@@ -500,11 +497,11 @@ def _best_split_proposal(
             "new_silhouette": None if new_silhouette is None else float(new_silhouette),
             "min_split_silhouette": float(min_split_silhouette),
             "context_separation": None if context_separation is None else float(context_separation),
-            "min_context_separation": 1.1,
+            "context_role": "diagnostic_only",
             "old_global_bic": float(current_bic),
             "new_global_bic": float(new_bic),
             "reason": reason,
-            "eligible": bool(improvement > bic_improvement_min and context_ok),
+            "eligible": bool(improvement > bic_improvement_min),
             "labels": new_labels,
         }
         if best is None or _proposal_rank(proposal) > _proposal_rank(best):
