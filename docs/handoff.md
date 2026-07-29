@@ -25,6 +25,9 @@
 - `hidden_modality_id` 只允许用于 discovery audit 和 evaluation-only oracle mapping。
 - 训练期 same-label binding 不表示实例级 naturally paired。
 - Stage 2 只保留 `kmeans` 和 `adaptive_isodata`。
+- Stage 3 技术门槛只包括合法 `pred_cluster.csv`、Stage 1 client IDs 和逐客户端 pretrained encoder；`true_cluster.csv`、`stage2_metadata.json`、`discovery_status` 仅用于可选 audit。
+- 正式 YAML 保持基础 `seed: 42`；Stage 3 `--seed` 仅覆盖本次运行的内存配置。
+- 正式配置只在最终轮 evaluation，论文结果使用 `final_metrics.json` 和 `final_model.pt`；`best_*` 仅为兼容性输出。
 - D2D 尚未实现。
 
 ## 当前验证重点

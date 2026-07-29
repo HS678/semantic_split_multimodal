@@ -252,6 +252,47 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
     assert adaptive_blocks[0] == adaptive_blocks[1] == adaptive_blocks[2]
 
 
+def test_formal_configs_freeze_stage_boundaries_and_final_only_evaluation():
+    expected = {
+        "uci_har.yaml": {"rounds": 50, "lr": 0.001},
+        "mhealth.yaml": {"rounds": 50, "lr": 0.001},
+        "pamap2.yaml": {"rounds": 100, "lr": 0.0005},
+    }
+    adaptive_blocks = []
+    forbidden_top_level = {
+        "num_modalities",
+        "learning_rate",
+        "batch_size",
+        "result",
+        "result_model",
+        "evaluation",
+    }
+    for filename, values in expected.items():
+        path = PROJECT_ROOT / "configs" / filename
+        cfg = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+        assert cfg["seed"] == 42
+        assert not forbidden_top_level.intersection(cfg)
+        assert "server" not in cfg["model"]
+        assert "output_dir" not in cfg["partition"]
+        assert "output_dir" not in cfg["cluster"]
+        assert cfg["partition"]["clients_per_modality"] == 10
+        assert cfg["cluster"]["method"] == "adaptive_isodata"
+        assert cfg["cluster"]["known_k"] is None
+        assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
+        assert cfg["training"]["global_rounds"] == values["rounds"]
+        assert cfg["training"]["eval_every"] == values["rounds"]
+        assert cfg["training"]["local_steps"] == 1
+        assert cfg["training"]["clients_per_cluster_per_round"] == 4
+        assert cfg["training"]["client_lr"] == values["lr"]
+        assert cfg["training"]["server_lr"] == values["lr"]
+        assert cfg["binding"]["type"] == "label_random"
+        assert cfg["fusion"]["type"] == "concat_mlp"
+        assert cfg["d2d"]["enabled"] is False
+        adaptive_blocks.append(cfg["cluster"]["adaptive"])
+
+    assert adaptive_blocks[0] == adaptive_blocks[1] == adaptive_blocks[2]
+
+
 def test_discovery_metrics_distinguish_overclustering_from_success():
     true = np.asarray([0] * 6 + [1] * 6)
     overclustered = np.asarray([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])

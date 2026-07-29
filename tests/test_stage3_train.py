@@ -284,16 +284,88 @@ def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch,
     assert not (tmp_path / "experiments" / "synthetic_stage3" / "run_1").exists()
 
 
-def test_stage2_discovery_failure_blocks_training(tmp_path):
+def test_true_cluster_is_optional_and_never_gates_training_audit(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)
     stage2 = _stage2_dir(tmp_path)
-    metadata = json.loads((stage2 / "stage2_metadata.json").read_text(encoding="utf-8"))
-    metadata["metrics"]["discovery_status"] = "discovery_failure"
-    (stage2 / "stage2_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="discovery_status"):
-        script.audit_stage3_inputs(_cfg(), stage1, stage2)
+    (stage2 / "true_cluster.csv").unlink()
+    audit = script.audit_stage3_inputs(_cfg(), stage1, stage2)
+
+    assert audit["stage2"]["true_cluster_path"] is None
+    assert audit["stage2"]["true_cluster_audit"]["available"] is False
+    assert audit["stage2"]["estimated_Q"] == 2
+
+
+def test_stage2_metadata_is_optional_and_never_gates_training_audit(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+
+    (stage2 / "stage2_metadata.json").unlink()
+    audit = script.audit_stage3_inputs(_cfg(), stage1, stage2)
+
+    assert audit["stage2"]["metadata_path"] is None
+    assert audit["stage2"]["stage2_metadata"] is None
+    assert audit["stage2"]["discovery_status"] is None
+    assert audit["stage2"]["estimated_Q"] == 2
+
+
+def test_inconsistent_true_cluster_is_recorded_but_does_not_gate_training_audit(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    _write_csv(
+        stage2 / "true_cluster.csv",
+        ["client_id", "true_cluster"],
+        [{"client_id": "audit_only_unknown", "true_cluster": 999}],
+    )
+
+    audit = script.audit_stage3_inputs(_cfg(), stage1, stage2)
+
+    assert audit["stage2"]["true_cluster_audit"]["available"] is True
+    assert audit["stage2"]["true_cluster_audit"]["client_ids_match_stage1"] is False
+
+
+def test_malformed_optional_stage2_audit_files_never_gate_training(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    (stage2 / "stage2_metadata.json").write_text("{not-json", encoding="utf-8")
+    (stage2 / "true_cluster.csv").write_bytes(b"\xff\xfe\x00")
+
+    audit = script.audit_stage3_inputs(_cfg(), stage1, stage2)
+
+    assert audit["stage2"]["stage2_metadata"] is None
+    assert "JSONDecodeError" in audit["stage2"]["metadata_read_error"]
+    assert "UnicodeDecodeError" in audit["stage2"]["true_cluster_audit"]["read_error"]
+    assert audit["stage2"]["estimated_Q"] == 2
+
+
+def test_discovery_scores_and_reported_true_q_are_audit_only(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    metadata_path = stage2 / "stage2_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["metrics"].update(
+        {
+            "discovery_status": "discovery_failure",
+            "estimated_Q": 999,
+            "true_Q": 2,
+            "ACC": 0.0,
+            "NMI": 0.0,
+            "ARI": -1.0,
+        }
+    )
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    audit = script.audit_stage3_inputs(_cfg(), stage1, stage2)
+
+    assert audit["stage2"]["estimated_Q"] == 2
+    assert audit["stage2"]["reported_estimated_Q"] == 999
+    assert audit["stage2"]["reported_estimated_Q_matches_pred_cluster"] is False
+    assert audit["stage2"]["discovery_status"] == "discovery_failure"
 
 
 def test_stage2_client_mismatch_missing_pred_cluster_and_duplicates_are_rejected(tmp_path):
@@ -345,6 +417,8 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         [
             "--config",
             str(config),
+            "--seed",
+            "101",
             "--stage1-dir",
             str(stage1),
             "--stage2-dir",
@@ -365,12 +439,16 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert Path(seen["cfg"]["partition"]["output_dir"]) == stage1.resolve()
     assert Path(seen["cfg"]["cluster"]["output_dir"]) == stage2.resolve()
     assert Path(seen["cfg"]["result"]["output_dir"]) == run_dir.resolve()
+    assert seen["cfg"]["seed"] == 101
     assert metadata["status"] == "success"
     assert metadata["git_commit"]
     assert metadata["runtime_seconds"] >= 0
     assert metadata["stage1_dir"] == str(stage1.resolve())
     assert metadata["stage2_dir"] == str(stage2.resolve())
     assert metadata["run_id"] == "run_1"
+    assert metadata["seed"] == 101
+    assert metadata["config_snapshot"]["seed"] == 101
+    assert metadata["cli_arguments"]["seed"] == 101
     assert metadata["estimated_Q"] == 2
     assert metadata["stage2_git_commit"] == "freeze-sha"
     assert not (run_dir / "train_clients").exists()
@@ -385,6 +463,66 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         "stage3_metadata.json",
     ]:
         assert (run_dir / name).exists()
+
+
+@pytest.mark.parametrize("discovery_status", ["discovery_failure", None])
+def test_discovery_status_never_gates_mocked_trainer(
+    monkeypatch,
+    tmp_path,
+    discovery_status,
+):
+    script = _load_script()
+    config = _config_file(tmp_path)
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    metadata_path = stage2 / "stage2_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if discovery_status is None:
+        metadata["metrics"].pop("discovery_status", None)
+    else:
+        metadata["metrics"]["discovery_status"] = discovery_status
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    called = {"train": False}
+
+    def fake_train(cfg, *_args):
+        called["train"] = True
+        metrics = {
+            "final_eval": {
+                "eval_status": "success",
+                "accuracy": 0.5,
+                "macro_f1": 0.4,
+                "loss": 1.0,
+            },
+            "effective_global_rounds": 2,
+            "total_global_rounds": 2,
+        }
+        _write_success_outputs(Path(cfg["result"]["output_dir"]), metrics)
+        return metrics
+
+    monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
+    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
+    script.main(
+        [
+            "--config",
+            str(config),
+            "--stage1-dir",
+            str(stage1),
+            "--stage2-dir",
+            str(stage2),
+            "--output-root",
+            str(tmp_path / "experiments"),
+            "--run-id",
+            "run_1",
+            "--run-type",
+            "user_formal",
+        ]
+    )
+
+    assert called["train"]
+    run_dir = tmp_path / "experiments" / "synthetic_stage3" / "run_1"
+    recorded = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
+    assert recorded["status"] == "success"
+    assert recorded["stage2_discovery_status"] == discovery_status
 
 
 def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):

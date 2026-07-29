@@ -4,14 +4,12 @@
 
 ## 顶层字段
 
-- `seed`：随机种子。
+- `seed`：基础随机种子，三个正式 YAML 均固定为 `42`。Stage 3 可通过 CLI `--seed` 只覆盖本次运行的内存配置；不会修改 YAML，也不会影响 Stage 1/Stage 2。
 - `device`：`auto`、`cpu`、`cuda` 或 `mps`。
 - `experiment_name`：实验名，主要用于记录。
 - `results.base_dir`：结果根目录基准，默认 `./local/results`。
-- `num_modalities`：数据集真实模态数，只用于配置记录和 sanity check；训练阶段不作为 oracle 使用。
 - `num_classes`：分类类别数。
 - `encoder_hidden_dim`：client encoder 输出维度。
-- `learning_rate`、`batch_size`：兼容默认值；Stage 3 优先读取 `training.*`。
 
 ## dataset
 
@@ -23,7 +21,6 @@
 
 ## partition
 
-- `partition.output_dir`：Stage 1 输出目录。正式脚本会写入 `local/results/partition/<dataset>/<partition_signature>/`。
 - `partition.clients_per_modality`：每个真实模态拆分出的单模态客户端数量。
 
 `partition_signature` 由模态名和客户端数量组成，例如：
@@ -48,7 +45,6 @@ acc_10clients_gyro_10clients
 
 ## cluster
 
-- `cluster.output_dir`：Stage 2 输出目录。正式 CLI 会注入为 `local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/`。
 - `cluster.method`：只支持 `kmeans` 或 `adaptive_isodata`。
 - `cluster.known_k`：known-Q kmeans 实验的聚类数量；unknown-Q adaptive ISODATA 应为 `null`。
 - `cluster.adaptive.*`：adaptive ISODATA 参数，三个公开数据集应保持统一。
@@ -60,7 +56,7 @@ acc_10clients_gyro_10clients
 - `training.local_steps`：每个 global round 内复用 selected clients 的 local step 数。
 - `training.batch_size`：client local batch size。
 - `training.eval_batch_size`：naturally paired evaluation batch size。
-- `training.eval_every`：evaluation 频率。
+- `training.eval_every`：naturally paired evaluation 频率。正式配置与 `training.global_rounds` 相等，只在最终轮评估：UCI-HAR `50/50`、MHEALTH `50/50`、PAMAP2 `100/100`。
 - `training.clients_per_cluster_per_round`：每个预测簇每轮选中的客户端数量 `r`。每轮总客户端数为 `r * estimated_Q`，其中 `estimated_Q` 来自 Stage 2 的 `pred_cluster`，不是训练阶段读取的真实 Q。
 - `training.client_lr`：client encoder 学习率。
 - `training.server_lr`：fusion server 学习率。
@@ -78,15 +74,15 @@ acc_10clients_gyro_10clients
 - `fusion.num_layers`：concat MLP hidden layer 数。
 - `fusion.dropout`：fusion dropout。
 
-## result 和 result_model
+## CLI 注入的输出目录
 
-Stage 3 CLI 会把二者都注入到：
+Stage 3 CLI 在内存配置中注入输出路径，正式 YAML 不保存 `result` 或 `result_model` 字段。所有输出写入：
 
 ```text
 local/results/experiments/<dataset>/<run_id>/
 ```
 
-训练日志、评估日志、最佳指标、最终指标、最佳模型和最终模型都直接保存在该目录下。
+训练日志、评估日志、最终指标、兼容性最佳指标、最终模型和兼容性最佳模型都直接保存在该目录下。正式结果使用 `final_metrics.json` 和 `final_model.pt`。
 
 ## d2d
 

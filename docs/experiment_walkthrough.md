@@ -57,7 +57,7 @@ Stage 2 先为每个单模态 client 预训练 autoencoder encoder，再提取 f
 - `pred_cluster.csv`：预测簇，是 Stage 3 的正式输入。
 - `stage2_metadata.json`：保存 Git SHA、runtime、Stage 1 输入路径、配置快照和 discovery metrics。
 
-Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。
+Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。其技术门槛是合法 `pred_cluster.csv`、与 Stage 1 一致的 client IDs 和逐客户端 pretrained encoder；`true_cluster.csv` 与 `stage2_metadata.json` 是可选 audit，内容缺失或 `discovery_status` 非成功都不阻止训练。
 
 ## 8. Stage 3 Training
 
@@ -66,6 +66,8 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。
 - 输出文件：`train_log.csv`、`eval_log.csv`、`final_metrics.json`、`best_metrics.json`、`best_model.pt`、`final_model.pt`、`stage3_metadata.json`
 - 对应文件：`scripts/stage3_train.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`
+
+正式 YAML 的基础 `seed` 为 `42`。`scripts/stage3_train.py --seed <N>` 只覆盖本次 Stage 3 的内存配置，适合在复用冻结 Stage 1/Stage 2 输入时运行 `101/202/303/404/505` 五个正式种子。
 
 ## 9. Scheduler
 
@@ -100,11 +102,13 @@ fusion slot 由 `pred_cluster -> cluster_to_slot` 固定映射决定。训练 lo
 - 关键函数：`build_oracle_eval_mapping`、`evaluate_naturally_paired_fusion`
 - 协议限制：test label 只用于 metrics；oracle mapping 只用于 evaluation
 
-## 13. Best Result
+## 13. Official Final Result
 
-- 论文主结果：`best_metrics.json`
-- 最终轮诊断：`final_metrics.json`
-- 最优 checkpoint：`best_model.pt`
-- 最后一轮 checkpoint：`final_model.pt`
+- 论文主结果：`final_metrics.json`
+- 论文 checkpoint：`final_model.pt`
+- 兼容性指标：`best_metrics.json`
+- 兼容性 checkpoint：`best_model.pt`
+
+正式配置令 `training.eval_every == training.global_rounds`，所以只在最终轮执行 naturally paired evaluation；`best_*` 与 `final_*` 对应同一个最终轮状态。
 
 `stage3_metadata.json` 用于审计运行状态、输入路径、Git SHA、runtime、scheduler、estimated_Q 和完整配置快照。

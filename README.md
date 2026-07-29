@@ -76,7 +76,7 @@ MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10cli
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients
 ```
 
-No stage overwrites an existing non-empty output directory. Use a new Stage 3 `run_id`, such as `run_1`, `run_2`, or `adaptive_seed7`.
+No stage overwrites an existing non-empty output directory. Use a new Stage 3 `run_id`, such as `adaptive_seed101`.
 
 ## Stage 1
 
@@ -144,11 +144,11 @@ pretrained_encoders/
 stage2_metadata.json
 ```
 
-Check `stage2_metadata.json` before Stage 3. A successful adaptive discovery should report `metrics.discovery_status: discovery_success`.
+The technical Stage 3 inputs are a complete `pred_cluster.csv` and one pretrained encoder per client. `true_cluster.csv` and `stage2_metadata.json` are optional audit inputs; missing audit files, inconsistent true clusters, or a non-success `discovery_status` do not gate Stage 3 startup.
 
 ## Stage 3
 
-Run Stage 3 from a frozen Stage 1 partition and a frozen Stage 2 cluster directory. Start with UCI-HAR, then run the larger datasets.
+Run Stage 3 from a frozen Stage 1 partition and a frozen Stage 2 cluster directory. Formal YAML files keep the base `seed` at `42` for Stage 1/Stage 2 and default Stage 3 behavior. `--seed` overrides only the in-memory Stage 3 experiment seed; it does not modify YAML or affect the frozen Stage 1/Stage 2 artifacts. Start with UCI-HAR, then run the larger datasets.
 
 UCI-HAR:
 
@@ -158,7 +158,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
   --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -170,7 +171,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
   --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -182,7 +184,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
   --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -198,7 +201,20 @@ final_model.pt
 stage3_metadata.json
 ```
 
-Use `best_metrics.json` as the paper primary result. Keep `final_metrics.json` for final-round diagnostics.
+Formal configs set `training.eval_every == training.global_rounds`, so naturally paired evaluation runs only at the final round. Use `final_metrics.json` and `final_model.pt` as the official paper result and checkpoint. `best_metrics.json` and `best_model.pt` remain compatibility outputs; in final-only mode they represent the same final-round state.
+
+The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Give every run a distinct `run_id`, for example:
+
+```bash
+python scripts/stage3_train.py \
+  --config configs/uci_har.yaml \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --output-root local/results/experiments \
+  --run-id adaptive_seed202 \
+  --seed 202 \
+  --run-type user_formal
+```
 
 ## Testing
 

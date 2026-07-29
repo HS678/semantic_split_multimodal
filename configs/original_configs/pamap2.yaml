@@ -1,19 +1,32 @@
-﻿seed: 42
+seed: 42
 device: auto
-experiment_name: uci_har_three_stage
+experiment_name: pamap2_three_stage
 
 results:
   base_dir: ./local/results
 
-# UCI-HAR should contain train/test folders and train/test/Inertial Signals/*.txt files.
+# PAMAP2 Protocol data:
+#   local/datasets/pamap2/PAMAP2_Dataset/PAMAP2_Dataset/Protocol/subject101.dat
+#   ...
+#   subject109.dat
 dataset:
-  # dataset.type is resolved by src/semantic_split_multimodal/data/registry.py.
-  # Add a loader there when introducing a new dataset.
-  type: uci_har
-  root: ./local/datasets/uci_har
+  type: pamap2
+  root: ./local/datasets/pamap2
+  modality_scheme: sensor_type
+  include_heart_rate: false
+  train_subjects: [101, 102, 103, 104, 105, 106, 107]
+  test_subjects: [108, 109]
+  window_size: 128
+  stride: 128
+  drop_other: true
+  min_label_purity: 0.6
+  normalize: true
 
-num_classes: 6
+num_modalities: 3
+num_classes: 12
 encoder_hidden_dim: 128
+learning_rate: 0.001
+batch_size: 32
 
 model:
   encoder:
@@ -21,8 +34,15 @@ model:
     conv_channels: [64, 128]
     kernel_sizes: [5, 3]
     dropout: 0.1
+  server:
+    hidden_dim: 256
+    num_layers: 2
+    dropout: 0.1
+    adapter_dim: 128
+    semantic_dim: 128
 
 partition:
+  output_dir: ./local/results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -38,6 +58,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
+  output_dir: ./local/results/cluster
   method: adaptive_isodata
   known_k: null
   adaptive:
@@ -56,14 +77,14 @@ cluster:
 
 training:
   scheduler: balanced_cluster_round_robin
-  global_rounds: 50
+  global_rounds: 100
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
-  eval_every: 50
+  eval_every: 5
   clients_per_cluster_per_round: 4
-  client_lr: 0.001
-  server_lr: 0.001
+  client_lr: 0.0005
+  server_lr: 0.0005
 
 binding:
   type: label_random
@@ -75,6 +96,15 @@ fusion:
   hidden_dim: 128
   num_layers: 1
   dropout: 0.0
+
+evaluation:
+  metrics: [accuracy, macro_f1, per_modality_accuracy]
+
+result:
+  output_dir: ./local/logs
+
+result_model:
+  output_dir: ./local/checkpoints
 
 d2d:
   enabled: false

@@ -295,6 +295,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     )
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
     eval_every = int(cfg.get("training", {}).get("eval_every", 1))
+    if eval_every <= 0:
+        raise ValueError("training.eval_every must be positive.")
+    evaluation_mode = "final_only" if eval_every >= rounds else "periodic"
 
     train_fields = [
         "global_round",
@@ -451,6 +454,12 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "scheduler": training_cfg.get("scheduler", "balanced_cluster_round_robin"),
         "binding": "label_random",
         "fusion": "concat_mlp",
+        "evaluation_mode": evaluation_mode,
+        "official_result": {
+            "selection": "final_round",
+            "metrics_file": "final_metrics.json",
+            "model_file": "final_model.pt",
+        },
     }
     with (result_dir / "final_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(final_metrics, f, indent=2)

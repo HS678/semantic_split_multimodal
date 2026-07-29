@@ -76,7 +76,7 @@ MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10cli
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients
 ```
 
-每个阶段都会拒绝覆盖已有的非空输出目录。Stage 3 请使用新的 `run_id`，例如 `run_1`、`run_2` 或 `adaptive_seed7`。
+每个阶段都会拒绝覆盖已有的非空输出目录。Stage 3 请使用新的 `run_id`，例如 `adaptive_seed101`。
 
 ## Stage 1：数据划分
 
@@ -146,11 +146,11 @@ pretrained_encoders/
 stage2_metadata.json
 ```
 
-运行 Stage 3 前，请检查 `stage2_metadata.json`。成功结果应包含 `metrics.discovery_status: discovery_success`。
+Stage 3 的技术输入要求是完整的 `pred_cluster.csv` 和逐客户端 `pretrained_encoders/`。`true_cluster.csv` 与 `stage2_metadata.json` 仅用于可选审计；文件缺失、真实簇不一致或 `discovery_status` 非成功都不会作为 Stage 3 启动门槛。
 
 ## Stage 3：Fusion Split Learning
 
-Stage 3 从冻结的 Stage 1 partition 和冻结的 Stage 2 cluster 目录读取输入。建议先只运行 UCI-HAR，再运行较大的数据集。
+Stage 3 从冻结的 Stage 1 partition 和冻结的 Stage 2 cluster 目录读取输入。正式 YAML 的基础 `seed` 固定为 `42`，供 Stage 1/Stage 2 和默认 Stage 3 使用；`--seed` 只在内存中覆盖本次 Stage 3 的实验种子，不修改 YAML，也不影响冻结的 Stage 1/Stage 2。建议先只运行 UCI-HAR，再运行较大的数据集。
 
 UCI-HAR：
 
@@ -160,7 +160,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
   --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -172,7 +173,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
   --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -184,7 +186,8 @@ python scripts/stage3_train.py \
   --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
   --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id run_1 \
+  --run-id adaptive_seed101 \
+  --seed 101 \
   --run-type user_formal
 ```
 
@@ -200,7 +203,20 @@ final_model.pt
 stage3_metadata.json
 ```
 
-论文主结果读取 `best_metrics.json`。`final_metrics.json` 保留为最终轮诊断结果。
+正式配置令 `training.eval_every == training.global_rounds`，因此只在最终轮执行 naturally paired evaluation。论文正式结果读取 `final_metrics.json`，正式 checkpoint 使用 `final_model.pt`。`best_metrics.json` 和 `best_model.pt` 为兼容性输出；在 final-only 模式下它们对应同一个最终轮状态。
+
+正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。每次运行使用独立 `run_id`，例如：
+
+```bash
+python scripts/stage3_train.py \
+  --config configs/uci_har.yaml \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --output-root local/results/experiments \
+  --run-id adaptive_seed202 \
+  --seed 202 \
+  --run-type user_formal
+```
 
 ## 测试
 

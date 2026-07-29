@@ -12,8 +12,11 @@ dataset:
   type: uci_har
   root: ./local/datasets/uci_har
 
+num_modalities: 2
 num_classes: 6
 encoder_hidden_dim: 128
+learning_rate: 0.001
+batch_size: 32
 
 model:
   encoder:
@@ -21,8 +24,15 @@ model:
     conv_channels: [64, 128]
     kernel_sizes: [5, 3]
     dropout: 0.1
+  server:
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+    adapter_dim: 128
+    semantic_dim: 128
 
 partition:
+  output_dir: ./local/results/data_partition
   clients_per_modality: 10
 
 pretrain:
@@ -38,6 +48,7 @@ fingerprint:
   max_batches: 4
 
 cluster:
+  output_dir: ./local/results/cluster
   method: adaptive_isodata
   known_k: null
   adaptive:
@@ -60,7 +71,7 @@ training:
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
-  eval_every: 50
+  eval_every: 5
   clients_per_cluster_per_round: 4
   client_lr: 0.001
   server_lr: 0.001
@@ -75,6 +86,15 @@ fusion:
   hidden_dim: 128
   num_layers: 1
   dropout: 0.0
+
+evaluation:
+  metrics: [accuracy, macro_f1, per_modality_accuracy]
+
+result:
+  output_dir: ./local/logs
+
+result_model:
+  output_dir: ./local/checkpoints
 
 d2d:
   enabled: false

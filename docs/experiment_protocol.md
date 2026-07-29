@@ -14,6 +14,8 @@
 
 ## Stage 3
 
+Stage 3 启动时只把 `pred_cluster.csv`、Stage 1 client IDs 和逐客户端 pretrained encoder 视为技术门槛。`true_cluster.csv`、`stage2_metadata.json` 及其中的 `discovery_status` 只记录为可选 audit，不得决定训练是否启动。正式 YAML 保持基础 `seed: 42`；CLI `--seed` 只覆盖本次 Stage 3 的内存配置。
+
 每个 global round 使用 `balanced_cluster_round_robin` scheduler。设 Stage 2 得到的预测簇集合为 `C`，配置 `training.clients_per_cluster_per_round = r`，则每轮从每个 `pred_cluster` 独立选择 `r` 个客户端，总客户端数为 `r * |C|`。每个 cluster 内维护独立随机轮询池：池内无放回随机抽样；当剩余客户端不足以补满本轮 `r` 个时，先取完剩余客户端，再将该 cluster 的池重置为排除本轮已选客户端后的其余客户端，并继续随机补足。
 
 每个 selected client 独立采样 labeled batch，forward 后上传 detached activation。server 用 exact same-label random binding 构造 pseudo multimodal tuple：每个 tuple 在所有 cluster slot 上 label 相同，但不表示这些样本在实例级 naturally paired。
@@ -25,6 +27,8 @@ fusion slot 由 `pred_cluster` 和 `cluster_to_slot` 固定映射决定。`Conca
 正式 evaluation 读取 Stage 1 保存的 `test_multimodal.pt`，按相同 sample index 同时取所有模态。test label 只用于 CE loss、accuracy 和 macro-F1，不参与输入构造、binding、筛选、排序或模态选择。
 
 evaluation-only oracle mapping 只用于把真实测试模态 id 映射到 Stage 2 的 `pred_cluster`，并选择 representative client encoder。若一个真实模态被拆成多个 cluster，或一个 cluster 合并多个真实模态，则 evaluation 返回 failed，`loss`、`accuracy` 和 `macro_f1` 为 `null`。
+
+正式配置令 `training.eval_every == training.global_rounds`，naturally paired evaluation 只在最终轮执行。`final_metrics.json` 与 `final_model.pt` 是正式论文结果；`best_metrics.json` 与 `best_model.pt` 仅作为兼容性输出，并在 final-only 模式下对应同一个最终轮状态。
 
 ## 限制
 

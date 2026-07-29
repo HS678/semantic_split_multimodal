@@ -228,22 +228,32 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
     true_path = stage2_dir / "true_cluster.csv"
     metadata_path = stage2_dir / "stage2_metadata.json"
     _require_readable_file(pred_path, "Stage2 pred_cluster.csv")
-    _require_readable_file(true_path, "Stage2 true_cluster.csv")
-    stage2_metadata = _load_json(metadata_path, "Stage2 stage2_metadata.json")
+    stage2_metadata = None
+    stage2_metadata_read_error = None
+    if metadata_path.exists():
+        try:
+            stage2_metadata = _load_json(metadata_path, "Stage2 stage2_metadata.json")
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            stage2_metadata_read_error = f"{type(exc).__name__}: {exc}"
     encoder_dir = stage2_dir / "pretrained_encoders"
     if not encoder_dir.exists() or not encoder_dir.is_dir():
         raise FileNotFoundError(f"Missing Stage2 pretrained_encoders directory: {encoder_dir}")
 
-    metrics = stage2_metadata.get("metrics", {})
-    if metrics.get("discovery_status") != "discovery_success":
-        raise ValueError(f"Stage2 discovery_status must be discovery_success, got {metrics.get('discovery_status')}")
-    method = stage2_metadata.get("cluster_method") or metrics.get("method")
-    if method not in {"kmeans", "adaptive_isodata"}:
-        raise ValueError(f"Stage2 input must come from kmeans or adaptive_isodata, got method={method}")
-    metadata_dataset = str(stage2_metadata.get("dataset", "")).strip().lower()
-    cfg_dataset = dataset_result_name(cfg)
-    if metadata_dataset and metadata_dataset != cfg_dataset:
-        raise ValueError(f"Stage2 dataset mismatch: config={cfg_dataset}, stage2={metadata_dataset}")
+    raw_metrics = stage2_metadata.get("metrics", {}) if isinstance(stage2_metadata, dict) else {}
+    metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+    method = (
+        stage2_metadata.get("cluster_method") or metrics.get("method")
+        if isinstance(stage2_metadata, dict)
+        else None
+    )
+    discovery_status = metrics.get("discovery_status")
+    raw_reported_estimated_q = metrics.get("estimated_Q", metrics.get("estimated_num_clusters"))
+    try:
+        reported_estimated_q = (
+            None if raw_reported_estimated_q is None else int(raw_reported_estimated_q)
+        )
+    except (TypeError, ValueError):
+        reported_estimated_q = None
 
     rows = _read_csv_rows(pred_path)
     if not rows:
@@ -262,13 +272,6 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
         unknown = sorted(assignment_set - stage1_ids)
         raise ValueError(f"Stage2 client IDs mismatch Stage1: missing={missing}, unknown={unknown}")
 
-    true_rows = _read_csv_rows(true_path)
-    true_ids = {row.get("client_id") for row in true_rows}
-    if true_ids != stage1_ids:
-        missing = sorted(stage1_ids - true_ids)
-        unknown = sorted(true_ids - stage1_ids)
-        raise ValueError(f"Stage2 true cluster IDs mismatch Stage1: missing={missing}, unknown={unknown}")
-
     clusters = []
     for row in rows:
         try:
@@ -279,11 +282,7 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
             raise ValueError(f"pred_cluster must be non-negative, got {cluster_id}")
         clusters.append(cluster_id)
     cluster_ids = sorted(set(clusters))
-    estimated_q = int(metrics.get("estimated_Q", metrics.get("estimated_num_clusters", len(cluster_ids))))
-    if estimated_q <= 0:
-        raise ValueError(f"Stage2 estimated_Q must be positive, got {estimated_q}")
-    if len(cluster_ids) != estimated_q:
-        raise ValueError(f"Stage2 estimated_Q mismatch: unique_pred_clusters={len(cluster_ids)}, estimated_Q={estimated_q}")
+    estimated_q = len(cluster_ids)
 
     encoder_files = sorted(encoder_dir.glob("*_encoder.pt"))
     encoder_client_ids = [path.name[: -len("_encoder.pt")] for path in encoder_files]
@@ -294,16 +293,47 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
     for client_id in sorted(stage1_ids):
         _require_readable_file(encoder_dir / f"{client_id}_encoder.pt", f"Stage2 encoder for {client_id}")
 
+    true_cluster_audit = {
+        "available": bool(true_path.exists()),
+        "path": str(true_path) if true_path.exists() else None,
+        "client_ids_match_stage1": None,
+        "num_rows": None,
+        "read_error": None,
+    }
+    if true_path.exists():
+        try:
+            true_rows = _read_csv_rows(true_path)
+            true_ids = [row.get("client_id") for row in true_rows]
+            true_cluster_audit.update(
+                {
+                    "client_ids_match_stage1": bool(
+                        len(true_ids) == len(set(true_ids))
+                        and set(true_ids) == stage1_ids
+                    ),
+                    "num_rows": len(true_rows),
+                }
+            )
+        except (OSError, UnicodeError, csv.Error) as exc:
+            true_cluster_audit["read_error"] = f"{type(exc).__name__}: {exc}"
+
     return {
         "pred_cluster_path": str(pred_path),
-        "true_cluster_path": str(true_path),
-        "metadata_path": str(metadata_path),
+        "true_cluster_path": str(true_path) if true_path.exists() else None,
+        "true_cluster_audit": true_cluster_audit,
+        "metadata_path": str(metadata_path) if metadata_path.exists() else None,
+        "metadata_read_error": stage2_metadata_read_error,
         "pretrained_encoders_dir": str(encoder_dir),
         "client_ids": sorted(assignment_ids),
         "num_clients": len(assignment_ids),
         "cluster_ids": cluster_ids,
         "estimated_Q": estimated_q,
-        "discovery_status": metrics.get("discovery_status"),
+        "reported_estimated_Q": reported_estimated_q,
+        "reported_estimated_Q_matches_pred_cluster": (
+            None
+            if reported_estimated_q is None
+            else reported_estimated_q == estimated_q
+        ),
+        "discovery_status": discovery_status,
         "method": method,
         "stage2_metadata": stage2_metadata,
     }
@@ -370,6 +400,7 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "stage2_discovery_status": stage2_audit.get("discovery_status"),
         "stage2_git_commit": None if not isinstance(stage2_metadata, dict) else stage2_metadata.get("git_commit"),
         "stage2_source_metadata": stage2_metadata,
+        "input_audit": audit,
         "config_snapshot": cfg,
         "metrics": metrics,
     }
@@ -381,6 +412,11 @@ _metadata.start_monotonic = 0.0
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 3: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
     parser.add_argument("--config", required=True, help="Path to yaml config")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Override the Stage3 experiment seed in memory; does not modify the YAML or affect Stage1/Stage2",
+    )
     parser.add_argument("--stage1-dir", required=True, help="Frozen Stage 1 partition directory")
     parser.add_argument("--stage2-dir", required=True, help="Frozen Stage 2 cluster directory")
     parser.add_argument("--output-root", help="Root directory for Stage3 experiment outputs")
@@ -399,6 +435,8 @@ def main(argv=None):
             output_root = ROOT / "local" / "results" / "experiments"
 
     cfg = load_config(args.config)
+    resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
+    cfg = {**cfg, "seed": resolved_seed}
     run_cfg, paths = build_stage3_run(
         cfg,
         stage1_dir=args.stage1_dir,
