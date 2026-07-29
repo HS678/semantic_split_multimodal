@@ -11,6 +11,10 @@ dataset:
   # Add a loader there when introducing a new dataset.
   type: uci_har
   root: ./local/datasets/uci_har
+  split_protocol: subject_disjoint_tvt_v1
+  train_subjects: [1, 3, 5, 6, 7, 8, 11, 15, 16, 17, 21, 22, 26, 27, 28, 29, 30]
+  validation_subjects: [14, 19, 23, 25]
+  test_subjects: [2, 4, 9, 10, 12, 13, 18, 20, 24]
 
 num_classes: 6
 encoder_hidden_dim: 128
@@ -56,11 +60,15 @@ cluster:
 
 training:
   scheduler: balanced_cluster_round_robin
-  global_rounds: 50
+  global_rounds: 200
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
-  eval_every: 50
+  validation_every: 10
+  early_stopping:
+    patience: 3
+    min_rounds: 50
+    min_delta: 0.001
   clients_per_cluster_per_round: 4
   client_lr: 0.001
   server_lr: 0.001

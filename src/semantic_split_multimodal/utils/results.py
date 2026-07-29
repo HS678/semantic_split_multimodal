@@ -32,11 +32,14 @@ def safe_result_component(value) -> str:
     return text or "default"
 
 
-def partition_signature(modality_names, clients_per_modality: int) -> str:
-    return "_".join(
+def partition_signature(modality_names, clients_per_modality: int, split_protocol: str | None = None) -> str:
+    signature = "_".join(
         f"{safe_result_component(name)}_{int(clients_per_modality)}clients"
         for name in modality_names
     )
+    if split_protocol:
+        signature = f"{signature}__{safe_result_component(split_protocol)}"
+    return signature
 
 
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:

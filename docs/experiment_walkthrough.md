@@ -13,11 +13,11 @@
 
 - 输入：raw naturally paired dataset、`dataset.*`、`partition.*`
 - 输出目录：`local/results/partition/<dataset>/<partition_signature>/`
-- 输出文件：`train_clients/client_*.pt`、`client_meta.csv`、`test_multimodal.pt`、`partition_config.json`
+- 输出文件：`train_clients/client_*.pt`、`client_meta.csv`、`validation_multimodal.pt`、`test_multimodal.pt`、`partition_config.json`
 - 对应文件：`data/registry.py`、`data/datasets.py`、`data/partitioner.py`
 - 关键函数：`load_dataset`、`run_stage1_partition`
 
-`partition_signature` 由每个模态名和 `clients_per_modality` 组成，例如 `acc_10clients_gyro_10clients`。如果 Stage 1 配置不变，这个目录可以被多次 Stage 2 和 Stage 3 复用。
+`partition_signature` 由每个模态名、`clients_per_modality` 和 split protocol 组成，例如 `acc_10clients_gyro_10clients__subject_disjoint_tvt_v1`。新签名不会与旧 train/test 结果目录冲突。
 
 ## 3. Dataset Loader
 
@@ -26,7 +26,7 @@
 - 对应文件：`data/datasets.py`
 - 关键函数：`load_uci_har`、`load_mhealth`、`load_pamap2`
 
-loader 必须返回 `train`、`test`、`modality_names` 和 `modality_input_shapes`。每个 modality tensor 的第 0 维必须与 labels 对齐。
+loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `modality_input_shapes`。三个 split 的 subject 必须互斥；每个 modality tensor 的第 0 维必须与 labels 对齐。归一化只能用 train 统计量。
 
 ## 4. Client Payload
 
@@ -35,11 +35,11 @@ loader 必须返回 `train`、`test`、`modality_names` 和 `modality_input_shap
 - 对应文件：`data/partitioner.py`、`data/client.py`
 - 协议限制：`hidden_modality_id` 只作为 metadata 保存，不给训练调度、binding 或 fusion 使用
 
-## 5. test_multimodal.pt
+## 5. validation_multimodal.pt / test_multimodal.pt
 
-- 输入：loader 返回的 naturally paired test split
+- 输入：loader 返回的 naturally paired validation/test split
 - 输出：包含所有模态同 index 样本和 label 的 payload
-- 协议限制：test label 不参与训练或测试输入构造，只用于指标计算
+- 协议限制：validation/test label 不参与输入构造，只用于 loss、accuracy 和 macro-F1
 
 ## 6. Stage 2 Discovery
 
@@ -63,7 +63,7 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。其技�
 
 - 输入：Stage 1 partition、Stage 2 cluster、`training.*`、`binding.*`、`fusion.*`
 - 输出目录：`local/results/experiments/<dataset>/<run_id>/`
-- 输出文件：`train_log.csv`、`eval_log.csv`、`final_metrics.json`、`best_metrics.json`、`best_model.pt`、`final_model.pt`、`stage3_metadata.json`
+- 输出文件：`resolved_config.yaml`、`train_log.csv`、`validation_log.csv`、`best_metrics.json`、`final_metrics.json`、`best_model.pt`、`last_model.pt`、`training_curves.png`、`stage3_metadata.json`
 - 对应文件：`scripts/stage3_train.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`
 
@@ -94,21 +94,21 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。其技�
 
 fusion slot 由 `pred_cluster -> cluster_to_slot` 固定映射决定。训练 loss 是 `CrossEntropy(logits, labels)`。server 更新不做 FedAvg，gradient 只返回产生该 activation 的 client。
 
-## 12. Naturally Paired Evaluation
+## 12. Naturally Paired Validation And Test
 
-- 输入：`test_multimodal.pt`、representative client encoders、fusion server、evaluation-only oracle mapping
+- 输入：`validation_multimodal.pt` 或 `test_multimodal.pt`、representative client encoders、fusion server、evaluation-only oracle mapping
 - 输出：loss、accuracy、macro-F1
 - 对应文件：`evaluation/fusion_eval.py`、`evaluation/oracle_mapping.py`
 - 关键函数：`build_oracle_eval_mapping`、`evaluate_naturally_paired_fusion`
-- 协议限制：test label 只用于 metrics；oracle mapping 只用于 evaluation
+- 协议限制：validation/test label 只用于 metrics；oracle mapping 只用于无梯度 evaluation，不进入训练数据流
 
 ## 13. Official Final Result
 
 - 论文主结果：`final_metrics.json`
-- 论文 checkpoint：`final_model.pt`
-- 兼容性指标：`best_metrics.json`
-- 兼容性 checkpoint：`best_model.pt`
+- 论文 checkpoint：`best_model.pt`
+- 最佳验证指标：`best_metrics.json`
+- 停止时诊断 checkpoint：`last_model.pt`
 
-正式配置令 `training.eval_every == training.global_rounds`，所以只在最终轮执行 naturally paired evaluation；`best_*` 与 `final_*` 对应同一个最终轮状态。
+正式配置每 10 rounds 执行 naturally paired validation，由 validation macro-F1 选择 `best_model.pt` 并控制 early stopping。训练结束后恢复该 checkpoint，test 只执行一次。`last_model.pt` 不参与正式 test。
 
 `stage3_metadata.json` 用于审计运行状态、输入路径、Git SHA、runtime、scheduler、estimated_Q 和完整配置快照。

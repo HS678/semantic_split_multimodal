@@ -12,8 +12,10 @@ results:
 dataset:
   type: mhealth
   root: ./local/datasets/mhealth
+  split_protocol: subject_disjoint_tvt_v1
   modality_scheme: sensor_type
-  train_subjects: [1, 2, 3, 4, 5, 6, 7, 8]
+  train_subjects: [2, 3, 4, 6, 7, 8]
+  validation_subjects: [1, 5]
   test_subjects: [9, 10]
   window_size: 128
   stride: 64
@@ -65,11 +67,15 @@ cluster:
 
 training:
   scheduler: balanced_cluster_round_robin
-  global_rounds: 50
+  global_rounds: 200
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
-  eval_every: 50
+  validation_every: 10
+  early_stopping:
+    patience: 3
+    min_rounds: 50
+    min_delta: 0.001
   clients_per_cluster_per_round: 4
   client_lr: 0.001
   server_lr: 0.001

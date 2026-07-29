@@ -15,18 +15,45 @@
 
 - `dataset.type`：`uci_har`、`mhealth` 或 `pamap2`。
 - `dataset.root`：原始数据目录。
+- `dataset.split_protocol`：当前固定为 `subject_disjoint_tvt_v1`，并写入 partition signature，避免与旧 train/test 结果冲突。
 - `dataset.modality_scheme`：传感器到模态的划分方案。
-- `dataset.train_subjects` / `dataset.test_subjects`：subject split。
+- `dataset.train_subjects` / `dataset.validation_subjects` / `dataset.test_subjects`：互斥的 subject split。
 - `dataset.window_size` / `dataset.stride`：时间序列窗口设置。
+
+正式 subject 划分固定为：
+
+```text
+UCI-HAR train:      1,3,5,6,7,8,11,15,16,17,21,22,26,27,28,29,30
+UCI-HAR validation: 14,19,23,25
+UCI-HAR test:       2,4,9,10,12,13,18,20,24
+
+MHEALTH train:      2,3,4,6,7,8
+MHEALTH validation: 1,5
+MHEALTH test:       9,10
+
+PAMAP2 train:       101,102,103,105,107
+PAMAP2 validation:  104,106
+PAMAP2 test:        108,109
+```
+
+按当前窗口与过滤配置实际加载后的样本数为：
+
+```text
+UCI-HAR: train=5888, validation=1464, test=2947
+MHEALTH: train=3152, validation=1059, test=1043
+PAMAP2:  train=9298, validation=3757, test=2096
+```
+
+三个 split 均覆盖各数据集配置的全部类别。
 
 ## partition
 
 - `partition.clients_per_modality`：每个真实模态拆分出的单模态客户端数量。
 
-`partition_signature` 由模态名和客户端数量组成，例如：
+`partition_signature` 由模态名、客户端数量和 split protocol 组成，例如：
 
 ```text
-acc_10clients_gyro_10clients
+acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 ```
 
 ## pretrain
@@ -52,11 +79,14 @@ acc_10clients_gyro_10clients
 ## training
 
 - `training.scheduler`：正式主线使用 `balanced_cluster_round_robin`。
-- `training.global_rounds`：Stage 3 global round 数。
+- `training.global_rounds`：Stage 3 最大 global round 数，正式配置为 `200`。
 - `training.local_steps`：每个 global round 内复用 selected clients 的 local step 数。
 - `training.batch_size`：client local batch size。
-- `training.eval_batch_size`：naturally paired evaluation batch size。
-- `training.eval_every`：naturally paired evaluation 频率。正式配置与 `training.global_rounds` 相等，只在最终轮评估：UCI-HAR `50/50`、MHEALTH `50/50`、PAMAP2 `100/100`。
+- `training.eval_batch_size`：naturally paired validation/test batch size。
+- `training.validation_every`：naturally paired validation 间隔，正式配置为 `10`。
+- `training.early_stopping.patience`：validation macro-F1 连续未改善次数，正式配置为 `3`。
+- `training.early_stopping.min_rounds`：允许 early stop 前至少完成的 rounds，正式配置为 `50`。
+- `training.early_stopping.min_delta`：macro-F1 被视为改善所需的最小增量，正式配置为 `0.001`。
 - `training.clients_per_cluster_per_round`：每个预测簇每轮选中的客户端数量 `r`。每轮总客户端数为 `r * estimated_Q`，其中 `estimated_Q` 来自 Stage 2 的 `pred_cluster`，不是训练阶段读取的真实 Q。
 - `training.client_lr`：client encoder 学习率。
 - `training.server_lr`：fusion server 学习率。
@@ -82,7 +112,7 @@ Stage 3 CLI 在内存配置中注入输出路径，正式 YAML 不保存 `result
 local/results/experiments/<dataset>/<run_id>/
 ```
 
-训练日志、评估日志、最终指标、兼容性最佳指标、最终模型和兼容性最佳模型都直接保存在该目录下。正式结果使用 `final_metrics.json` 和 `final_model.pt`。
+解析后的配置、训练日志、验证日志、最佳验证指标、最终测试指标、`best_model.pt`、诊断用 `last_model.pt` 和训练曲线都直接保存在该目录下。正式模型使用 `best_model.pt`，正式 test 指标使用 `final_metrics.json`。
 
 ## d2d
 

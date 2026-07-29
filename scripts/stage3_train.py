@@ -10,6 +10,7 @@ import sys
 import time
 
 import torch
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -17,6 +18,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from semantic_split_multimodal.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
+from semantic_split_multimodal.evaluation.training_curves import write_training_curves
 from semantic_split_multimodal.utils.config import load_config
 from semantic_split_multimodal.utils.device import select_device
 from semantic_split_multimodal.utils.results import dataset_result_name
@@ -166,9 +168,11 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
     if not train_dir.exists() or not train_dir.is_dir():
         raise FileNotFoundError(f"Missing Stage1 train_clients directory: {train_dir}")
     client_meta_path = stage1_dir / "client_meta.csv"
+    validation_multimodal_path = stage1_dir / "validation_multimodal.pt"
     test_multimodal_path = stage1_dir / "test_multimodal.pt"
     partition_config_path = stage1_dir / "partition_config.json"
     _require_readable_file(client_meta_path, "Stage1 client_meta.csv")
+    _require_readable_file(validation_multimodal_path, "Stage1 validation_multimodal.pt")
     _require_readable_file(test_multimodal_path, "Stage1 test_multimodal.pt")
     partition_config = _load_json(partition_config_path, "Stage1 partition_config.json")
 
@@ -216,6 +220,7 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
         "client_ids": sorted(payload_ids),
         "num_clients": len(payload_ids),
         "client_meta_path": str(client_meta_path),
+        "validation_multimodal_path": str(validation_multimodal_path),
         "test_multimodal_path": str(test_multimodal_path),
         "train_clients_dir": str(train_dir),
     }
@@ -352,25 +357,44 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     if not isinstance(metrics, dict):
         return "failed", "training_function_returned_non_dict_metrics"
     run_dir = paths["run_dir"]
-    for name in ["train_log.csv", "eval_log.csv", "final_metrics.json", "best_metrics.json", "best_model.pt", "final_model.pt"]:
+    for name in [
+        "resolved_config.yaml",
+        "train_log.csv",
+        "validation_log.csv",
+        "final_metrics.json",
+        "best_metrics.json",
+        "best_model.pt",
+        "last_model.pt",
+        "training_curves.png",
+    ]:
         if not (run_dir / name).exists():
             return "failed", f"missing_{name}"
-    final_eval = metrics.get("final_eval")
-    if not isinstance(final_eval, dict):
-        return "failed", "missing_final_eval"
-    if final_eval.get("eval_status") != "success":
-        return "failed", final_eval.get("eval_failure_reason") or "final_evaluation_failed"
-    for key in ["accuracy", "macro_f1", "loss"]:
-        if not _is_finite_number(final_eval.get(key)):
-            return "failed", f"invalid_final_eval_{key}"
-    if int(metrics.get("effective_global_rounds", -1)) != int(metrics.get("total_global_rounds", -2)):
-        return "failed", "incomplete_effective_global_rounds"
+    if metrics.get("test_eval_status") != "success":
+        return "failed", metrics.get("test_eval_failure_reason") or "test_evaluation_failed"
+    for key in ["test_accuracy", "test_macro_f1", "test_loss"]:
+        if not _is_finite_number(metrics.get(key)):
+            return "failed", f"invalid_{key}"
+    if metrics.get("checkpoint") != "best_model.pt":
+        return "failed", "official_checkpoint_must_be_best_model"
+    if metrics.get("selected_by") != "validation_macro_f1":
+        return "failed", "official_checkpoint_selection_must_use_validation_macro_f1"
+    if int(metrics.get("test_evaluation_count", -1)) != 1:
+        return "failed", "test_evaluation_count_must_equal_one"
+    executed_rounds = int(metrics.get("executed_global_rounds", -1))
+    configured_rounds = int(metrics.get("configured_global_rounds", -1))
+    if executed_rounds <= 0 or configured_rounds <= 0 or executed_rounds > configured_rounds:
+        return "failed", "invalid_executed_global_rounds"
+    if not _is_finite_number(metrics.get("best_round")):
+        return "failed", "missing_best_round"
     return "success", None
 
 
 def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_time, metrics=None):
     stage2_audit = audit.get("stage2", {}) if audit else {}
     stage2_metadata = stage2_audit.get("stage2_metadata")
+    training_cfg = cfg.get("training", {})
+    early_stopping_cfg = training_cfg.get("early_stopping", {})
+    metrics = metrics if isinstance(metrics, dict) else None
     return {
         "stage": "stage3_train",
         "run_type": paths["run_type"],
@@ -396,6 +420,24 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "training_mode": "mmbind_fusion_split_learning",
         "binding_mode": cfg.get("binding", {}).get("type", "label_random"),
         "fusion_mode": cfg.get("fusion", {}).get("type", "concat_mlp"),
+        "split_protocol": cfg.get("dataset", {}).get("split_protocol"),
+        "split_subjects": {
+            split_name: cfg.get("dataset", {}).get(f"{split_name}_subjects")
+            for split_name in ("train", "validation", "test")
+        },
+        "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
+        "configured_global_rounds": int(training_cfg.get("global_rounds", 0)),
+        "validation_interval": int(training_cfg.get("validation_every", 0)),
+        "early_stopping_patience": int(early_stopping_cfg.get("patience", 0)),
+        "early_stopping_min_rounds": int(early_stopping_cfg.get("min_rounds", 0)),
+        "early_stopping_min_delta": float(early_stopping_cfg.get("min_delta", 0.0)),
+        "executed_global_rounds": None if metrics is None else metrics.get("executed_global_rounds"),
+        "best_round": None if metrics is None else metrics.get("best_round"),
+        "stop_round": None if metrics is None else metrics.get("stop_round"),
+        "stop_reason": None if metrics is None else metrics.get("stop_reason"),
+        "checkpoint_selection": "best_validation_macro_f1",
+        "test_evaluation_count": None if metrics is None else metrics.get("test_evaluation_count"),
+        "device": None if metrics is None else metrics.get("device"),
         "estimated_Q": stage2_audit.get("estimated_Q"),
         "stage2_discovery_status": stage2_audit.get("discovery_status"),
         "stage2_git_commit": None if not isinstance(stage2_metadata, dict) else stage2_metadata.get("git_commit"),
@@ -448,6 +490,8 @@ def main(argv=None):
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)
+    with (paths["run_dir"] / "resolved_config.yaml").open("w", encoding="utf-8") as f:
+        yaml.safe_dump(run_cfg, f, sort_keys=False)
 
     start = _utc_now()
     _metadata.start_monotonic = time.time()
@@ -455,6 +499,7 @@ def main(argv=None):
         set_seed(int(run_cfg.get("seed", 42)))
         device = select_device(run_cfg.get("device", "auto"))
         metrics = run_mmbind_fusion_stage3_split_training(run_cfg, ROOT, device)
+        write_training_curves(paths["run_dir"])
     except Exception as exc:
         end = _utc_now()
         _write_json(paths["metadata"], _metadata(args, run_cfg, paths, audit, "failed", str(exc), start, end))

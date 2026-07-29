@@ -11,9 +11,10 @@ local/results/partition/<dataset>/<partition_signature>/
 文件：
 
 - `train_clients/client_*.pt`：单模态 client payload，包含 samples、labels、`hidden_modality_id`、encoder type 和 input shape。
-- `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 audit 和 evaluation-only oracle mapping。
+- `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 audit 和无梯度 validation/test evaluation-only oracle mapping。
+- `validation_multimodal.pt`：naturally paired validation payload；用于 checkpoint 选择和 early stopping。
 - `test_multimodal.pt`：naturally paired test payload，包含 `modalities`、`modality_names`、`modality_input_shapes` 和 `label`。
-- `partition_config.json`：Stage 1 运行配置摘要。
+- `partition_config.json`：Stage 1 运行配置摘要，包含 split protocol、三个 subject 列表和样本数。
 
 ## Stage 2 Cluster
 
@@ -44,24 +45,29 @@ local/results/experiments/<dataset>/<run_id>/
 
 文件：
 
+- `resolved_config.yaml`：本次 run 的完整内存配置，包括 CLI seed 和解析后的输入输出路径。
 - `train_log.csv`：每轮训练指标，包括 selected clients、selected clusters、binding 成功率、pseudo batch size、coverage 和参数更新量。
-- `eval_log.csv`：naturally paired evaluation 指标；正式 final-only 配置仅包含最终轮记录。
-- `final_metrics.json`：正式论文指标，包含最终轮 evaluation、round 汇总、oracle eval mapping、cluster ids 和协议字段。
-- `best_metrics.json`：兼容性输出；final-only 模式下对应同一个最终轮。
-- `best_model.pt`：兼容性 checkpoint；final-only 模式下与最终轮模型状态一致。
-- `final_model.pt`：正式论文 checkpoint，即最后一轮 checkpoint。
+- `validation_log.csv`：每 10 rounds 的 naturally paired validation loss、accuracy、macro-F1、是否更新 best 和 patience 计数。
+- `best_metrics.json`：最佳 validation 指标、`best_round` 和选择规则。
+- `final_metrics.json`：恢复 `best_model.pt` 后一次性 naturally paired test 的正式指标。
+- `best_model.pt`：validation macro-F1 选择的正式 checkpoint。
+- `last_model.pt`：训练停止时 checkpoint，仅用于诊断。
+- `training_curves.png`：由 `train_log.csv` 和 `validation_log.csv` 生成的训练/验证曲线，不包含 test 曲线。
 - `stage3_metadata.json`：完整配置快照、Git SHA、runtime、Stage 1 输入、Stage 2 输入、scheduler、run type 和完成状态。
 
 ## final_metrics.json 关键字段
 
-- `final_eval.eval_status`：`success` 或 `failed`。
-- `final_eval.eval_failure_reason`：mapping failure 或 `null`。
-- `final_eval.loss`、`accuracy`、`macro_f1`：naturally paired evaluation 指标。
+- `test_eval_status`：`success` 或 `failed`。
+- `test_eval_failure_reason`：mapping failure 或 `null`。
+- `test_loss`、`test_accuracy`、`test_macro_f1`：naturally paired test 指标。
+- `checkpoint` / `selected_by`：固定为 `best_model.pt` / `validation_macro_f1`。
 - `oracle_eval_mapping.mapping_type`：固定为 `oracle_evaluation_only`。
-- `total_global_rounds`、`effective_global_rounds`、`empty_binding_rounds`：global round 统计。
+- `configured_global_rounds`、`executed_global_rounds`、`effective_global_rounds`、`empty_binding_rounds`：global round 统计。
 - `binding_success_rate`、`local_step_binding_success_rate`：binding 有效性统计。
 - `scheduler`、`binding`、`fusion`：记录当前主线协议组件。
-- `evaluation_mode`：正式配置为 `final_only`。
-- `official_result`：明确记录正式指标文件为 `final_metrics.json`、正式 checkpoint 为 `final_model.pt`，选择规则为 `final_round`。
+- `validation_protocol`：固定为 naturally paired evaluation-only oracle mapping。
+- `best_round`、`stop_round`、`stop_reason`：checkpoint 选择和停止状态。
+- `test_evaluation_count`：成功正式 run 必须为 `1`。
+- `official_result`：正式指标文件为 `final_metrics.json`、正式 checkpoint 为 `best_model.pt`，选择规则为 `best_validation_macro_f1`。
 
-论文主结果读取 `final_metrics.json`，模型读取 `final_model.pt`。`best_*` 文件只保留接口兼容性。
+论文主结果读取 `final_metrics.json`，模型读取 `best_model.pt`。`last_model.pt` 不参与论文测试结果。

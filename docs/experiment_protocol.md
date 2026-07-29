@@ -2,11 +2,11 @@
 
 ## 假设
 
-训练阶段服务器不知道真实模态数量、真实模态名称和客户端真实模态归属。Stage 2 可以为了 discovery metrics 读取 `hidden_modality_id`；Stage 3 final evaluation 可以为了 evaluation-only oracle mapping 读取 `hidden_modality_id`。除此之外，训练协议不得使用真实模态身份。
+训练阶段服务器不知道真实模态数量、真实模态名称和客户端真实模态归属。Stage 2 可以为了 discovery metrics 读取 `hidden_modality_id`；Stage 3 的无梯度 naturally paired validation/test 可以为了 evaluation-only oracle mapping 读取 `hidden_modality_id`。除此之外，训练协议不得使用真实模态身份。
 
 ## Stage 1
 
-输入是 naturally paired 多模态数据集。loader 输出统一 contract：`train.modalities`、`train.labels`、`test.modalities`、`test.labels`、`modality_names` 和 `modality_input_shapes`。partitioner 将 train split 按模态拆成多个单模态 client，同时保存自然配对的 `test_multimodal.pt`。
+输入是 naturally paired 多模态数据集。loader 输出统一 contract：`train`、`validation`、`test` 三个 split，每个 split 均包含 `modalities` 和 `labels`，另含 `modality_names` 与 `modality_input_shapes`。三个 split 按固定 subject 划分且互斥。partitioner 只将 train 按模态拆成多个单模态 client，同时保存自然配对的 `validation_multimodal.pt` 和 `test_multimodal.pt`。归一化统计量只从 train 拟合。
 
 ## Stage 2
 
@@ -22,13 +22,13 @@ Stage 3 启动时只把 `pred_cluster.csv`、Stage 1 client IDs 和逐客户端 
 
 fusion slot 由 `pred_cluster` 和 `cluster_to_slot` 固定映射决定。`ConcatMLPFusionServer` 对每个 slot 使用 `ClusterAdapter`，拼接所有 adapted activation，经 MLP classifier 输出 logits。训练 loss 是 `CrossEntropyLoss(logits, pseudo_labels)`。server backward 后，activation gradient 只路由回参与该 pseudo batch 的客户端 encoder。
 
-## Evaluation
+## Validation And Test
 
-正式 evaluation 读取 Stage 1 保存的 `test_multimodal.pt`，按相同 sample index 同时取所有模态。test label 只用于 CE loss、accuracy 和 macro-F1，不参与输入构造、binding、筛选、排序或模态选择。
+每 10 rounds 读取 Stage 1 保存的 `validation_multimodal.pt`，按相同 sample index 同时取所有模态，并在 `torch.no_grad()` 下计算 loss、accuracy 和 macro-F1。validation label 不参与输入构造、binding、筛选、排序或模态选择。validation macro-F1 只用于选择 `best_model.pt` 和 early stopping。
 
-evaluation-only oracle mapping 只用于把真实测试模态 id 映射到 Stage 2 的 `pred_cluster`，并选择 representative client encoder。若一个真实模态被拆成多个 cluster，或一个 cluster 合并多个真实模态，则 evaluation 返回 failed，`loss`、`accuracy` 和 `macro_f1` 为 `null`。
+evaluation-only oracle mapping 只用于把 naturally paired validation/test 的真实模态 id 映射到 Stage 2 的 `pred_cluster`，并选择 representative client encoder。mapping 固定且不读取 validation/test label，不进入 scheduler、binding、optimizer、训练 forward/backward 或梯度路径。若一个真实模态被拆成多个 cluster，或一个 cluster 合并多个真实模态，则 evaluation 返回 failed，`loss`、`accuracy` 和 `macro_f1` 为 `null`。
 
-正式配置令 `training.eval_every == training.global_rounds`，naturally paired evaluation 只在最终轮执行。`final_metrics.json` 与 `final_model.pt` 是正式论文结果；`best_metrics.json` 与 `best_model.pt` 仅作为兼容性输出，并在 final-only 模式下对应同一个最终轮状态。
+正式配置最多训练 200 rounds，每 10 rounds validation，最少训练 50 rounds。validation macro-F1 改善量必须超过 `0.001`；连续 3 次未改善则 early stop。训练结束先保存 `last_model.pt`，再恢复 `best_model.pt`，最后对 `test_multimodal.pt` 完整评估一次。`best_model.pt` 是正式 checkpoint，`final_metrics.json` 是正式 test 结果。
 
 ## 限制
 

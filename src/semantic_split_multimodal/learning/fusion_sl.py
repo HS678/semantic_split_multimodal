@@ -294,10 +294,21 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         lr=float(cfg.get("training", {}).get("server_lr", cfg.get("learning_rate", 1e-3))),
     )
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
-    eval_every = int(cfg.get("training", {}).get("eval_every", 1))
-    if eval_every <= 0:
-        raise ValueError("training.eval_every must be positive.")
-    evaluation_mode = "final_only" if eval_every >= rounds else "periodic"
+    validation_every = int(training_cfg.get("validation_every", 10))
+    early_stopping_cfg = training_cfg.get("early_stopping", {})
+    patience = int(early_stopping_cfg.get("patience", 3))
+    min_rounds = int(early_stopping_cfg.get("min_rounds", 50))
+    min_delta = float(early_stopping_cfg.get("min_delta", 0.001))
+    if rounds <= 0:
+        raise ValueError("training.global_rounds must be positive.")
+    if validation_every <= 0:
+        raise ValueError("training.validation_every must be positive.")
+    if patience <= 0:
+        raise ValueError("training.early_stopping.patience must be positive.")
+    if min_rounds <= 0 or min_rounds > rounds:
+        raise ValueError("training.early_stopping.min_rounds must be in [1, training.global_rounds].")
+    if min_delta < 0.0:
+        raise ValueError("training.early_stopping.min_delta must be non-negative.")
 
     train_fields = [
         "global_round",
@@ -333,23 +344,36 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "per_cluster_selected_json",
         "round_status",
     ]
-    eval_fields = ["round", "eval_status", "eval_failure_reason", "loss", "accuracy", "macro_f1"]
-    best_metrics = {"macro_f1": -1.0}
-    final_eval = None
+    validation_fields = [
+        "round",
+        "eval_status",
+        "eval_failure_reason",
+        "loss",
+        "accuracy",
+        "macro_f1",
+        "is_best",
+        "checks_without_improvement",
+    ]
+    best_metrics = None
+    test_eval = None
     oracle_mapping = None
+    checks_without_improvement = 0
+    executed_rounds = 0
+    stop_reason = "max_global_rounds"
     empty_binding_rounds = 0
     successful_binding_rounds = 0
     total_attempted_local_steps = 0
     total_effective_local_steps = 0
     total_empty_binding_local_steps = 0
     with (result_dir / "train_log.csv").open("w", newline="", encoding="utf-8") as train_f, (
-        result_dir / "eval_log.csv"
-    ).open("w", newline="", encoding="utf-8") as eval_f:
+        result_dir / "validation_log.csv"
+    ).open("w", newline="", encoding="utf-8") as validation_f:
         train_writer = csv.DictWriter(train_f, fieldnames=train_fields)
-        eval_writer = csv.DictWriter(eval_f, fieldnames=eval_fields)
+        validation_writer = csv.DictWriter(validation_f, fieldnames=validation_fields)
         train_writer.writeheader()
-        eval_writer.writeheader()
+        validation_writer.writeheader()
         for round_idx in range(1, rounds + 1):
+            executed_rounds = round_idx
             selected = scheduler.sample_round()
             start = time.perf_counter()
             train_metrics = _train_round(server, server_optimizer, selected, cluster_ids, cfg)
@@ -397,31 +421,35 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "round_status": train_metrics["round_status"],
                 }
             )
-            if round_idx % eval_every == 0 or round_idx == rounds:
-                oracle_mapping = build_oracle_eval_mapping(
-                    partition_dir / "client_meta.csv",
-                    cluster_dir / "pred_cluster.csv",
-                )
-                final_eval = evaluate_naturally_paired_fusion(
+            if round_idx % validation_every == 0 or round_idx == rounds:
+                if oracle_mapping is None:
+                    oracle_mapping = build_oracle_eval_mapping(
+                        partition_dir / "client_meta.csv",
+                        cluster_dir / "pred_cluster.csv",
+                    )
+                validation_eval = evaluate_naturally_paired_fusion(
                     server,
                     clients_by_id,
-                    partition_dir / "test_multimodal.pt",
+                    partition_dir / "validation_multimodal.pt",
                     oracle_mapping,
                     cfg,
                     device,
                 )
-                eval_writer.writerow(
-                    {
-                        "round": round_idx,
-                        "eval_status": final_eval["eval_status"],
-                        "eval_failure_reason": final_eval["eval_failure_reason"],
-                        "loss": final_eval["loss"],
-                        "accuracy": final_eval["accuracy"],
-                        "macro_f1": final_eval["macro_f1"],
-                    }
+                is_best = bool(
+                    validation_eval["eval_status"] == "success"
+                    and (
+                        best_metrics is None
+                        or float(validation_eval["macro_f1"]) > float(best_metrics["macro_f1"]) + min_delta
+                    )
                 )
-                if final_eval["eval_status"] == "success" and final_eval["macro_f1"] > best_metrics["macro_f1"]:
-                    best_metrics = {"round": round_idx, **final_eval}
+                if is_best:
+                    checks_without_improvement = 0
+                    best_metrics = {
+                        "best_round": round_idx,
+                        "selected_by": "validation_macro_f1",
+                        "min_delta": min_delta,
+                        **validation_eval,
+                    }
                     _save_checkpoint(
                         model_dir / "best_model.pt",
                         server,
@@ -431,11 +459,83 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                         cluster_to_slot,
                         best_metrics,
                     )
+                else:
+                    checks_without_improvement += 1
+                validation_writer.writerow(
+                    {
+                        "round": round_idx,
+                        "eval_status": validation_eval["eval_status"],
+                        "eval_failure_reason": validation_eval["eval_failure_reason"],
+                        "loss": validation_eval["loss"],
+                        "accuracy": validation_eval["accuracy"],
+                        "macro_f1": validation_eval["macro_f1"],
+                        "is_best": int(is_best),
+                        "checks_without_improvement": checks_without_improvement,
+                    }
+                )
+                train_f.flush()
+                validation_f.flush()
+                if validation_eval["eval_status"] != "success":
+                    stop_reason = "validation_failed"
+                    break
+                if round_idx >= min_rounds and checks_without_improvement >= patience:
+                    stop_reason = "early_stopping"
+                    break
+
+    last_metrics = {
+        "checkpoint_role": "last_training_state",
+        "stop_round": executed_rounds,
+        "stop_reason": stop_reason,
+    }
+    _save_checkpoint(
+        model_dir / "last_model.pt",
+        server,
+        clients,
+        cfg,
+        cluster_ids,
+        cluster_to_slot,
+        last_metrics,
+    )
+
+    test_evaluation_count = 0
+    if best_metrics is not None:
+        _load_checkpoint(
+            model_dir / "best_model.pt",
+            server,
+            clients,
+            cluster_ids,
+            cluster_to_slot,
+            device,
+        )
+        test_eval = evaluate_naturally_paired_fusion(
+            server,
+            clients_by_id,
+            partition_dir / "test_multimodal.pt",
+            oracle_mapping,
+            cfg,
+            device,
+        )
+        test_evaluation_count = 1
+    else:
+        test_eval = {
+            "eval_status": "failed",
+            "eval_failure_reason": "no_successful_validation_checkpoint",
+            "loss": None,
+            "accuracy": None,
+            "macro_f1": None,
+        }
 
     final_metrics = {
-        "final_eval": final_eval,
-        "eval_status": None if final_eval is None else final_eval["eval_status"],
-        "eval_failure_reason": None if final_eval is None else final_eval["eval_failure_reason"],
+        "checkpoint": "best_model.pt",
+        "selected_by": "validation_macro_f1",
+        "best_round": None if best_metrics is None else int(best_metrics["best_round"]),
+        "test_eval_status": test_eval["eval_status"],
+        "test_eval_failure_reason": test_eval["eval_failure_reason"],
+        "test_loss": test_eval["loss"],
+        "test_accuracy": test_eval["accuracy"],
+        "test_macro_f1": test_eval["macro_f1"],
+        "test_num_eval_samples": test_eval.get("num_eval_samples"),
+        "test_num_eval_batches": test_eval.get("num_eval_batches"),
         "oracle_eval_mapping": oracle_mapping,
         "cluster_ids": cluster_ids,
         "cluster_to_slot": cluster_to_slot,
@@ -443,37 +543,39 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "clients_per_round": clients_per_round,
         "clients_per_cluster_per_round": clients_per_cluster,
         "configured_local_steps": int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1))),
-        "total_global_rounds": int(rounds),
+        "configured_global_rounds": int(rounds),
+        "executed_global_rounds": int(executed_rounds),
         "effective_global_rounds": int(successful_binding_rounds),
         "empty_binding_rounds": int(empty_binding_rounds),
         "total_attempted_local_steps": int(total_attempted_local_steps),
         "total_effective_local_steps": int(total_effective_local_steps),
         "total_empty_binding_local_steps": int(total_empty_binding_local_steps),
         "local_step_binding_success_rate": float(total_effective_local_steps / max(1, total_attempted_local_steps)),
-        "binding_success_rate": float(successful_binding_rounds / max(1, rounds)),
+        "binding_success_rate": float(successful_binding_rounds / max(1, executed_rounds)),
         "scheduler": training_cfg.get("scheduler", "balanced_cluster_round_robin"),
         "binding": "label_random",
         "fusion": "concat_mlp",
-        "evaluation_mode": evaluation_mode,
+        "device": str(device),
+        "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
+        "validation_every": validation_every,
+        "early_stopping": {
+            "patience": patience,
+            "min_rounds": min_rounds,
+            "min_delta": min_delta,
+        },
+        "stop_round": int(executed_rounds),
+        "stop_reason": stop_reason,
+        "test_evaluation_count": int(test_evaluation_count),
         "official_result": {
-            "selection": "final_round",
+            "selection": "best_validation_macro_f1",
             "metrics_file": "final_metrics.json",
-            "model_file": "final_model.pt",
+            "model_file": "best_model.pt",
         },
     }
     with (result_dir / "final_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(final_metrics, f, indent=2)
     with (result_dir / "best_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(best_metrics, f, indent=2)
-    _save_checkpoint(
-        model_dir / "final_model.pt",
-        server,
-        clients,
-        cfg,
-        cluster_ids,
-        cluster_to_slot,
-        final_metrics,
-    )
     return final_metrics
 
 
@@ -504,3 +606,24 @@ def _save_checkpoint(path: Path, server, clients, cfg, cluster_ids, cluster_to_s
     )
     for client in clients:
         client.encoder.to(client.device)
+
+
+def _load_checkpoint(path, server, clients, cluster_ids, cluster_to_slot, device):
+    checkpoint = torch.load(path, map_location="cpu")
+    saved_cluster_ids = [int(v) for v in checkpoint["cluster_ids"]]
+    saved_cluster_to_slot = {int(k): int(v) for k, v in checkpoint["cluster_to_slot"].items()}
+    if saved_cluster_ids != [int(v) for v in cluster_ids]:
+        raise ValueError("Checkpoint cluster_ids do not match the current Stage3 cluster IDs.")
+    if saved_cluster_to_slot != {int(k): int(v) for k, v in cluster_to_slot.items()}:
+        raise ValueError("Checkpoint cluster_to_slot does not match the current Stage3 mapping.")
+    server.load_state_dict(checkpoint["server_state_dict"])
+    client_states = checkpoint["client_encoder_states"]
+    current_ids = {client.client_id for client in clients}
+    if set(client_states) != current_ids:
+        raise ValueError("Checkpoint client encoder IDs do not match the current Stage3 clients.")
+    for client in clients:
+        saved = client_states[client.client_id]
+        if int(saved["pred_cluster"]) != int(client.pred_cluster):
+            raise ValueError(f"Checkpoint pred_cluster mismatch for client {client.client_id}.")
+        client.encoder.load_state_dict(saved["state_dict"])
+        client.encoder.to(device)

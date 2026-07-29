@@ -23,10 +23,12 @@ def _cfg():
     return {
         "seed": 7,
         "device": "cpu",
-        "dataset": {"type": "synthetic_stage3"},
+        "dataset": {"type": "synthetic_stage3", "split_protocol": "subject_disjoint_tvt_v1"},
         "training": {
             "scheduler": "balanced_cluster_round_robin",
             "global_rounds": 2,
+            "validation_every": 1,
+            "early_stopping": {"patience": 2, "min_rounds": 1, "min_delta": 0.001},
             "local_steps": 1,
             "batch_size": 4,
             "clients_per_cluster_per_round": 1,
@@ -70,15 +72,17 @@ def _stage1_dir(tmp_path, client_ids=("client_000", "client_001"), dataset="synt
         json.dumps({"dataset_type": dataset, "num_clients": len(client_ids)}),
         encoding="utf-8",
     )
-    torch.save(
-        {
-            "modalities": {"m0": torch.zeros(2, 1), "m1": torch.ones(2, 1)},
-            "modality_names": ["m0", "m1"],
-            "modality_input_shapes": [[1], [1]],
-            "label": torch.tensor([0, 1]),
-        },
-        stage1 / "test_multimodal.pt",
-    )
+    for split_name in ("validation", "test"):
+        torch.save(
+            {
+                "modalities": {"m0": torch.zeros(2, 1), "m1": torch.ones(2, 1)},
+                "modality_names": ["m0", "m1"],
+                "modality_input_shapes": [[1], [1]],
+                "label": torch.tensor([0, 1]),
+                "split": split_name,
+            },
+            stage1 / f"{split_name}_multimodal.pt",
+        )
     for idx, client_id in enumerate(client_ids):
         torch.save(
             {
@@ -135,12 +139,25 @@ def _config_file(tmp_path):
 
 
 def _write_success_outputs(result_dir: Path, metrics: dict):
+    metrics.setdefault("configured_global_rounds", 2)
+    metrics.setdefault("executed_global_rounds", 2)
+    metrics.setdefault("test_evaluation_count", 1)
+    metrics.setdefault("best_round", 1)
+    metrics.setdefault("checkpoint", "best_model.pt")
+    metrics.setdefault("selected_by", "validation_macro_f1")
     (result_dir / "train_log.csv").write_text("round,loss\n1,1.0\n", encoding="utf-8")
-    (result_dir / "eval_log.csv").write_text("round,accuracy,macro_f1,loss\n1,0.5,0.4,1.0\n", encoding="utf-8")
+    (result_dir / "validation_log.csv").write_text(
+        "round,eval_status,eval_failure_reason,loss,accuracy,macro_f1,is_best,checks_without_improvement\n"
+        "1,success,,1.0,0.5,0.4,1,0\n",
+        encoding="utf-8",
+    )
     (result_dir / "final_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
-    (result_dir / "best_metrics.json").write_text(json.dumps(metrics["final_eval"]), encoding="utf-8")
+    (result_dir / "best_metrics.json").write_text(
+        json.dumps({"best_round": metrics["best_round"], "macro_f1": 0.4}),
+        encoding="utf-8",
+    )
     (result_dir / "best_model.pt").write_text("checkpoint", encoding="utf-8")
-    (result_dir / "final_model.pt").write_text("checkpoint", encoding="utf-8")
+    (result_dir / "last_model.pt").write_text("checkpoint", encoding="utf-8")
 
 
 def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
@@ -232,6 +249,37 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
 
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.update(train=True))
     with pytest.raises(FileNotFoundError, match="test_multimodal"):
+        script.main(
+            [
+                "--config",
+                str(config),
+                "--stage1-dir",
+                str(stage1),
+                "--stage2-dir",
+                str(stage2),
+                "--output-root",
+                str(tmp_path / "experiments"),
+                "--run-id",
+                "run_1",
+                "--run-type",
+                "user_formal",
+            ]
+        )
+
+    assert not called["train"]
+    assert not (tmp_path / "experiments" / "synthetic_stage3" / "run_1").exists()
+
+
+def test_missing_validation_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
+    script = _load_script()
+    config = _config_file(tmp_path)
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    (stage1 / "validation_multimodal.pt").unlink()
+    called = {"train": False}
+
+    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.update(train=True))
+    with pytest.raises(FileNotFoundError, match="validation_multimodal"):
         script.main(
             [
                 "--config",
@@ -404,9 +452,14 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         seen["device"] = device
         result_dir = Path(cfg["result"]["output_dir"])
         metrics = {
-            "final_eval": {"eval_status": "success", "accuracy": 0.5, "macro_f1": 0.4, "loss": 1.0},
+            "test_eval_status": "success",
+            "test_eval_failure_reason": None,
+            "test_accuracy": 0.5,
+            "test_macro_f1": 0.4,
+            "test_loss": 1.0,
             "effective_global_rounds": 2,
-            "total_global_rounds": 2,
+            "configured_global_rounds": 2,
+            "executed_global_rounds": 2,
         }
         _write_success_outputs(result_dir, metrics)
         return metrics
@@ -454,12 +507,14 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert not (run_dir / "train_clients").exists()
     assert not (run_dir / "pred_cluster.csv").exists()
     for name in [
+        "resolved_config.yaml",
         "train_log.csv",
-        "eval_log.csv",
+        "validation_log.csv",
         "final_metrics.json",
         "best_metrics.json",
         "best_model.pt",
-        "final_model.pt",
+        "last_model.pt",
+        "training_curves.png",
         "stage3_metadata.json",
     ]:
         assert (run_dir / name).exists()
@@ -487,14 +542,14 @@ def test_discovery_status_never_gates_mocked_trainer(
     def fake_train(cfg, *_args):
         called["train"] = True
         metrics = {
-            "final_eval": {
-                "eval_status": "success",
-                "accuracy": 0.5,
-                "macro_f1": 0.4,
-                "loss": 1.0,
-            },
+            "test_eval_status": "success",
+            "test_eval_failure_reason": None,
+            "test_accuracy": 0.5,
+            "test_macro_f1": 0.4,
+            "test_loss": 1.0,
             "effective_global_rounds": 2,
-            "total_global_rounds": 2,
+            "configured_global_rounds": 2,
+            "executed_global_rounds": 2,
         }
         _write_success_outputs(Path(cfg["result"]["output_dir"]), metrics)
         return metrics
@@ -556,7 +611,7 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
     assert metadata["failure_reason"] == "boom"
 
 
-def test_final_eval_failure_or_missing_outputs_do_not_record_success(monkeypatch, tmp_path):
+def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkeypatch, tmp_path):
     script = _load_script()
     config = _config_file(tmp_path)
     stage1 = _stage1_dir(tmp_path)
@@ -565,15 +620,14 @@ def test_final_eval_failure_or_missing_outputs_do_not_record_success(monkeypatch
     def fake_train(cfg, *_args):
         result_dir = Path(cfg["result"]["output_dir"])
         metrics = {
-            "final_eval": {
-                "eval_status": "failed",
-                "eval_failure_reason": "mapping_failed",
-                "accuracy": None,
-                "macro_f1": None,
-                "loss": None,
-            },
+            "test_eval_status": "failed",
+            "test_eval_failure_reason": "mapping_failed",
+            "test_accuracy": None,
+            "test_macro_f1": None,
+            "test_loss": None,
             "effective_global_rounds": 2,
-            "total_global_rounds": 2,
+            "configured_global_rounds": 2,
+            "executed_global_rounds": 2,
         }
         _write_success_outputs(result_dir, metrics)
         return metrics
@@ -614,9 +668,14 @@ def test_latest_run_marker_is_ignored_by_stage3(monkeypatch, tmp_path):
 
     def fake_train(cfg, *_args):
         metrics = {
-            "final_eval": {"eval_status": "success", "accuracy": 0.5, "macro_f1": 0.4, "loss": 1.0},
+            "test_eval_status": "success",
+            "test_eval_failure_reason": None,
+            "test_accuracy": 0.5,
+            "test_macro_f1": 0.4,
+            "test_loss": 1.0,
             "effective_global_rounds": 2,
-            "total_global_rounds": 2,
+            "configured_global_rounds": 2,
+            "executed_global_rounds": 2,
         }
         _write_success_outputs(Path(cfg["result"]["output_dir"]), metrics)
         return metrics

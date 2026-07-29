@@ -11,7 +11,7 @@ from semantic_split_multimodal.evaluation.oracle_mapping import SUCCESS
 def evaluate_naturally_paired_fusion(
     server,
     clients_by_id,
-    test_multimodal_path: Path,
+    multimodal_path: Path,
     oracle_mapping: dict,
     cfg: dict,
     device,
@@ -25,10 +25,10 @@ def evaluate_naturally_paired_fusion(
             "macro_f1": None,
         }
 
-    test_payload = torch.load(Path(test_multimodal_path), map_location="cpu")
-    labels = test_payload["label"].long()
-    modality_names = list(test_payload["modality_names"])
-    modalities = test_payload["modalities"]
+    payload = torch.load(Path(multimodal_path), map_location="cpu")
+    labels = payload["label"].long()
+    modality_names = list(payload["modality_names"])
+    modalities = payload["modalities"]
     modality_to_cluster = {int(k): int(v) for k, v in oracle_mapping["modality_to_cluster"].items()}
     representative_clients = {int(k): v for k, v in oracle_mapping["representative_clients"].items()}
 

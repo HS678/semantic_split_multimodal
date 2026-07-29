@@ -150,7 +150,7 @@ def test_train_round_reuses_selected_clients_across_local_steps_and_skips_only_e
     assert all(client.backward_calls == 2 for client in clients)
 
 
-def test_final_only_training_marks_final_outputs_as_official_and_keeps_best_at_final_round(
+def test_validation_selects_best_early_stops_restores_best_and_tests_once(
     monkeypatch,
     tmp_path,
 ):
@@ -195,22 +195,37 @@ def test_final_only_training_marks_final_outputs_as_official_and_keeps_best_at_f
         "server_update_l1": 0.0,
         "client_update_l1": 0.0,
     }
-    final_eval = {
-        "eval_status": "success",
-        "eval_failure_reason": None,
-        "loss": 1.0,
-        "accuracy": 0.5,
-        "macro_f1": 0.4,
-    }
+    validation_scores = iter([0.5, 0.4, 0.3])
+    eval_paths = []
+    test_server_weight = []
+
     monkeypatch.setattr(fusion_sl, "_load_clients", lambda *_args: clients)
     monkeypatch.setattr(fusion_sl, "build_scheduler", lambda *_args, **_kwargs: Scheduler())
-    monkeypatch.setattr(fusion_sl, "_train_round", lambda *_args, **_kwargs: dict(train_metrics))
+
+    def fake_train_round(server, *_args, **_kwargs):
+        with torch.no_grad():
+            for parameter in server.parameters():
+                parameter.add_(1.0)
+        return dict(train_metrics)
+
+    def fake_evaluate(server, _clients, path, *_args, **_kwargs):
+        eval_paths.append(path.name)
+        if path.name == "validation_multimodal.pt":
+            score = next(validation_scores)
+        else:
+            score = 0.45
+            test_server_weight.append(next(server.parameters()).detach().clone())
+        return {
+            "eval_status": "success",
+            "eval_failure_reason": None,
+            "loss": 1.0,
+            "accuracy": score,
+            "macro_f1": score,
+        }
+
+    monkeypatch.setattr(fusion_sl, "_train_round", fake_train_round)
     monkeypatch.setattr(fusion_sl, "build_oracle_eval_mapping", lambda *_args: {"status": "success"})
-    monkeypatch.setattr(
-        fusion_sl,
-        "evaluate_naturally_paired_fusion",
-        lambda *_args, **_kwargs: dict(final_eval),
-    )
+    monkeypatch.setattr(fusion_sl, "evaluate_naturally_paired_fusion", fake_evaluate)
 
     cfg = {
         "seed": 101,
@@ -222,8 +237,9 @@ def test_final_only_training_marks_final_outputs_as_official_and_keeps_best_at_f
         "result_model": {"output_dir": str(tmp_path / "run")},
         "training": {
             "scheduler": "balanced_cluster_round_robin",
-            "global_rounds": 1,
-            "eval_every": 1,
+            "global_rounds": 5,
+            "validation_every": 1,
+            "early_stopping": {"patience": 2, "min_rounds": 1, "min_delta": 0.001},
             "local_steps": 1,
             "clients_per_cluster_per_round": 1,
             "server_lr": 0.001,
@@ -244,23 +260,34 @@ def test_final_only_training_marks_final_outputs_as_official_and_keeps_best_at_f
         torch.device("cpu"),
     )
 
-    assert result["evaluation_mode"] == "final_only"
+    assert result["stop_reason"] == "early_stopping"
+    assert result["stop_round"] == 3
+    assert result["best_round"] == 1
+    assert result["test_evaluation_count"] == 1
     assert result["official_result"] == {
-        "selection": "final_round",
+        "selection": "best_validation_macro_f1",
         "metrics_file": "final_metrics.json",
-        "model_file": "final_model.pt",
+        "model_file": "best_model.pt",
     }
+    assert eval_paths == [
+        "validation_multimodal.pt",
+        "validation_multimodal.pt",
+        "validation_multimodal.pt",
+        "test_multimodal.pt",
+    ]
     saved_metrics = json.loads((tmp_path / "run" / "final_metrics.json").read_text(encoding="utf-8"))
     best_metrics = json.loads((tmp_path / "run" / "best_metrics.json").read_text(encoding="utf-8"))
     assert saved_metrics["official_result"] == result["official_result"]
-    assert best_metrics["round"] == 1
+    assert saved_metrics["checkpoint"] == "best_model.pt"
+    assert saved_metrics["selected_by"] == "validation_macro_f1"
+    assert saved_metrics["test_macro_f1"] == 0.45
+    assert "final_eval" not in saved_metrics
+    assert best_metrics["best_round"] == 1
     best = torch.load(tmp_path / "run" / "best_model.pt", map_location="cpu")
-    final = torch.load(tmp_path / "run" / "final_model.pt", map_location="cpu")
-    for key, value in best["server_state_dict"].items():
-        assert torch.equal(value, final["server_state_dict"][key])
-    assert best["client_encoder_states"].keys() == final["client_encoder_states"].keys()
-    for client_id, best_client in best["client_encoder_states"].items():
-        final_client = final["client_encoder_states"][client_id]
-        assert best_client["pred_cluster"] == final_client["pred_cluster"]
-        for key, value in best_client["state_dict"].items():
-            assert torch.equal(value, final_client["state_dict"][key])
+    last = torch.load(tmp_path / "run" / "last_model.pt", map_location="cpu")
+    assert not (tmp_path / "run" / "final_model.pt").exists()
+    assert any(
+        not torch.equal(value, last["server_state_dict"][key])
+        for key, value in best["server_state_dict"].items()
+    )
+    assert torch.equal(test_server_weight[0], next(iter(best["server_state_dict"].values())))

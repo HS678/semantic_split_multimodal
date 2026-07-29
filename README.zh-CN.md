@@ -16,9 +16,9 @@ English README: [README.md](README.md)。
 
 ## 协议约束
 
-训练阶段不使用真实模态名称、真实模态 ID、真实 Q，也不使用 oracle modality scheduler。Stage 1 保存的 `hidden_modality_id` 只允许用于 discovery 完成后的 post-hoc audit 和 evaluation-only oracle mapping。
+训练 forward/backward 不使用真实模态名称、真实模态 ID、真实 Q，也不使用 oracle modality scheduler。Stage 1 保存的 `hidden_modality_id` 只允许用于 discovery 完成后的 post-hoc audit，以及无梯度的 naturally paired validation/test evaluation-only oracle mapping。
 
-Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。最终评估读取冻结 Stage 1 的 `test_multimodal.pt`；测试标签只用于计算指标，不用于构造测试输入。
+Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。训练期间每 10 rounds 读取 `validation_multimodal.pt` 做 naturally paired validation；训练结束后加载 validation macro-F1 选出的 `best_model.pt`，再读取 `test_multimodal.pt` 做一次最终测试。validation/test label 只用于计算指标，不用于构造输入。
 
 当前只保留两种聚类方法：
 
@@ -53,7 +53,7 @@ local/datasets/pamap2/
 Stage 1 的数据划分是可复用资产：
 
 ```text
-local/results/partition/<dataset>/<模态1>_<客户端数>clients_<模态2>_<客户端数>clients_.../
+local/results/partition/<dataset>/<模态签名>__subject_disjoint_tvt_v1/
 ```
 
 Stage 2 的聚类结果按数据集、partition signature 和聚类方法分开保存：
@@ -71,12 +71,12 @@ local/results/experiments/<dataset>/<run_id>/
 当 `clients_per_modality: 10` 时，默认 partition signature 为：
 
 ```text
-UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients
-MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients
-PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients
+UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
+MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
+PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
 ```
 
-每个阶段都会拒绝覆盖已有的非空输出目录。Stage 3 请使用新的 `run_id`，例如 `adaptive_seed101`。
+每个阶段都会拒绝覆盖已有的非空输出目录。三划分 Stage 3 请使用新的 `run_id`，例如 `adaptive_tvt_seed101`。
 
 ## Stage 1：数据划分
 
@@ -99,11 +99,12 @@ Stage 1 直接在 partition 目录下写入：
 ```text
 train_clients/client_*.pt
 client_meta.csv
+validation_multimodal.pt
 test_multimodal.pt
 partition_config.json
 ```
 
-如果数据预处理、模态划分方式和客户端数量不变，这个 partition 可以被多次 Stage 2/Stage 3 实验复用。
+三个数据集都使用固定、互斥的 subject-level train/validation/test 划分。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。MHEALTH/PAMAP2 的归一化统计量只由 train 计算。
 
 ## Stage 2：未知 Q 模态发现
 
@@ -112,7 +113,7 @@ UCI-HAR：
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -122,7 +123,7 @@ MHEALTH：
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
+  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -132,7 +133,7 @@ PAMAP2：
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
+  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -157,10 +158,10 @@ UCI-HAR：
 ```bash
 python scripts/stage3_train.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -170,10 +171,10 @@ MHEALTH：
 ```bash
 python scripts/stage3_train.py \
   --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
-  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -183,10 +184,10 @@ PAMAP2：
 ```bash
 python scripts/stage3_train.py \
   --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
-  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -194,29 +195,40 @@ python scripts/stage3_train.py \
 Stage 3 直接在 `local/results/experiments/<dataset>/<run_id>/` 下写入：
 
 ```text
+resolved_config.yaml
 train_log.csv
-eval_log.csv
+validation_log.csv
 final_metrics.json
 best_metrics.json
 best_model.pt
-final_model.pt
+last_model.pt
+training_curves.png
 stage3_metadata.json
 ```
 
-正式配置令 `training.eval_every == training.global_rounds`，因此只在最终轮执行 naturally paired evaluation。论文正式结果读取 `final_metrics.json`，正式 checkpoint 使用 `final_model.pt`。`best_metrics.json` 和 `best_model.pt` 为兼容性输出；在 final-only 模式下它们对应同一个最终轮状态。
+正式配置最多训练 200 rounds，每 10 rounds 做 naturally paired validation，最少训练 50 rounds；validation macro-F1 连续 3 次未改善且改善量不足 `0.001` 时 early stop。`best_model.pt` 是 validation 选择的正式 checkpoint；`last_model.pt` 只用于诊断。训练结束后加载 `best_model.pt`，test 只完整评估一次并写入 `final_metrics.json`。
 
 正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。每次运行使用独立 `run_id`，例如：
 
 ```bash
 python scripts/stage3_train.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed202 \
+  --run-id adaptive_tvt_seed202 \
   --seed 202 \
   --run-type user_formal
 ```
+
+当前工作区已提供顺序执行三个数据集全部三阶段和五个 Stage3 seeds 的本地脚本。正式实验由用户手动启动：
+
+```bash
+nohup bash local/tools/launch_stage3_formal.sh \
+  > "local/tools/formal_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+脚本使用 `adaptive_tvt_seed<N>`，不会覆盖旧 train/test 正式 run。`local/` 被 Git 忽略，因此该启动脚本和运行日志只保留在本地。
 
 ## 测试
 

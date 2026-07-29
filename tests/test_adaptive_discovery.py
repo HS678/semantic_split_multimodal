@@ -252,11 +252,11 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
     assert adaptive_blocks[0] == adaptive_blocks[1] == adaptive_blocks[2]
 
 
-def test_formal_configs_freeze_stage_boundaries_and_final_only_evaluation():
+def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
     expected = {
-        "uci_har.yaml": {"rounds": 50, "lr": 0.001},
-        "mhealth.yaml": {"rounds": 50, "lr": 0.001},
-        "pamap2.yaml": {"rounds": 100, "lr": 0.0005},
+        "uci_har.yaml": {"lr": 0.001},
+        "mhealth.yaml": {"lr": 0.001},
+        "pamap2.yaml": {"lr": 0.0005},
     }
     adaptive_blocks = []
     forbidden_top_level = {
@@ -279,8 +279,22 @@ def test_formal_configs_freeze_stage_boundaries_and_final_only_evaluation():
         assert cfg["cluster"]["method"] == "adaptive_isodata"
         assert cfg["cluster"]["known_k"] is None
         assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
-        assert cfg["training"]["global_rounds"] == values["rounds"]
-        assert cfg["training"]["eval_every"] == values["rounds"]
+        assert cfg["dataset"]["split_protocol"] == "subject_disjoint_tvt_v1"
+        subject_sets = [
+            set(cfg["dataset"][f"{split_name}_subjects"])
+            for split_name in ("train", "validation", "test")
+        ]
+        assert all(subject_sets)
+        assert subject_sets[0].isdisjoint(subject_sets[1])
+        assert subject_sets[0].isdisjoint(subject_sets[2])
+        assert subject_sets[1].isdisjoint(subject_sets[2])
+        assert cfg["training"]["global_rounds"] == 200
+        assert cfg["training"]["validation_every"] == 10
+        assert cfg["training"]["early_stopping"] == {
+            "patience": 3,
+            "min_rounds": 50,
+            "min_delta": 0.001,
+        }
         assert cfg["training"]["local_steps"] == 1
         assert cfg["training"]["clients_per_cluster_per_round"] == 4
         assert cfg["training"]["client_lr"] == values["lr"]

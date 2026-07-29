@@ -12,9 +12,11 @@ results:
 dataset:
   type: pamap2
   root: ./local/datasets/pamap2
+  split_protocol: subject_disjoint_tvt_v1
   modality_scheme: sensor_type
   include_heart_rate: false
-  train_subjects: [101, 102, 103, 104, 105, 106, 107]
+  train_subjects: [101, 102, 103, 105, 107]
+  validation_subjects: [104, 106]
   test_subjects: [108, 109]
   window_size: 128
   stride: 128
@@ -66,11 +68,15 @@ cluster:
 
 training:
   scheduler: balanced_cluster_round_robin
-  global_rounds: 100
+  global_rounds: 200
   local_steps: 1
   batch_size: 64
   eval_batch_size: 128
-  eval_every: 100
+  validation_every: 10
+  early_stopping:
+    patience: 3
+    min_rounds: 50
+    min_delta: 0.001
   clients_per_cluster_per_round: 4
   client_lr: 0.0005
   server_lr: 0.0005

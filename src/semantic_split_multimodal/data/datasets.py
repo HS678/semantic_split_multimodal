@@ -56,6 +56,9 @@ def validate_uci_har_root(root: Path):
         label_path = split_dir / f"y_{split}.txt"
         if not label_path.exists():
             missing.append(str(label_path))
+        subject_path = split_dir / f"subject_{split}.txt"
+        if not subject_path.exists():
+            missing.append(str(subject_path))
     if missing:
         preview = "\n".join(missing[:20])
         suffix = "" if len(missing) <= 20 else f"\n... and {len(missing) - 20} more"
@@ -78,6 +81,7 @@ def _build_modality_vectors(root: Path, split: str):
     body_gyro_z = _read_signal_matrix(sig / f"body_gyro_z_{split}.txt")
 
     labels = np.loadtxt(split_dir / f"y_{split}.txt", dtype=np.int64) - 1
+    subjects = np.loadtxt(split_dir / f"subject_{split}.txt", dtype=np.int64)
     acc = np.stack(
         [body_acc_x, body_acc_y, body_acc_z, total_acc_x, total_acc_y, total_acc_z],
         axis=1,
@@ -87,8 +91,42 @@ def _build_modality_vectors(root: Path, split: str):
     return {
         "modalities": [torch.tensor(acc, dtype=torch.float32), torch.tensor(gyro, dtype=torch.float32)],
         "labels": torch.tensor(labels, dtype=torch.long),
+        "subjects": torch.tensor(subjects, dtype=torch.long),
         "modality_input_shapes": [[int(acc.shape[1]), int(acc.shape[2])], [int(gyro.shape[1]), int(gyro.shape[2])]],
         "modality_names": ["acc", "gyro"],
+    }
+
+
+def _validate_subject_splits(train_subjects, validation_subjects, test_subjects, dataset_name):
+    splits = {
+        "train": {int(v) for v in train_subjects},
+        "validation": {int(v) for v in validation_subjects},
+        "test": {int(v) for v in test_subjects},
+    }
+    for split_name, subjects in splits.items():
+        if not subjects:
+            raise ValueError(f"{dataset_name} {split_name}_subjects must not be empty.")
+    overlaps = {
+        "train_validation": sorted(splits["train"] & splits["validation"]),
+        "train_test": sorted(splits["train"] & splits["test"]),
+        "validation_test": sorted(splits["validation"] & splits["test"]),
+    }
+    non_empty = {name: values for name, values in overlaps.items() if values}
+    if non_empty:
+        raise ValueError(f"{dataset_name} subject splits must be disjoint, overlaps={non_empty}.")
+    return splits
+
+
+def _select_subjects(split, subjects, split_name):
+    requested = {int(v) for v in subjects}
+    available = {int(v) for v in split["subjects"].tolist()}
+    missing = sorted(requested - available)
+    if missing:
+        raise ValueError(f"UCI-HAR {split_name}_subjects are not present in the source split: {missing}.")
+    mask = torch.tensor([int(v) in requested for v in split["subjects"].tolist()], dtype=torch.bool)
+    return {
+        "modalities": [x[mask].contiguous() for x in split["modalities"]],
+        "labels": split["labels"][mask].contiguous(),
     }
 
 
@@ -101,14 +139,23 @@ def load_uci_har_dataset(cfg, project_root: Path):
     root = root.resolve()
 
     validate_uci_har_root(root)
-    train = _build_modality_vectors(root, "train")
-    test = _build_modality_vectors(root, "test")
+    train_subjects = list(dataset_cfg.get("train_subjects", [1, 3, 5, 6, 7, 8, 11, 15, 16, 17, 21, 22, 26, 27, 28, 29, 30]))
+    validation_subjects = list(dataset_cfg.get("validation_subjects", [14, 19, 23, 25]))
+    test_subjects = list(dataset_cfg.get("test_subjects", [2, 4, 9, 10, 12, 13, 18, 20, 24]))
+    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "UCI-HAR")
+
+    official_train = _build_modality_vectors(root, "train")
+    official_test = _build_modality_vectors(root, "test")
+    train = _select_subjects(official_train, train_subjects, "train")
+    validation = _select_subjects(official_train, validation_subjects, "validation")
+    test = _select_subjects(official_test, test_subjects, "test")
     return {
         "train": train,
+        "validation": validation,
         "test": test,
         "root": str(root),
-        "modality_input_shapes": train["modality_input_shapes"],
-        "modality_names": train["modality_names"],
+        "modality_input_shapes": official_train["modality_input_shapes"],
+        "modality_names": official_train["modality_names"],
     }
 
 
@@ -220,15 +267,19 @@ def _mhealth_build_split(root: Path, subjects, dataset_cfg):
     return {"modalities": x_all, "labels": y_all}
 
 
-def _mhealth_normalize(train, test):
-    norm_train = []
-    norm_test = []
-    for x_train, x_test in zip(train["modalities"], test["modalities"]):
+def _normalize_from_train(train, *evaluation_splits):
+    normalized = [[] for _ in range(len(evaluation_splits) + 1)]
+    for modality_idx, x_train in enumerate(train["modalities"]):
         mean = x_train.mean(dim=(0, 2), keepdim=True)
         std = x_train.std(dim=(0, 2), keepdim=True).clamp_min(1e-6)
-        norm_train.append((x_train - mean) / std)
-        norm_test.append((x_test - mean) / std)
-    return {"modalities": norm_train, "labels": train["labels"]}, {"modalities": norm_test, "labels": test["labels"]}
+        normalized[0].append((x_train - mean) / std)
+        for split_idx, split in enumerate(evaluation_splits, start=1):
+            normalized[split_idx].append((split["modalities"][modality_idx] - mean) / std)
+    source_splits = (train, *evaluation_splits)
+    return tuple(
+        {"modalities": modalities, "labels": source["labels"]}
+        for modalities, source in zip(normalized, source_splits)
+    )
 
 
 def _mhealth_input_shapes(modalities):
@@ -238,20 +289,24 @@ def _mhealth_input_shapes(modalities):
 def load_mhealth_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _mhealth_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/mhealth"))
-    train_subjects = list(dataset_cfg.get("train_subjects", [1, 2, 3, 4, 5, 6, 7, 8]))
+    train_subjects = list(dataset_cfg.get("train_subjects", [2, 3, 4, 6, 7, 8]))
+    validation_subjects = list(dataset_cfg.get("validation_subjects", [1, 5]))
     test_subjects = list(dataset_cfg.get("test_subjects", [9, 10]))
-    all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
+    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "MHEALTH")
+    all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
 
     validate_mhealth_root(root, all_subjects)
     train = _mhealth_build_split(root, train_subjects, dataset_cfg)
+    validation = _mhealth_build_split(root, validation_subjects, dataset_cfg)
     test = _mhealth_build_split(root, test_subjects, dataset_cfg)
     if bool(dataset_cfg.get("normalize", True)):
-        train, test = _mhealth_normalize(train, test)
+        train, validation, test = _normalize_from_train(train, validation, test)
 
     modality_names = list(_mhealth_resolve_modalities(dataset_cfg).keys())
     input_shapes = _mhealth_input_shapes(train["modalities"])
     return {
         "train": train,
+        "validation": validation,
         "test": test,
         "root": str(root),
         "modality_names": modality_names,
@@ -401,23 +456,16 @@ def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg):
     return {"modalities": x_all, "labels": y_all}
 
 
-def _pamap2_normalize(train, test):
-    norm_train = []
-    norm_test = []
-    for x_train, x_test in zip(train["modalities"], test["modalities"]):
-        mean = x_train.mean(dim=(0, 2), keepdim=True)
-        std = x_train.std(dim=(0, 2), keepdim=True).clamp_min(1e-6)
-        norm_train.append((x_train - mean) / std)
-        norm_test.append((x_test - mean) / std)
-    return {"modalities": norm_train, "labels": train["labels"]}, {"modalities": norm_test, "labels": test["labels"]}
-
-
-def _pamap2_remap_labels(train, test):
-    observed = sorted(set(train["labels"].tolist()) | set(test["labels"].tolist()))
-    mapping = {label: idx for idx, label in enumerate(observed)}
-    train_y = torch.tensor([mapping[int(v)] for v in train["labels"].tolist()], dtype=torch.long)
-    test_y = torch.tensor([mapping[int(v)] for v in test["labels"].tolist()], dtype=torch.long)
-    return {**train, "labels": train_y}, {**test, "labels": test_y}, mapping
+def _pamap2_remap_labels(*splits):
+    mapping = {label: idx for idx, label in enumerate(PAMAP2_ACTIVITY_IDS)}
+    remapped = []
+    for split in splits:
+        unexpected = sorted(set(int(v) for v in split["labels"].tolist()) - set(mapping))
+        if unexpected:
+            raise ValueError(f"PAMAP2 split contains unsupported activity IDs: {unexpected}.")
+        labels = torch.tensor([mapping[int(v)] for v in split["labels"].tolist()], dtype=torch.long)
+        remapped.append({**split, "labels": labels})
+    return (*remapped, mapping)
 
 
 def _pamap2_input_shapes(modalities):
@@ -427,21 +475,25 @@ def _pamap2_input_shapes(modalities):
 def load_pamap2_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/pamap2"))
-    train_subjects = list(dataset_cfg.get("train_subjects", [101, 102, 103, 104, 105, 106, 107]))
+    train_subjects = list(dataset_cfg.get("train_subjects", [101, 102, 103, 105, 107]))
+    validation_subjects = list(dataset_cfg.get("validation_subjects", [104, 106]))
     test_subjects = list(dataset_cfg.get("test_subjects", [108, 109]))
-    all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
+    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "PAMAP2")
+    all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
 
     protocol_dir = validate_pamap2_root(root, all_subjects)
     train = _pamap2_build_split(protocol_dir, train_subjects, dataset_cfg)
+    validation = _pamap2_build_split(protocol_dir, validation_subjects, dataset_cfg)
     test = _pamap2_build_split(protocol_dir, test_subjects, dataset_cfg)
-    train, test, label_mapping = _pamap2_remap_labels(train, test)
+    train, validation, test, label_mapping = _pamap2_remap_labels(train, validation, test)
     if bool(dataset_cfg.get("normalize", True)):
-        train, test = _pamap2_normalize(train, test)
+        train, validation, test = _normalize_from_train(train, validation, test)
 
     modality_names = list(_pamap2_modality_columns(dataset_cfg).keys())
     input_shapes = _pamap2_input_shapes(train["modalities"])
     return {
         "train": train,
+        "validation": validation,
         "test": test,
         "root": str(root),
         "modality_names": modality_names,

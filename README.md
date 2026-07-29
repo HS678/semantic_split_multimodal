@@ -16,9 +16,9 @@ The project is not Federated Learning and does not use FedAvg. Clients upload de
 
 ## Protocol
 
-Training does not use true modality names, true modality IDs, true Q, or an oracle modality scheduler. `hidden_modality_id` is saved by Stage 1 only for post-hoc discovery audit and evaluation-only oracle mapping.
+Training forward/backward does not use true modality names, true modality IDs, true Q, or an oracle modality scheduler. `hidden_modality_id` is saved by Stage 1 only for post-hoc discovery audit and no-gradient naturally paired validation/test evaluation-only oracle mapping.
 
-Stage 3 uses balanced per-cluster random round-robin scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. Final evaluation reads the frozen Stage 1 `test_multimodal.pt`; test labels are used only to compute metrics.
+Stage 3 uses balanced per-cluster random round-robin scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. It validates on `validation_multimodal.pt`, selects `best_model.pt` by validation macro-F1, then evaluates `test_multimodal.pt` once after training. Validation/test labels are used only to compute metrics.
 
 Supported clustering methods are:
 
@@ -53,7 +53,7 @@ Local references may stay under `local/references/`. The whole `local/` tree is 
 Stage 1 partitions are reusable assets:
 
 ```text
-local/results/partition/<dataset>/<modality_1>_<n>clients_<modality_2>_<n>clients_.../
+local/results/partition/<dataset>/<modality_signature>__subject_disjoint_tvt_v1/
 ```
 
 Stage 2 cluster outputs are separated by dataset, partition signature, and clustering method:
@@ -71,12 +71,12 @@ local/results/experiments/<dataset>/<run_id>/
 Default partition signatures with `clients_per_modality: 10`:
 
 ```text
-UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients
-MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients
-PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients
+UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
+MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
+PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
 ```
 
-No stage overwrites an existing non-empty output directory. Use a new Stage 3 `run_id`, such as `adaptive_seed101`.
+No stage overwrites an existing non-empty output directory. Use a three-split Stage 3 `run_id`, such as `adaptive_tvt_seed101`.
 
 ## Stage 1
 
@@ -99,9 +99,12 @@ Stage 1 writes directly under the partition directory:
 ```text
 train_clients/client_*.pt
 client_meta.csv
+validation_multimodal.pt
 test_multimodal.pt
 partition_config.json
 ```
+
+All datasets use fixed, disjoint subject-level train/validation/test splits. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired. MHEALTH/PAMAP2 normalization statistics are fitted on train only.
 
 ## Stage 2
 
@@ -110,7 +113,7 @@ UCI-HAR:
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -120,7 +123,7 @@ MHEALTH:
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
+  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -130,7 +133,7 @@ PAMAP2:
 ```bash
 python scripts/stage2_discovery.py \
   --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
+  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -155,10 +158,10 @@ UCI-HAR:
 ```bash
 python scripts/stage3_train.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -168,10 +171,10 @@ MHEALTH:
 ```bash
 python scripts/stage3_train.py \
   --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients \
-  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -181,10 +184,10 @@ PAMAP2:
 ```bash
 python scripts/stage3_train.py \
   --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients \
-  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed101 \
+  --run-id adaptive_tvt_seed101 \
   --seed 101 \
   --run-type user_formal
 ```
@@ -192,29 +195,40 @@ python scripts/stage3_train.py \
 Stage 3 writes directly under `local/results/experiments/<dataset>/<run_id>/`:
 
 ```text
+resolved_config.yaml
 train_log.csv
-eval_log.csv
+validation_log.csv
 final_metrics.json
 best_metrics.json
 best_model.pt
-final_model.pt
+last_model.pt
+training_curves.png
 stage3_metadata.json
 ```
 
-Formal configs set `training.eval_every == training.global_rounds`, so naturally paired evaluation runs only at the final round. Use `final_metrics.json` and `final_model.pt` as the official paper result and checkpoint. `best_metrics.json` and `best_model.pt` remain compatibility outputs; in final-only mode they represent the same final-round state.
+Formal configs train for at most 200 rounds, run naturally paired validation every 10 rounds, require at least 50 rounds, and early-stop after three validation checks without a macro-F1 improvement greater than `0.001`. `best_model.pt` is the official validation-selected checkpoint; `last_model.pt` is diagnostic only. After training, Stage 3 reloads `best_model.pt`, evaluates test exactly once, and writes `final_metrics.json`.
 
 The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Give every run a distinct `run_id`, for example:
 
 ```bash
 python scripts/stage3_train.py \
   --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients/adaptive_isodata \
+  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
-  --run-id adaptive_seed202 \
+  --run-id adaptive_tvt_seed202 \
   --seed 202 \
   --run-type user_formal
 ```
+
+The current workspace includes a local sequential launcher for all three stages, all datasets, and five Stage 3 seeds. The user starts it manually:
+
+```bash
+nohup bash local/tools/launch_stage3_formal.sh \
+  > "local/tools/formal_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+It uses `adaptive_tvt_seed<N>` and therefore does not overwrite old train/test runs. The entire `local/` tree, including this launcher and its logs, is ignored by Git.
 
 ## Testing
 

@@ -9,6 +9,7 @@
 ```python
 {
     "train": {"modalities": [x0, x1, x2], "labels": y_train},
+    "validation": {"modalities": [x0_val, x1_val, x2_val], "labels": y_val},
     "test": {"modalities": [x0_test, x1_test, x2_test], "labels": y_test},
     "root": str(root),
     "modality_names": ["mod0", "mod1", "mod2"],
@@ -19,8 +20,10 @@
 规则：
 
 - 每个 modality tensor 的第 0 维必须与 labels 对齐。
-- Stage 1 会独立切分每个模态，生成单模态 clients。
-- 真实 modality name/id 只用于 discovery audit 和 evaluation-only oracle mapping。
+- train/validation/test 应优先采用互斥的 subject-level 划分。
+- Stage 1 只会切分 train 的每个模态生成单模态 clients；validation/test 保持 naturally paired。
+- 预处理统计量只能从 train 拟合并应用到 validation/test。
+- 真实 modality name/id 只用于 discovery audit 和无梯度 validation/test evaluation-only oracle mapping。
 - 不要把真实模态数或真实模态名传入训练、binding、fusion slot 构造。
 
 ## Encoder

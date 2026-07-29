@@ -27,12 +27,14 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     partition_cfg = cfg.get("partition", {})
     output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "local/results/data_partition"))
     train = dataset["train"]
+    validation = dataset["validation"]
     test = dataset["test"]
     modality_names = dataset["modality_names"]
     input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
+    split_protocol = str(cfg.get("dataset", {}).get("split_protocol", "subject_disjoint_tvt_v1"))
     if bool(partition_cfg.get("auto_signature_dir", False)):
-        output_dir = output_dir / partition_signature(modality_names, clients_per_modality)
+        output_dir = output_dir / partition_signature(modality_names, clients_per_modality, split_protocol)
     if output_dir.exists() and any(output_dir.iterdir()) and not bool(partition_cfg.get("allow_existing", False)):
         raise FileExistsError(f"Refusing to overwrite existing Stage1 partition directory: {output_dir}")
     train_clients_dir = output_dir / "train_clients"
@@ -68,19 +70,24 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             )
             client_id_num += 1
 
-    test_modalities = {
-        name: test["modalities"][idx].contiguous()
-        for idx, name in enumerate(modality_names)
-    }
-    test_payload = {
-        "label": test["labels"].contiguous(),
-        "modalities": test_modalities,
-        "modality_names": list(modality_names),
-        "modality_input_shapes": {name: [int(v) for v in shape] for name, shape in zip(modality_names, input_shapes)},
-    }
-    for name, tensor in test_modalities.items():
-        test_payload[name] = tensor
-    torch.save(test_payload, output_dir / "test_multimodal.pt")
+    for split_name, split in [("validation", validation), ("test", test)]:
+        split_modalities = {
+            name: split["modalities"][idx].contiguous()
+            for idx, name in enumerate(modality_names)
+        }
+        split_payload = {
+            "label": split["labels"].contiguous(),
+            "modalities": split_modalities,
+            "modality_names": list(modality_names),
+            "modality_input_shapes": {
+                name: [int(v) for v in shape]
+                for name, shape in zip(modality_names, input_shapes)
+            },
+            "split": split_name,
+        }
+        for name, tensor in split_modalities.items():
+            split_payload[name] = tensor
+        torch.save(split_payload, output_dir / f"{split_name}_multimodal.pt")
 
     with (output_dir / "client_meta.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
@@ -96,6 +103,16 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "output_dir": str(output_dir),
         "clients_per_modality": clients_per_modality,
         "num_clients": len(client_rows),
+        "split_protocol": split_protocol,
+        "split_subjects": {
+            split_name: [int(v) for v in cfg.get("dataset", {}).get(f"{split_name}_subjects", [])]
+            for split_name in ("train", "validation", "test")
+        },
+        "split_num_samples": {
+            "train": int(train["labels"].shape[0]),
+            "validation": int(validation["labels"].shape[0]),
+            "test": int(test["labels"].shape[0]),
+        },
         "modalities": [
             {
                 "hidden_modality_id": i,
