@@ -39,7 +39,7 @@ scripts/
 - `learning/models.py`：定义 client encoder、autoencoder、`ClusterAdapter` 和 `ConcatMLPFusionServer`。
 - `learning/fusion_sl.py`：Stage 3 fusion Split Learning trainer、validation checkpoint selection、early stopping、best checkpoint 恢复和一次性 test 调用。
 - `evaluation/fusion_eval.py`：读取 `validation_multimodal.pt` 或 `test_multimodal.pt` 做 naturally paired fusion evaluation。
-- `evaluation/training_curves.py`：从训练和验证 CSV 生成 `training_curves.png`。
+- `evaluation/plot_training_curves.py`：从训练和验证 CSV 生成 `training_curves.png`，也提供独立重绘 CLI。
 - `evaluation/oracle_mapping.py`：仅在 evaluation 阶段用 `hidden_modality_id` 建立 oracle mapping。
 - `evaluation/metrics.py`：计算 discovery 和 learning metrics。
 - `utils/results.py`：解析 Stage 1 partition、Stage 2 cluster 和 Stage 3 experiment 输出路径。

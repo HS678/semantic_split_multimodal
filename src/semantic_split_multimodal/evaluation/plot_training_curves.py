@@ -1,3 +1,4 @@
+import argparse
 import csv
 import os
 from pathlib import Path
@@ -97,3 +98,21 @@ def write_training_curves(run_dir: Path):
     fig.savefig(output_path, dpi=160)
     plt.close(fig)
     return output_path
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Plot Stage3 train and validation curves from a completed run."
+    )
+    parser.add_argument(
+        "--run-dir",
+        required=True,
+        help="Stage3 run directory containing train_log.csv and validation_log.csv",
+    )
+    args = parser.parse_args(argv)
+    output_path = write_training_curves(Path(args.run_dir))
+    print(f"training_curves={output_path}")
+
+
+if __name__ == "__main__":
+    main()

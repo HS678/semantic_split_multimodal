@@ -208,6 +208,14 @@ stage3_metadata.json
 
 Formal configs train for at most 200 rounds, run naturally paired validation every 10 rounds, require at least 50 rounds, and early-stop after three validation checks without a macro-F1 improvement greater than `0.001`. `best_model.pt` is the official validation-selected checkpoint; `last_model.pt` is diagnostic only. After training, Stage 3 reloads `best_model.pt`, evaluates test exactly once, and writes `final_metrics.json`.
 
+Stage 3 generates `training_curves.png` automatically. To redraw it from existing CSV files:
+
+```bash
+PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
+  -m semantic_split_multimodal.evaluation.plot_training_curves \
+  --run-dir local/results/experiments/<dataset>/<run_id>
+```
+
 The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Give every run a distinct `run_id`, for example:
 
 ```bash

@@ -208,6 +208,14 @@ stage3_metadata.json
 
 正式配置最多训练 200 rounds，每 10 rounds 做 naturally paired validation，最少训练 50 rounds；validation macro-F1 连续 3 次未改善且改善量不足 `0.001` 时 early stop。`best_model.pt` 是 validation 选择的正式 checkpoint；`last_model.pt` 只用于诊断。训练结束后加载 `best_model.pt`，test 只完整评估一次并写入 `final_metrics.json`。
 
+`training_curves.png` 会由 Stage3 自动生成。需要根据已有 CSV 手动重绘时运行：
+
+```bash
+PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
+  -m semantic_split_multimodal.evaluation.plot_training_curves \
+  --run-dir local/results/experiments/<dataset>/<run_id>
+```
+
 正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。每次运行使用独立 `run_id`，例如：
 
 ```bash

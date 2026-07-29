@@ -55,6 +55,12 @@ local/results/experiments/<dataset>/<run_id>/
 - `training_curves.png`：由 `train_log.csv` 和 `validation_log.csv` 生成的训练/验证曲线，不包含 test 曲线。
 - `stage3_metadata.json`：完整配置快照、Git SHA、runtime、Stage 1 输入、Stage 2 输入、scheduler、run type 和完成状态。
 
+Stage3 会自动生成曲线。手动重绘入口位于：
+
+```bash
+python -m semantic_split_multimodal.evaluation.plot_training_curves --run-dir <run_dir>
+```
+
 ## final_metrics.json 关键字段
 
 - `test_eval_status`：`success` 或 `failed`。

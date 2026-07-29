@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from semantic_split_multimodal.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
-from semantic_split_multimodal.evaluation.training_curves import write_training_curves
+from semantic_split_multimodal.evaluation.plot_training_curves import write_training_curves
 from semantic_split_multimodal.utils.config import load_config
 from semantic_split_multimodal.utils.device import select_device
 from semantic_split_multimodal.utils.results import dataset_result_name
