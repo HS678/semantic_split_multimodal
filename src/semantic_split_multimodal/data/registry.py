@@ -4,6 +4,7 @@ from typing import Callable
 import torch
 
 from semantic_split_multimodal.data.datasets import (
+    load_cmu_mosei_dataset,
     load_mhealth_dataset,
     load_pamap2_dataset,
     load_uci_har_dataset,
@@ -87,6 +88,7 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
                 )
 
 
+register_dataset_loader("cmu_mosei", load_cmu_mosei_dataset)
 register_dataset_loader("uci_har", load_uci_har_dataset)
 register_dataset_loader("mhealth", load_mhealth_dataset)
 register_dataset_loader("pamap2", load_pamap2_dataset)

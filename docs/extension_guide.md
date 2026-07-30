@@ -17,6 +17,8 @@
 }
 ```
 
+现有正式 loader 包括 `uci_har`、`mhealth`、`pamap2` 和 `cmu_mosei`。CMU-MOSEI 的官方 split ID 对齐、负/非负标签转换、mean pooling 与 train-only 标准化都属于数据适配层，不改变 Stage2/Stage3 核心算法。
+
 规则：
 
 - 每个 modality tensor 的第 0 维必须与 labels 对齐。

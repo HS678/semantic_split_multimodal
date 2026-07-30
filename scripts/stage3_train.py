@@ -371,7 +371,7 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
             return "failed", f"missing_{name}"
     if metrics.get("test_eval_status") != "success":
         return "failed", metrics.get("test_eval_failure_reason") or "test_evaluation_failed"
-    for key in ["test_accuracy", "test_macro_f1", "test_loss"]:
+    for key in ["test_accuracy", "test_macro_f1", "test_weighted_f1", "test_loss"]:
         if not _is_finite_number(metrics.get(key)):
             return "failed", f"invalid_{key}"
     if metrics.get("checkpoint") != "best_model.pt":

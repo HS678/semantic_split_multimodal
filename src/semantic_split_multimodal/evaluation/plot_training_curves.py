@@ -38,6 +38,11 @@ def write_training_curves(run_dir: Path):
     validation_loss = [float(row["loss"]) for row in validation_success]
     validation_accuracy = [float(row["accuracy"]) for row in validation_success]
     validation_macro_f1 = [float(row["macro_f1"]) for row in validation_success]
+    validation_weighted_f1 = [
+        float(row["weighted_f1"])
+        for row in validation_success
+        if row.get("weighted_f1") not in (None, "")
+    ]
     best_rows = [row for row in validation_success if int(row["is_best"]) == 1]
     best_round = int(best_rows[-1]["round"]) if best_rows else None
     stop_round = train_rounds[-1]
@@ -67,6 +72,13 @@ def write_training_curves(run_dir: Path):
         "o-",
         label="validation macro-F1",
     )
+    if len(validation_weighted_f1) == len(validation_rounds):
+        axes[1].plot(
+            validation_rounds,
+            validation_weighted_f1,
+            marker="s",
+            label="validation weighted-F1",
+        )
     axes[1].set_xlabel("Global round")
     axes[1].set_ylabel("Metric")
     axes[1].set_ylim(0.0, 1.0)

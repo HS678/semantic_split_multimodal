@@ -100,6 +100,8 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     partition_config = {
         "dataset_type": cfg.get("dataset", {}).get("type", "uci_har"),
         "dataset_root": dataset["root"],
+        "dataset_config": cfg.get("dataset", {}),
+        "label_mapping": dataset.get("label_mapping"),
         "output_dir": str(output_dir),
         "clients_per_modality": clients_per_modality,
         "num_clients": len(client_rows),

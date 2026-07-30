@@ -123,6 +123,9 @@ def learning_metrics(y_true, y_pred, modality_ids=None):
     out = {
         "accuracy": float(accuracy_score(y_true, y_pred)) if len(y_true) else 0.0,
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)) if len(y_true) else 0.0,
+        "weighted_f1": (
+            float(f1_score(y_true, y_pred, average="weighted", zero_division=0)) if len(y_true) else 0.0
+        ),
     }
     if modality_ids is not None:
         modality_ids = np.asarray(modality_ids, dtype=int)

@@ -4,7 +4,7 @@
 
 当前活动方法为 `mmbind_fusion_split_learning`，由三个可分开运行的 stage 组成：
 
-1. Stage 1：raw naturally paired multimodal dataset -> subject-disjoint train/validation/test -> train-only single-modality client partition -> `validation_multimodal.pt` / `test_multimodal.pt`
+1. Stage 1：raw naturally paired multimodal dataset -> fixed train/validation/test protocol -> train-only single-modality client partition -> `validation_multimodal.pt` / `test_multimodal.pt`
 2. Stage 2：client encoder autoencoder pretraining -> fingerprint extraction -> clustering -> `pred_cluster`
 3. Stage 3：balanced per-cluster random round-robin scheduling -> same-label pseudo binding -> ClusterAdapter -> concat MLP fusion -> classifier -> CE loss -> Split Learning backward -> naturally paired evaluation
 
@@ -28,7 +28,7 @@ scripts/
 ## 文件职责
 
 - `data/client.py`：定义单模态 client payload 的内存对象和序列化字段。
-- `data/datasets.py`：加载 UCI-HAR、MHEALTH、PAMAP2，并输出统一 loader contract。
+- `data/datasets.py`：加载 UCI-HAR、MHEALTH、PAMAP2、CMU-MOSEI，并输出统一 loader contract。CMU-MOSEI 在 loader 内完成官方 split ID 对齐、时间 mean pooling、train-only 标准化和负/非负二分类标签转换。
 - `data/partitioner.py`：把 naturally paired train split 划成单模态客户端，并保存 naturally paired validation/test payload。
 - `data/registry.py`：按 config 中的数据集类型分发 loader。
 - `discovery/fingerprint.py`：从预训练 encoder 提取客户端 fingerprint。

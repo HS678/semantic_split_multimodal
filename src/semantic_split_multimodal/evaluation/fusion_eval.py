@@ -23,6 +23,7 @@ def evaluate_naturally_paired_fusion(
             "loss": None,
             "accuracy": None,
             "macro_f1": None,
+            "weighted_f1": None,
         }
 
     payload = torch.load(Path(multimodal_path), map_location="cpu")
@@ -40,6 +41,7 @@ def evaluate_naturally_paired_fusion(
             "loss": None,
             "accuracy": None,
             "macro_f1": None,
+            "weighted_f1": None,
         }
 
     tensors = [modalities[name] for name in modality_names]

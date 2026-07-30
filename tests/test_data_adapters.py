@@ -34,6 +34,12 @@ DATASET_CASES = [
         ["accelerometer", "gyroscope", "magnetometer"],
         [[9, 128], [9, 128], [9, 128]],
     ),
+    (
+        "cmu_mosei",
+        "configs/cmu_mosei.yaml",
+        ["text", "audio", "visual"],
+        [[768], [74], [35]],
+    ),
 ]
 
 
@@ -81,7 +87,8 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     assert info["num_clients"] == 2 * len(expected_names)
     assert [item["hidden_modality_name"] for item in info["modalities"]] == expected_names
     assert [item["input_shape"] for item in info["modalities"]] == expected_shapes
-    assert info["split_protocol"] == "subject_disjoint_tvt_v1"
+    assert info["split_protocol"] == cfg["dataset"]["split_protocol"]
+    assert info["dataset_config"] == cfg["dataset"]
     assert set(info["split_num_samples"]) == {"train", "validation", "test"}
     assert all(info["split_num_samples"][name] > 0 for name in info["split_num_samples"])
 
@@ -211,3 +218,23 @@ def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
     assert remapped_train["labels"].tolist() == [mapping[1], mapping[24]]
     assert remapped_validation["labels"].tolist() == [mapping[12]]
     assert remapped_test["labels"].tolist() == [mapping[17]]
+
+
+def test_cmu_mosei_uses_official_splits_binary_labels_and_train_only_standardization():
+    cfg = load_config(PROJECT_ROOT / "configs/cmu_mosei.yaml")
+    dataset = load_dataset(cfg, PROJECT_ROOT)
+
+    assert dataset["split_num_samples"] == {"train": 16327, "validation": 1871, "test": 4662}
+    assert dataset["label_mapping"] == {"negative": 0, "non_negative": 1}
+    assert torch.bincount(dataset["train"]["labels"], minlength=2).tolist() == [4739, 11588]
+    assert torch.bincount(dataset["validation"]["labels"], minlength=2).tolist() == [506, 1365]
+    assert torch.bincount(dataset["test"]["labels"], minlength=2).tolist() == [1350, 3312]
+
+    for tensor in dataset["train"]["modalities"]:
+        assert torch.isfinite(tensor).all()
+        assert torch.allclose(tensor.mean(dim=0), torch.zeros(tensor.shape[1]), atol=2e-5)
+        assert torch.allclose(
+            tensor.std(dim=0, unbiased=False),
+            torch.ones(tensor.shape[1]),
+            atol=2e-5,
+        )

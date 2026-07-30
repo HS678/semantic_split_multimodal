@@ -1,10 +1,10 @@
 # Configuration Reference
 
-三个正式配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml` 和 `configs/pamap2.yaml`。
+四个正式配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml`、`configs/pamap2.yaml` 和 `configs/cmu_mosei.yaml`。
 
 ## 顶层字段
 
-- `seed`：基础随机种子，三个正式 YAML 均固定为 `42`。Stage 3 可通过 CLI `--seed` 只覆盖本次运行的内存配置；不会修改 YAML，也不会影响 Stage 1/Stage 2。
+- `seed`：基础随机种子，四个正式 YAML 均固定为 `42`。Stage 3 可通过 CLI `--seed` 只覆盖本次运行的内存配置；不会修改 YAML，也不会影响 Stage 1/Stage 2。
 - `device`：`auto`、`cpu`、`cuda` 或 `mps`。
 - `experiment_name`：实验名，主要用于记录。
 - `results.base_dir`：结果根目录基准，默认 `./local/results`。
@@ -13,12 +13,15 @@
 
 ## dataset
 
-- `dataset.type`：`uci_har`、`mhealth` 或 `pamap2`。
+- `dataset.type`：`uci_har`、`mhealth`、`pamap2` 或 `cmu_mosei`。
 - `dataset.root`：原始数据目录。
-- `dataset.split_protocol`：当前固定为 `subject_disjoint_tvt_v1`，并写入 partition signature，避免与旧 train/test 结果冲突。
+- `dataset.split_protocol`：传感器数据集固定为 `subject_disjoint_tvt_v1`；CMU-MOSEI 固定为 `official_video_disjoint_tvt_v1`。该字段写入 partition signature。
 - `dataset.modality_scheme`：传感器到模态的划分方案。
 - `dataset.train_subjects` / `dataset.validation_subjects` / `dataset.test_subjects`：互斥的 subject split。
 - `dataset.window_size` / `dataset.stride`：时间序列窗口设置。
+- `dataset.task` / `dataset.label_protocol`：CMU-MOSEI 固定为 `binary_sentiment` / `negative_vs_non_negative`，即 `< 0` 为负类、`>= 0` 为非负类。
+- `dataset.temporal_pooling`：CMU-MOSEI audio/visual 固定为 `mean`。
+- `dataset.normalize`：CMU-MOSEI 为 `true` 时，mean pooling 后三个模态都只使用 train 统计量标准化。
 
 正式 subject 划分固定为：
 
@@ -34,6 +37,8 @@ MHEALTH test:       9,10
 PAMAP2 train:       101,102,103,105,107
 PAMAP2 validation:  104,106
 PAMAP2 test:        108,109
+
+CMU-MOSEI 使用来源仓库官方 split TSV，不重新按标签或样本随机划分。
 ```
 
 按当前窗口与过滤配置实际加载后的样本数为：
@@ -42,6 +47,7 @@ PAMAP2 test:        108,109
 UCI-HAR: train=5888, validation=1464, test=2947
 MHEALTH: train=3152, validation=1059, test=1043
 PAMAP2:  train=9298, validation=3757, test=2096
+CMU-MOSEI: train=16327, validation=1871, test=4662
 ```
 
 三个 split 均覆盖各数据集配置的全部类别。
@@ -74,7 +80,7 @@ acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 
 - `cluster.method`：只支持 `kmeans` 或 `adaptive_isodata`。
 - `cluster.known_k`：known-Q kmeans 实验的聚类数量；unknown-Q adaptive ISODATA 应为 `null`。
-- `cluster.adaptive.*`：adaptive ISODATA 参数，三个公开数据集应保持统一。
+- `cluster.adaptive.*`：adaptive ISODATA 参数，四个正式数据集保持当前统一配置。不得根据 CMU-MOSEI 聚类结果反向修改聚类算法或参数设计。
 
 ## training
 

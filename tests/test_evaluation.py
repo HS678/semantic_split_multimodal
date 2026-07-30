@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from semantic_split_multimodal.evaluation.fusion_eval import evaluate_naturally_paired_fusion
+from semantic_split_multimodal.evaluation.metrics import learning_metrics
 from semantic_split_multimodal.evaluation.oracle_mapping import (
     MERGED_TRUE_MODALITY_FAILURE,
     SPLIT_TRUE_MODALITY_FAILURE,
@@ -42,6 +43,15 @@ class TraceServer(nn.Module):
         self.seen_slots.append({k: v.detach().cpu().clone() for k, v in slot_activations.items()})
         fused = torch.cat([slot_activations[5], slot_activations[9]], dim=1)
         return self.fc(fused), fused
+
+
+def test_learning_metrics_reports_macro_and_weighted_f1():
+    metrics = learning_metrics([0, 0, 0, 1], [0, 0, 1, 1])
+
+    assert metrics["accuracy"] == 0.75
+    assert metrics["macro_f1"] != metrics["weighted_f1"]
+    assert 0.0 <= metrics["macro_f1"] <= 1.0
+    assert 0.0 <= metrics["weighted_f1"] <= 1.0
 
 
 def test_fusion_eval_uses_naturally_paired_indices_and_not_label_selection(tmp_path):
@@ -98,6 +108,7 @@ def test_fusion_eval_returns_unavailable_metrics_when_mapping_fails(tmp_path):
     assert metrics["eval_failure_reason"] == "split_true_modality_failure"
     assert metrics["accuracy"] is None
     assert metrics["macro_f1"] is None
+    assert metrics["weighted_f1"] is None
     assert metrics["loss"] is None
 
 

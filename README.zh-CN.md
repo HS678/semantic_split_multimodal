@@ -18,7 +18,7 @@ English README: [README.md](README.md)。
 
 训练 forward/backward 不使用真实模态名称、真实模态 ID、真实 Q，也不使用 oracle modality scheduler。Stage 1 保存的 `hidden_modality_id` 只允许用于 discovery 完成后的 post-hoc audit，以及无梯度的 naturally paired validation/test evaluation-only oracle mapping。
 
-Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。训练期间每 10 rounds 读取 `validation_multimodal.pt` 做 naturally paired validation；训练结束后加载 validation macro-F1 选出的 `best_model.pt`，再读取 `test_multimodal.pt` 做一次最终测试。validation/test label 只用于计算指标，不用于构造输入。
+Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。训练期间每 10 rounds 读取 `validation_multimodal.pt` 做 naturally paired validation；训练结束后加载 validation macro-F1 选出的 `best_model.pt`，再读取 `test_multimodal.pt` 做一次最终测试。validation/test label 只用于计算 loss、accuracy、macro-F1 和 weighted-F1，不用于构造输入。
 
 当前只保留两种聚类方法：
 
@@ -44,7 +44,21 @@ local/datasets/
 local/datasets/uci_har/
 local/datasets/mhealth/
 local/datasets/pamap2/
+local/datasets/cmu_mosei/
 ```
+
+CMU-MOSEI 目录需要包含：
+
+```text
+features/BERT_MOSEI.pkl
+features/COAVAREP_aligned_MOSEI.pkl
+features/FACET_aligned_MOSEI.pkl
+splits/df_MOSEI.tsv
+splits/df_valid_MOSEI.tsv
+splits/df_test_MOSEI.tsv
+```
+
+三个 split TSV 来自特征来源仓库 [Ighina/MultiModalSA](https://github.com/Ighina/MultiModalSA/tree/master/data)，必须保持原始行顺序以便与 BERT 特征逐项核验。
 
 本地参考资料可以保留在 `local/references/`。整个 `local/` 目录都会被 Git 忽略。
 
@@ -53,7 +67,7 @@ local/datasets/pamap2/
 Stage 1 的数据划分是可复用资产：
 
 ```text
-local/results/partition/<dataset>/<模态签名>__subject_disjoint_tvt_v1/
+local/results/partition/<dataset>/<partition_signature>/
 ```
 
 Stage 2 的聚类结果按数据集、partition signature 和聚类方法分开保存：
@@ -74,6 +88,7 @@ local/results/experiments/<dataset>/<run_id>/
 UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
+CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1
 ```
 
 每个阶段都会拒绝覆盖已有的非空输出目录。三划分 Stage 3 请使用新的 `run_id`，例如 `adaptive_tvt_seed101`。
@@ -86,12 +101,13 @@ PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clie
 python scripts/stage1_partition.py --config configs/uci_har.yaml
 ```
 
-三个数据集依次运行：
+四个数据集依次运行：
 
 ```bash
 python scripts/stage1_partition.py --config configs/uci_har.yaml
 python scripts/stage1_partition.py --config configs/mhealth.yaml
 python scripts/stage1_partition.py --config configs/pamap2.yaml
+python scripts/stage1_partition.py --config configs/cmu_mosei.yaml
 ```
 
 Stage 1 直接在 partition 目录下写入：
@@ -104,7 +120,7 @@ test_multimodal.pt
 partition_config.json
 ```
 
-三个数据集都使用固定、互斥的 subject-level train/validation/test 划分。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。MHEALTH/PAMAP2 的归一化统计量只由 train 计算。
+UCI-HAR、MHEALTH、PAMAP2 使用固定、互斥的 subject-level train/validation/test 划分；CMU-MOSEI 使用来源仓库的官方 video-disjoint train/validation/test，样本数分别为 16,327、1,871、4,662。CMU-MOSEI 任务为 `polarity < 0` 对 `polarity >= 0` 的二分类；audio/visual 按时间 mean pooling，三个模态都只用 train 统计量标准化。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。
 
 ## Stage 2：未知 Q 模态发现
 
@@ -134,6 +150,16 @@ PAMAP2：
 python scripts/stage2_discovery.py \
   --config configs/pamap2.yaml \
   --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
+  --output-root local/results/cluster \
+  --run-type user_formal
+```
+
+CMU-MOSEI：
+
+```bash
+python scripts/stage2_discovery.py \
+  --config configs/cmu_mosei.yaml \
+  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
   --output-root local/results/cluster \
   --run-type user_formal
 ```
@@ -192,6 +218,19 @@ python scripts/stage3_train.py \
   --run-type user_formal
 ```
 
+CMU-MOSEI：
+
+```bash
+python scripts/stage3_train.py \
+  --config configs/cmu_mosei.yaml \
+  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
+  --stage2-dir local/results/cluster/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1/adaptive_isodata \
+  --output-root local/results/experiments \
+  --run-id adaptive_tvt_seed101 \
+  --seed 101 \
+  --run-type user_formal
+```
+
 Stage 3 直接在 `local/results/experiments/<dataset>/<run_id>/` 下写入：
 
 ```text
@@ -229,7 +268,23 @@ python scripts/stage3_train.py \
   --run-type user_formal
 ```
 
-当前工作区已提供顺序执行三个数据集全部三阶段和五个 Stage3 seeds 的本地脚本。正式实验由用户手动启动：
+每个数据集都有独立正式实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds：
+
+```bash
+nohup bash local/tools/launch_uci_har_formal.sh \
+  > "local/tools/uci_har_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+
+nohup bash local/tools/launch_mhealth_formal.sh \
+  > "local/tools/mhealth_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+
+nohup bash local/tools/launch_pamap2_formal.sh \
+  > "local/tools/pamap2_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+
+nohup bash local/tools/launch_cmu_mosei_formal.sh \
+  > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+`launch_stage3_formal.sh` 保留为一次顺序启动全部四个数据集正式实验的聚合脚本：
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \

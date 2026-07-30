@@ -14,7 +14,7 @@ local/results/partition/<dataset>/<partition_signature>/
 - `client_meta.csv`：client metadata。`hidden_modality_id` 只允许用于 Stage 2 audit 和无梯度 validation/test evaluation-only oracle mapping。
 - `validation_multimodal.pt`：naturally paired validation payload；用于 checkpoint 选择和 early stopping。
 - `test_multimodal.pt`：naturally paired test payload，包含 `modalities`、`modality_names`、`modality_input_shapes` 和 `label`。
-- `partition_config.json`：Stage 1 运行配置摘要，包含 split protocol、三个 subject 列表和样本数。
+- `partition_config.json`：Stage 1 运行配置摘要，包含完整 `dataset_config`、label mapping、split protocol、可用的 subject 列表和三个 split 样本数。
 
 ## Stage 2 Cluster
 
@@ -47,7 +47,7 @@ local/results/experiments/<dataset>/<run_id>/
 
 - `resolved_config.yaml`：本次 run 的完整内存配置，包括 CLI seed 和解析后的输入输出路径。
 - `train_log.csv`：每轮训练指标，包括 selected clients、selected clusters、binding 成功率、pseudo batch size、coverage 和参数更新量。
-- `validation_log.csv`：每 10 rounds 的 naturally paired validation loss、accuracy、macro-F1、是否更新 best 和 patience 计数。
+- `validation_log.csv`：每 10 rounds 的 naturally paired validation loss、accuracy、macro-F1、weighted-F1、是否更新 best 和 patience 计数。
 - `best_metrics.json`：最佳 validation 指标、`best_round` 和选择规则。
 - `final_metrics.json`：恢复 `best_model.pt` 后一次性 naturally paired test 的正式指标。
 - `best_model.pt`：validation macro-F1 选择的正式 checkpoint。
@@ -65,7 +65,7 @@ python -m semantic_split_multimodal.evaluation.plot_training_curves --run-dir <r
 
 - `test_eval_status`：`success` 或 `failed`。
 - `test_eval_failure_reason`：mapping failure 或 `null`。
-- `test_loss`、`test_accuracy`、`test_macro_f1`：naturally paired test 指标。
+- `test_loss`、`test_accuracy`、`test_macro_f1`、`test_weighted_f1`：naturally paired test 指标。
 - `checkpoint` / `selected_by`：固定为 `best_model.pt` / `validation_macro_f1`。
 - `oracle_eval_mapping.mapping_type`：固定为 `oracle_evaluation_only`。
 - `configured_global_rounds`、`executed_global_rounds`、`effective_global_rounds`、`empty_binding_rounds`：global round 统计。

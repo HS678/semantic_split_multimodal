@@ -145,10 +145,11 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
     metrics.setdefault("best_round", 1)
     metrics.setdefault("checkpoint", "best_model.pt")
     metrics.setdefault("selected_by", "validation_macro_f1")
+    metrics.setdefault("test_weighted_f1", metrics.get("test_macro_f1"))
     (result_dir / "train_log.csv").write_text("round,loss\n1,1.0\n", encoding="utf-8")
     (result_dir / "validation_log.csv").write_text(
-        "round,eval_status,eval_failure_reason,loss,accuracy,macro_f1,is_best,checks_without_improvement\n"
-        "1,success,,1.0,0.5,0.4,1,0\n",
+        "round,eval_status,eval_failure_reason,loss,accuracy,macro_f1,weighted_f1,is_best,checks_without_improvement\n"
+        "1,success,,1.0,0.5,0.4,0.45,1,0\n",
         encoding="utf-8",
     )
     (result_dir / "final_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")

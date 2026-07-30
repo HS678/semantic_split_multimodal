@@ -1,3 +1,6 @@
+import csv
+import io
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -500,4 +503,247 @@ def load_pamap2_dataset(cfg, project_root: Path):
         "modality_input_shapes": input_shapes,
         "modality_pamap2_input_shapes": input_shapes,
         "label_mapping": {str(k): int(v) for k, v in label_mapping.items()},
+    }
+
+
+class _CMUMOSEIComputationalSequence:
+    """Minimal pickle target for SDK computational-sequence feature files."""
+
+
+class _CMUMOSEIUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if (
+            module == "mmsdk.mmdatasdk.computational_sequence.computational_sequence"
+            and name == "computational_sequence"
+        ):
+            return _CMUMOSEIComputationalSequence
+        if module == "torch.storage" and name == "_load_from_bytes":
+            return lambda payload: torch.load(io.BytesIO(payload), map_location="cpu", weights_only=False)
+        return super().find_class(module, name)
+
+
+def _cmu_mosei_resolve_path(root: Path, value: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        path = root / path
+    return path.resolve()
+
+
+def _cmu_mosei_required_paths(root: Path, dataset_cfg):
+    feature_dir = _cmu_mosei_resolve_path(root, dataset_cfg.get("features_dir", "features"))
+    split_dir = _cmu_mosei_resolve_path(root, dataset_cfg.get("splits_dir", "splits"))
+    return {
+        "text": feature_dir / dataset_cfg.get("text_file", "BERT_MOSEI.pkl"),
+        "audio": feature_dir / dataset_cfg.get("audio_file", "COAVAREP_aligned_MOSEI.pkl"),
+        "visual": feature_dir / dataset_cfg.get("visual_file", "FACET_aligned_MOSEI.pkl"),
+        "train": split_dir / dataset_cfg.get("train_split_file", "df_MOSEI.tsv"),
+        "validation": split_dir / dataset_cfg.get("validation_split_file", "df_valid_MOSEI.tsv"),
+        "test": split_dir / dataset_cfg.get("test_split_file", "df_test_MOSEI.tsv"),
+    }
+
+
+def validate_cmu_mosei_root(root: Path, dataset_cfg):
+    if not root.exists():
+        raise FileNotFoundError(f"CMU-MOSEI root not found: {root}.")
+    paths = _cmu_mosei_required_paths(root, dataset_cfg)
+    missing = [str(path) for path in paths.values() if not path.exists()]
+    if missing:
+        preview = "\n".join(missing)
+        raise FileNotFoundError(f"CMU-MOSEI dataset is incomplete under {root}. Missing:\n{preview}")
+    return paths
+
+
+def _cmu_mosei_read_split(path: Path):
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        raise ValueError(f"CMU-MOSEI split file is empty: {path}")
+
+    sample_ids = []
+    polarities = []
+    for row_idx, row in enumerate(rows):
+        sample_id = str(row.get("", "")).strip()
+        if not sample_id:
+            raise ValueError(f"CMU-MOSEI split file {path} has an empty sample id at row {row_idx + 2}.")
+        try:
+            polarity = float(row["polarity"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"CMU-MOSEI split file {path} has an invalid polarity at row {row_idx + 2}."
+            ) from exc
+        sample_ids.append(sample_id)
+        polarities.append(polarity)
+    return sample_ids, torch.tensor(polarities, dtype=torch.float32)
+
+
+def _cmu_mosei_load_pickle(path: Path):
+    with path.open("rb") as f:
+        return _CMUMOSEIUnpickler(f).load()
+
+
+def _cmu_mosei_pool_sequence(sequence, sample_id: str, modality_name: str):
+    features = np.asarray(sequence, dtype=np.float32)
+    if features.ndim != 2 or features.shape[0] == 0:
+        raise ValueError(
+            f"CMU-MOSEI {modality_name} sample {sample_id} must have non-empty [time, feature] data, "
+            f"got {features.shape}."
+        )
+    finite = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+    return finite.mean(axis=0, dtype=np.float32)
+
+
+def _cmu_mosei_standardize_from_train(train, validation, test):
+    normalized = {"train": [], "validation": [], "test": []}
+    for modality_idx, train_tensor in enumerate(train["modalities"]):
+        mean = train_tensor.mean(dim=0, keepdim=True)
+        std = train_tensor.std(dim=0, keepdim=True, unbiased=False).clamp_min(1e-6)
+        normalized["train"].append((train_tensor - mean) / std)
+        normalized["validation"].append((validation["modalities"][modality_idx] - mean) / std)
+        normalized["test"].append((test["modalities"][modality_idx] - mean) / std)
+    return (
+        {"modalities": normalized["train"], "labels": train["labels"]},
+        {"modalities": normalized["validation"], "labels": validation["labels"]},
+        {"modalities": normalized["test"], "labels": test["labels"]},
+    )
+
+
+def _validate_cmu_mosei_protocol(dataset_cfg, split_rows):
+    expected = {
+        "task": "binary_sentiment",
+        "label_protocol": "negative_vs_non_negative",
+        "temporal_pooling": "mean",
+    }
+    for field, expected_value in expected.items():
+        actual = str(dataset_cfg.get(field, expected_value)).strip().lower()
+        if actual != expected_value:
+            raise ValueError(
+                f"CMU-MOSEI dataset.{field} must be '{expected_value}', got '{actual}'."
+            )
+
+    sample_sets = {}
+    video_sets = {}
+    for split_name, (sample_ids, _) in split_rows.items():
+        sample_set = set(sample_ids)
+        if len(sample_set) != len(sample_ids):
+            raise ValueError(f"CMU-MOSEI {split_name} split contains duplicate sample IDs.")
+        sample_sets[split_name] = sample_set
+        video_sets[split_name] = {sample_id.rsplit("[", 1)[0] for sample_id in sample_ids}
+
+    for left, right in (("train", "validation"), ("train", "test"), ("validation", "test")):
+        sample_overlap = sample_sets[left] & sample_sets[right]
+        video_overlap = video_sets[left] & video_sets[right]
+        if sample_overlap or video_overlap:
+            raise ValueError(
+                f"CMU-MOSEI official splits must be sample- and video-disjoint: "
+                f"{left}/{right} sample_overlap={sorted(sample_overlap)[:10]}, "
+                f"video_overlap={sorted(video_overlap)[:10]}."
+            )
+
+
+def load_cmu_mosei_dataset(cfg, project_root: Path):
+    dataset_cfg = cfg.get("dataset", {})
+    root_cfg = dataset_cfg.get("root", "./local/datasets/cmu_mosei")
+    root = Path(root_cfg)
+    if not root.is_absolute():
+        root = project_root / root
+    root = root.resolve()
+    paths = validate_cmu_mosei_root(root, dataset_cfg)
+
+    split_rows = {
+        split_name: _cmu_mosei_read_split(paths[split_name])
+        for split_name in ("train", "validation", "test")
+    }
+    _validate_cmu_mosei_protocol(dataset_cfg, split_rows)
+    text_payload = _cmu_mosei_load_pickle(paths["text"])
+    audio_payload = _cmu_mosei_load_pickle(paths["audio"])
+    visual_payload = _cmu_mosei_load_pickle(paths["visual"])
+
+    if not isinstance(text_payload, dict) or "Data" not in text_payload or "level" not in text_payload:
+        raise ValueError("CMU-MOSEI text pickle must contain 'Data' and 'level'.")
+    text_features = torch.as_tensor(text_payload["Data"], dtype=torch.float32).cpu()
+    text_levels = torch.as_tensor(text_payload["level"], dtype=torch.float32).reshape(-1).cpu()
+    expected_samples = sum(len(sample_ids) for sample_ids, _ in split_rows.values())
+    if text_features.ndim != 2 or int(text_features.shape[0]) != expected_samples:
+        raise ValueError(
+            f"CMU-MOSEI text features must have shape [total_split_samples, feature_dim], "
+            f"got {tuple(text_features.shape)} for {expected_samples} split samples."
+        )
+    if int(text_levels.shape[0]) != expected_samples:
+        raise ValueError(
+            f"CMU-MOSEI text labels contain {int(text_levels.shape[0])} samples, expected {expected_samples}."
+        )
+
+    audio_data = getattr(audio_payload, "data", None)
+    visual_data = getattr(visual_payload, "data", None)
+    if not isinstance(audio_data, dict) or not isinstance(visual_data, dict):
+        raise ValueError("CMU-MOSEI audio/visual pickles must contain computational-sequence data dictionaries.")
+
+    splits = {}
+    offset = 0
+    for split_name in ("train", "validation", "test"):
+        sample_ids, polarity = split_rows[split_name]
+        end = offset + len(sample_ids)
+        stored_levels = text_levels[offset:end]
+        if not torch.equal(stored_levels, polarity):
+            max_diff = float((stored_levels - polarity).abs().max().item())
+            raise ValueError(
+                f"CMU-MOSEI {split_name} polarity does not match BERT_MOSEI.pkl level values; "
+                f"max_abs_diff={max_diff}."
+            )
+
+        missing_audio = [sample_id for sample_id in sample_ids if sample_id not in audio_data]
+        missing_visual = [sample_id for sample_id in sample_ids if sample_id not in visual_data]
+        if missing_audio or missing_visual:
+            raise ValueError(
+                f"CMU-MOSEI {split_name} has missing modalities: "
+                f"audio={missing_audio[:10]}, visual={missing_visual[:10]}."
+            )
+
+        audio = np.stack(
+            [
+                _cmu_mosei_pool_sequence(audio_data[sample_id]["features"], sample_id, "audio")
+                for sample_id in sample_ids
+            ]
+        )
+        visual = np.stack(
+            [
+                _cmu_mosei_pool_sequence(visual_data[sample_id]["features"], sample_id, "visual")
+                for sample_id in sample_ids
+            ]
+        )
+        labels = (polarity >= 0).to(dtype=torch.long)
+        splits[split_name] = {
+            "modalities": [
+                text_features[offset:end].contiguous(),
+                torch.from_numpy(audio).to(dtype=torch.float32),
+                torch.from_numpy(visual).to(dtype=torch.float32),
+            ],
+            "labels": labels,
+        }
+        offset = end
+
+    if bool(dataset_cfg.get("normalize", True)):
+        splits["train"], splits["validation"], splits["test"] = _cmu_mosei_standardize_from_train(
+            splits["train"],
+            splits["validation"],
+            splits["test"],
+        )
+
+    modality_names = ["text", "audio", "visual"]
+    input_shapes = [
+        [int(tensor.shape[1])]
+        for tensor in splits["train"]["modalities"]
+    ]
+    return {
+        "train": splits["train"],
+        "validation": splits["validation"],
+        "test": splits["test"],
+        "root": str(root),
+        "modality_names": modality_names,
+        "modality_input_shapes": input_shapes,
+        "label_mapping": {"negative": 0, "non_negative": 1},
+        "split_num_samples": {
+            split_name: int(splits[split_name]["labels"].shape[0])
+            for split_name in ("train", "validation", "test")
+        },
     }

@@ -221,6 +221,7 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
             "loss": 1.0,
             "accuracy": score,
             "macro_f1": score,
+            "weighted_f1": score,
         }
 
     monkeypatch.setattr(fusion_sl, "_train_round", fake_train_round)
@@ -281,6 +282,7 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
     assert saved_metrics["checkpoint"] == "best_model.pt"
     assert saved_metrics["selected_by"] == "validation_macro_f1"
     assert saved_metrics["test_macro_f1"] == 0.45
+    assert saved_metrics["test_weighted_f1"] == 0.45
     assert "final_eval" not in saved_metrics
     assert best_metrics["best_round"] == 1
     best = torch.load(tmp_path / "run" / "best_model.pt", map_location="cpu")

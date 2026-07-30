@@ -351,6 +351,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "loss",
         "accuracy",
         "macro_f1",
+        "weighted_f1",
         "is_best",
         "checks_without_improvement",
     ]
@@ -469,6 +470,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                         "loss": validation_eval["loss"],
                         "accuracy": validation_eval["accuracy"],
                         "macro_f1": validation_eval["macro_f1"],
+                        "weighted_f1": validation_eval["weighted_f1"],
                         "is_best": int(is_best),
                         "checks_without_improvement": checks_without_improvement,
                     }
@@ -523,6 +525,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             "loss": None,
             "accuracy": None,
             "macro_f1": None,
+            "weighted_f1": None,
         }
 
     final_metrics = {
@@ -534,6 +537,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "test_loss": test_eval["loss"],
         "test_accuracy": test_eval["accuracy"],
         "test_macro_f1": test_eval["macro_f1"],
+        "test_weighted_f1": test_eval["weighted_f1"],
         "test_num_eval_samples": test_eval.get("num_eval_samples"),
         "test_num_eval_batches": test_eval.get("num_eval_batches"),
         "oracle_eval_mapping": oracle_mapping,

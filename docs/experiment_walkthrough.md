@@ -24,9 +24,9 @@
 - 输入：原始数据目录
 - 输出：统一 loader contract
 - 对应文件：`data/datasets.py`
-- 关键函数：`load_uci_har`、`load_mhealth`、`load_pamap2`
+- 关键函数：`load_uci_har_dataset`、`load_mhealth_dataset`、`load_pamap2_dataset`、`load_cmu_mosei_dataset`
 
-loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `modality_input_shapes`。三个 split 的 subject 必须互斥；每个 modality tensor 的第 0 维必须与 labels 对齐。归一化只能用 train 统计量。
+loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `modality_input_shapes`。传感器数据集的三个 split subject 必须互斥；CMU-MOSEI 必须严格使用官方 split ID。每个 modality tensor 的第 0 维必须与 labels 对齐，归一化只能用 train 统计量。
 
 ## 4. Client Payload
 
@@ -39,7 +39,7 @@ loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `moda
 
 - 输入：loader 返回的 naturally paired validation/test split
 - 输出：包含所有模态同 index 样本和 label 的 payload
-- 协议限制：validation/test label 不参与输入构造，只用于 loss、accuracy 和 macro-F1
+- 协议限制：validation/test label 不参与输入构造，只用于 loss、accuracy、macro-F1 和 weighted-F1
 
 ## 6. Stage 2 Discovery
 
@@ -97,7 +97,7 @@ fusion slot 由 `pred_cluster -> cluster_to_slot` 固定映射决定。训练 lo
 ## 12. Naturally Paired Validation And Test
 
 - 输入：`validation_multimodal.pt` 或 `test_multimodal.pt`、representative client encoders、fusion server、evaluation-only oracle mapping
-- 输出：loss、accuracy、macro-F1
+- 输出：loss、accuracy、macro-F1、weighted-F1
 - 对应文件：`evaluation/fusion_eval.py`、`evaluation/oracle_mapping.py`
 - 关键函数：`build_oracle_eval_mapping`、`evaluate_naturally_paired_fusion`
 - 协议限制：validation/test label 只用于 metrics；oracle mapping 只用于无梯度 evaluation，不进入训练数据流
