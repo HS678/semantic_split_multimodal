@@ -103,6 +103,21 @@ fingerprint:
   # 每个客户端最多用于 fingerprint 提取的 batch 数。
   max_batches: 4
 
+fingerprint_visualization:
+  # 是否在 Stage 2 完成后生成 client fingerprint 的论文级 PCA 审计图。
+  enabled: true
+  # 当前论文主图固定为 pca；坐标只使用 fingerprint 计算。
+  method: pca
+  # PCA 前是否按 fingerprint 维度进行标准化。
+  standardize: true
+  # 点旁是否标注 client_id；客户端较多时建议关闭。
+  show_client_ids: false
+  # 是否绘制按审计标签分组的协方差椭圆。
+  show_ellipses: true
+  ellipse_confidence: 0.95
+  # PNG 预览分辨率；PDF 始终为矢量格式。
+  png_dpi: 600
+
 cluster:
   # Stage 2 聚类方法：adaptive_isodata 或 kmeans。
   method: adaptive_isodata

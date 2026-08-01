@@ -18,7 +18,7 @@ The project is not Federated Learning and does not use FedAvg. Clients upload de
 
 Training forward/backward does not use true modality names, true modality IDs, true Q, or an oracle modality scheduler. `hidden_modality_id` is saved by Stage 1 only for post-hoc discovery audit and no-gradient naturally paired validation/test evaluation-only oracle mapping.
 
-Stage 3 uses balanced per-cluster random round-robin scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. It validates on `validation_multimodal.pt`, selects `best_model.pt` by validation macro-F1, then evaluates `test_multimodal.pt` once after training. Validation/test labels are used only to compute loss, accuracy, macro-F1, and weighted-F1.
+Stage 3 uses balanced per-cluster random round-robin scheduling, label-guided semantic pseudo binding, `ClusterAdapter`, concat fusion, the existing classifier, and Split Learning gradient return. It validates on `validation_multimodal.pt`, selects `best_model.pt` by validation weighted-F1, then evaluates `test_multimodal.pt` once after training. Validation/test labels are used only to compute loss, accuracy, macro-F1, and weighted-F1.
 
 Supported clustering methods are:
 
@@ -166,8 +166,14 @@ Stage 2 keeps only:
 true_cluster.csv
 pred_cluster.csv
 pretrained_encoders/
+fingerprints.npz
+fingerprint_pca.pdf
+fingerprint_pca.png
+fingerprint_pca_metadata.json
 stage2_metadata.json
 ```
+
+`fingerprint_pca.pdf` is a publication-ready vector figure and `fingerprint_pca.png` is a 600-DPI preview. PCA coordinates are computed only from pre-clustering client fingerprints; true modalities and predicted clusters are used only to color the two post-hoc audit panels and never enter PCA fitting or clustering.
 
 By default, the technical Stage 3 inputs are a complete `pred_cluster.csv` and one pretrained encoder per client. In the default mode, `true_cluster.csv` and `stage2_metadata.json` are optional audit inputs; missing audit files, inconsistent true clusters, or a non-success `discovery_status` do not gate Stage 3 startup.
 
@@ -246,7 +252,7 @@ training_curves.png
 stage3_metadata.json
 ```
 
-Formal configs train for at most 200 rounds, run naturally paired validation every 10 rounds, require at least 50 rounds, and early-stop after three validation checks without a macro-F1 improvement greater than `0.001`. `best_model.pt` is the official validation-selected checkpoint; `last_model.pt` is diagnostic only. After training, Stage 3 reloads `best_model.pt`, evaluates test exactly once, and writes `final_metrics.json`.
+Formal configs train for at most 200 rounds, run naturally paired validation every 10 rounds, require at least 50 rounds, and early-stop after three validation checks without a weighted-F1 improvement greater than `0.001`. `best_model.pt` is the official validation-selected checkpoint; `last_model.pt` is diagnostic only. After training, Stage 3 reloads `best_model.pt`, evaluates test exactly once, and writes `final_metrics.json`.
 
 Stage 3 generates `training_curves.png` automatically. To redraw it from existing CSV files:
 

@@ -11,6 +11,7 @@ from semantic_split_multimodal.discovery.fingerprint import build_fingerprints
 from semantic_split_multimodal.data.client import Client
 from semantic_split_multimodal.data.partitioner import resolve_project_path
 from semantic_split_multimodal.evaluation.metrics import discovery_metrics
+from semantic_split_multimodal.evaluation.plot_fingerprint_embedding import write_fingerprint_pca_figure
 from semantic_split_multimodal.learning.models import create_client_encoder, flattened_dim
 
 
@@ -172,4 +173,15 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
         writer = csv.DictWriter(f, fieldnames=["client_id", "pred_cluster"])
         writer.writeheader()
         writer.writerows(pred_rows)
+    visualization_cfg = cfg.get("fingerprint_visualization", {})
+    if bool(visualization_cfg.get("enabled", True)):
+        write_fingerprint_pca_figure(
+            fingerprints,
+            [client.client_id for client in clients],
+            true,
+            pred,
+            cluster_dir,
+            cfg.get("dataset", {}).get("name", cfg.get("dataset", {}).get("type", "dataset")),
+            visualization_cfg=visualization_cfg,
+        )
     return metrics

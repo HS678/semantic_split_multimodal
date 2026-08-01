@@ -45,11 +45,13 @@ loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `moda
 
 - 输入：Stage 1 `train_clients/`、`pretrain.*`、`fingerprint.*`、`cluster.*`
 - 输出目录：`local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/`
-- 输出文件：`true_cluster.csv`、`pred_cluster.csv`、`pretrained_encoders/`、`stage2_metadata.json`
+- 输出文件：`true_cluster.csv`、`pred_cluster.csv`、`pretrained_encoders/`、`fingerprints.npz`、`fingerprint_pca.pdf`、`fingerprint_pca.png`、`fingerprint_pca_metadata.json`、`stage2_metadata.json`
 - 对应文件：`scripts/stage2_discovery.py`、`learning/pretrain.py`
 - 关键函数：`run_stage2_discovery`
 
 Stage 2 先为每个单模态 client 预训练 autoencoder encoder，再提取 fingerprint，最后执行 `kmeans` 或 `adaptive_isodata`。`hidden_modality_id` 只能在聚类完成后用于 post-hoc audit，不能反馈给 PCA、split/merge、Q 选择、seed 选择或参数调整。
+
+Stage 2 同时生成聚类前 fingerprint 的双面板 PCA 审计图。两个面板共享完全相同、仅由 fingerprint 拟合的 PCA 坐标；左侧按真实模态着色，右侧按预测簇着色。PDF 为矢量格式，PNG 为 600 DPI。审计标签不参与 PCA 坐标计算。
 
 ## 7. Clustering Output
 
@@ -109,6 +111,6 @@ fusion slot 由 `pred_cluster -> cluster_to_slot` 固定映射决定。训练 lo
 - 最佳验证指标：`best_metrics.json`
 - 停止时诊断 checkpoint：`last_model.pt`
 
-正式配置每 10 rounds 执行 naturally paired validation，由 validation macro-F1 选择 `best_model.pt` 并控制 early stopping。训练结束后恢复该 checkpoint，test 只执行一次。`last_model.pt` 不参与正式 test。
+正式配置每 10 rounds 执行 naturally paired validation，由 validation weighted-F1 选择 `best_model.pt` 并控制 early stopping。训练结束后恢复该 checkpoint，test 只执行一次。`last_model.pt` 不参与正式 test。
 
 `stage3_metadata.json` 用于审计运行状态、输入路径、Git SHA、runtime、scheduler、estimated_Q 和完整配置快照。

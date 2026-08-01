@@ -456,14 +456,15 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     validation_eval["eval_status"] == "success"
                     and (
                         best_metrics is None
-                        or float(validation_eval["macro_f1"]) > float(best_metrics["macro_f1"]) + min_delta
+                        or float(validation_eval["weighted_f1"])
+                        > float(best_metrics["weighted_f1"]) + min_delta
                     )
                 )
                 if is_best:
                     checks_without_improvement = 0
                     best_metrics = {
                         "best_round": round_idx,
-                        "selected_by": "validation_macro_f1",
+                        "selected_by": "validation_weighted_f1",
                         "min_delta": min_delta,
                         **validation_eval,
                     }
@@ -546,7 +547,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
 
     final_metrics = {
         "checkpoint": "best_model.pt",
-        "selected_by": "validation_macro_f1",
+        "selected_by": "validation_weighted_f1",
         "best_round": None if best_metrics is None else int(best_metrics["best_round"]),
         "test_eval_status": test_eval["eval_status"],
         "test_eval_failure_reason": test_eval["eval_failure_reason"],
@@ -589,7 +590,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "stop_reason": stop_reason,
         "test_evaluation_count": int(test_evaluation_count),
         "official_result": {
-            "selection": "best_validation_macro_f1",
+            "selection": "best_validation_weighted_f1",
             "metrics_file": "final_metrics.json",
             "model_file": "best_model.pt",
         },

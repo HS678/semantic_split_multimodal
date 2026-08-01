@@ -24,11 +24,11 @@ fusion slot 由 `pred_cluster` 和 `cluster_to_slot` 固定映射决定。`Conca
 
 ## Validation And Test
 
-每 10 rounds 读取 Stage 1 保存的 `validation_multimodal.pt`，按相同 sample index 同时取所有模态，并在 `torch.no_grad()` 下计算 loss、accuracy、macro-F1 和 weighted-F1。validation label 不参与输入构造、binding、筛选、排序或模态选择。validation macro-F1 只用于选择 `best_model.pt` 和 early stopping；weighted-F1 仅用于结果报告。
+每 10 rounds 读取 Stage 1 保存的 `validation_multimodal.pt`，按相同 sample index 同时取所有模态，并在 `torch.no_grad()` 下计算 loss、accuracy、macro-F1 和 weighted-F1。validation label 不参与输入构造、binding、筛选、排序或模态选择。validation weighted-F1 只用于选择 `best_model.pt` 和 early stopping；macro-F1 仅用于结果报告。
 
 evaluation-only oracle mapping 只用于把 naturally paired validation/test 的真实模态 id 映射到 Stage 2 的 `pred_cluster`，并选择 representative client encoder。mapping 固定且不读取 validation/test label，不进入 scheduler、binding、optimizer、训练 forward/backward 或梯度路径。若一个真实模态被拆成多个 cluster，或一个 cluster 合并多个真实模态，则 evaluation 返回 failed，`loss`、`accuracy`、`macro_f1` 和 `weighted_f1` 为 `null`。聚类失败或质量不理想不会触发任何聚类算法、调度、binding、fusion 或 Split Learning 设计变更，Stage 3 仍按已有 `pred_cluster` 进入后续步骤。
 
-正式配置最多训练 200 rounds，每 10 rounds validation，最少训练 50 rounds。validation macro-F1 改善量必须超过 `0.001`；连续 3 次未改善则 early stop。训练结束先保存 `last_model.pt`，再恢复 `best_model.pt`，最后对 `test_multimodal.pt` 完整评估一次。`best_model.pt` 是正式 checkpoint，`final_metrics.json` 是正式 test 结果。
+正式配置最多训练 200 rounds，每 10 rounds validation，最少训练 50 rounds。validation weighted-F1 改善量必须超过 `0.001`；连续 3 次未改善则 early stop。训练结束先保存 `last_model.pt`，再恢复 `best_model.pt`，最后对 `test_multimodal.pt` 完整评估一次。`best_model.pt` 是正式 checkpoint，`final_metrics.json` 是正式 test 结果。
 
 ## 限制
 

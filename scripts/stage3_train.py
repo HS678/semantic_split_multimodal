@@ -383,8 +383,8 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
             return "failed", f"invalid_{key}"
     if metrics.get("checkpoint") != "best_model.pt":
         return "failed", "official_checkpoint_must_be_best_model"
-    if metrics.get("selected_by") != "validation_macro_f1":
-        return "failed", "official_checkpoint_selection_must_use_validation_macro_f1"
+    if metrics.get("selected_by") != "validation_weighted_f1":
+        return "failed", "official_checkpoint_selection_must_use_validation_weighted_f1"
     if int(metrics.get("test_evaluation_count", -1)) != 1:
         return "failed", "test_evaluation_count_must_equal_one"
     executed_rounds = int(metrics.get("executed_global_rounds", -1))
@@ -441,7 +441,7 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "best_round": None if metrics is None else metrics.get("best_round"),
         "stop_round": None if metrics is None else metrics.get("stop_round"),
         "stop_reason": None if metrics is None else metrics.get("stop_reason"),
-        "checkpoint_selection": "best_validation_macro_f1",
+        "checkpoint_selection": "best_validation_weighted_f1",
         "test_evaluation_count": None if metrics is None else metrics.get("test_evaluation_count"),
         "device": None if metrics is None else metrics.get("device"),
         "estimated_Q": stage2_audit.get("estimated_Q"),

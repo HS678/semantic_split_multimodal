@@ -41,6 +41,15 @@ fingerprint:
   batch_size: 64
   max_batches: 4
 
+fingerprint_visualization:
+  enabled: true
+  method: pca
+  standardize: true
+  show_client_ids: false
+  show_ellipses: true
+  ellipse_confidence: 0.95
+  png_dpi: 600
+
 cluster:
   method: adaptive_isodata
   known_k: null

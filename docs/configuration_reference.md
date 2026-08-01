@@ -76,6 +76,16 @@ acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 - `fingerprint.batch_size`：提取 fingerprint 时的 batch size。
 - `fingerprint.max_batches`：每个 client 最多使用的 batch 数。
 
+## fingerprint_visualization
+
+- `fingerprint_visualization.enabled`：是否在 Stage 2 完成后保存 fingerprint 并生成 PCA 审计图。
+- `fingerprint_visualization.method`：当前论文主图固定为 `pca`。
+- `fingerprint_visualization.standardize`：PCA 前是否逐 fingerprint 维度标准化。
+- `fingerprint_visualization.show_client_ids`：是否在点旁标注 client ID。
+- `fingerprint_visualization.show_ellipses`：是否显示分组协方差椭圆。
+- `fingerprint_visualization.ellipse_confidence`：协方差椭圆置信水平。
+- `fingerprint_visualization.png_dpi`：PNG 预览分辨率；PDF 始终为矢量格式。
+
 ## cluster
 
 - `cluster.method`：只支持 `kmeans` 或 `adaptive_isodata`。

@@ -18,7 +18,7 @@ English README: [README.md](README.md)。
 
 训练 forward/backward 不使用真实模态名称、真实模态 ID、真实 Q，也不使用 oracle modality scheduler。Stage 1 保存的 `hidden_modality_id` 只允许用于 discovery 完成后的 post-hoc audit，以及无梯度的 naturally paired validation/test evaluation-only oracle mapping。
 
-Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。训练期间每 10 rounds 读取 `validation_multimodal.pt` 做 naturally paired validation；训练结束后加载 validation macro-F1 选出的 `best_model.pt`，再读取 `test_multimodal.pt` 做一次最终测试。validation/test label 只用于计算 loss、accuracy、macro-F1 和 weighted-F1，不用于构造输入。
+Stage 3 使用按预测簇均衡的随机轮询调度、label-guided semantic pseudo binding、`ClusterAdapter`、concat fusion、既有 classifier 和 Split Learning 梯度回传。训练期间每 10 rounds 读取 `validation_multimodal.pt` 做 naturally paired validation；训练结束后加载 validation weighted-F1 选出的 `best_model.pt`，再读取 `test_multimodal.pt` 做一次最终测试。validation/test label 只用于计算 loss、accuracy、macro-F1 和 weighted-F1，不用于构造输入。
 
 当前只保留两种聚类方法：
 
@@ -166,8 +166,14 @@ Stage 2 只保留：
 true_cluster.csv
 pred_cluster.csv
 pretrained_encoders/
+fingerprints.npz
+fingerprint_pca.pdf
+fingerprint_pca.png
+fingerprint_pca_metadata.json
 stage2_metadata.json
 ```
+
+`fingerprint_pca.pdf` 是可直接用于论文的矢量图；`fingerprint_pca.png` 为 600 DPI 预览图。PCA 坐标只由聚类前 client fingerprint 计算，真实模态与预测簇仅用于聚类完成后的两个审计着色面板，不参与 PCA 拟合或聚类。
 
 Stage 3 默认的技术输入要求是完整的 `pred_cluster.csv` 和逐客户端 `pretrained_encoders/`。默认模式下，`true_cluster.csv` 与 `stage2_metadata.json` 仅用于可选审计；文件缺失、真实簇不一致或 `discovery_status` 非成功都不会作为 Stage 3 启动门槛。
 
@@ -246,7 +252,7 @@ training_curves.png
 stage3_metadata.json
 ```
 
-正式配置最多训练 200 rounds，每 10 rounds 做 naturally paired validation，最少训练 50 rounds；validation macro-F1 连续 3 次未改善且改善量不足 `0.001` 时 early stop。`best_model.pt` 是 validation 选择的正式 checkpoint；`last_model.pt` 只用于诊断。训练结束后加载 `best_model.pt`，test 只完整评估一次并写入 `final_metrics.json`。
+正式配置最多训练 200 rounds，每 10 rounds 做 naturally paired validation，最少训练 50 rounds；validation weighted-F1 连续 3 次未改善且改善量不足 `0.001` 时 early stop。`best_model.pt` 是 validation 选择的正式 checkpoint；`last_model.pt` 只用于诊断。训练结束后加载 `best_model.pt`，test 只完整评估一次并写入 `final_metrics.json`。
 
 `training_curves.png` 会由 Stage3 自动生成。需要根据已有 CSV 手动重绘时运行：
 

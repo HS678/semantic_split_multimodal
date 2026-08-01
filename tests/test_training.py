@@ -195,7 +195,8 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
         "server_update_l1": 0.0,
         "client_update_l1": 0.0,
     }
-    validation_scores = iter([0.5, 0.4, 0.3])
+    validation_macro_scores = iter([0.5, 0.9, 0.8])
+    validation_weighted_scores = iter([0.7, 0.6, 0.5])
     eval_paths = []
     test_server_weight = []
 
@@ -211,17 +212,21 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
     def fake_evaluate(server, _clients, path, *_args, **_kwargs):
         eval_paths.append(path.name)
         if path.name == "validation_multimodal.pt":
-            score = next(validation_scores)
+            macro_score = next(validation_macro_scores)
+            weighted_score = next(validation_weighted_scores)
+            score = weighted_score
         else:
             score = 0.45
+            macro_score = 0.44
+            weighted_score = 0.46
             test_server_weight.append(next(server.parameters()).detach().clone())
         return {
             "eval_status": "success",
             "eval_failure_reason": None,
             "loss": 1.0,
             "accuracy": score,
-            "macro_f1": score,
-            "weighted_f1": score,
+            "macro_f1": macro_score,
+            "weighted_f1": weighted_score,
         }
 
     monkeypatch.setattr(fusion_sl, "_train_round", fake_train_round)
@@ -266,7 +271,7 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
     assert result["best_round"] == 1
     assert result["test_evaluation_count"] == 1
     assert result["official_result"] == {
-        "selection": "best_validation_macro_f1",
+        "selection": "best_validation_weighted_f1",
         "metrics_file": "final_metrics.json",
         "model_file": "best_model.pt",
     }
@@ -280,9 +285,9 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
     best_metrics = json.loads((tmp_path / "run" / "best_metrics.json").read_text(encoding="utf-8"))
     assert saved_metrics["official_result"] == result["official_result"]
     assert saved_metrics["checkpoint"] == "best_model.pt"
-    assert saved_metrics["selected_by"] == "validation_macro_f1"
-    assert saved_metrics["test_macro_f1"] == 0.45
-    assert saved_metrics["test_weighted_f1"] == 0.45
+    assert saved_metrics["selected_by"] == "validation_weighted_f1"
+    assert saved_metrics["test_macro_f1"] == 0.44
+    assert saved_metrics["test_weighted_f1"] == 0.46
     assert "final_eval" not in saved_metrics
     assert best_metrics["best_round"] == 1
     best = torch.load(tmp_path / "run" / "best_model.pt", map_location="cpu")

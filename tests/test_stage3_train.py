@@ -143,7 +143,7 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
     metrics.setdefault("test_evaluation_count", 1)
     metrics.setdefault("best_round", 1)
     metrics.setdefault("checkpoint", "best_model.pt")
-    metrics.setdefault("selected_by", "validation_macro_f1")
+    metrics.setdefault("selected_by", "validation_weighted_f1")
     metrics.setdefault("test_weighted_f1", metrics.get("test_macro_f1"))
     (result_dir / "train_log.csv").write_text("round,loss\n1,1.0\n", encoding="utf-8")
     (result_dir / "validation_log.csv").write_text(
