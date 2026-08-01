@@ -17,9 +17,6 @@ from semantic_split_multimodal.utils.results import dataset_result_name, safe_re
 from semantic_split_multimodal.utils.seed import set_seed
 
 
-CODEX_RESULTS_ROOT = (ROOT / "local" / "results" / "codex").resolve()
-
-
 def _resolve(path_value):
     path = Path(path_value)
     if not path.is_absolute():
@@ -56,11 +53,7 @@ def _cluster_method_name(cfg: dict) -> str:
     return safe_result_component(method)
 
 
-def build_stage2_run(cfg: dict, stage1_dir, output_root, run_type="codex_test"):
-    run_type = str(run_type)
-    if run_type not in {"codex_test", "user_formal"}:
-        raise ValueError("run_type must be 'codex_test' or 'user_formal'.")
-
+def build_stage2_run(cfg: dict, stage1_dir, output_root):
     partition_dir = _resolve(stage1_dir)
     if not partition_dir.exists():
         raise FileNotFoundError(f"Missing Stage1 directory: {partition_dir}")
@@ -68,8 +61,6 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root, run_type="codex_test"):
         raise FileNotFoundError(f"Missing train_clients under Stage1 directory: {partition_dir}")
 
     output_root_path = _resolve(output_root)
-    if run_type == "codex_test" and not _is_relative_to(output_root_path, CODEX_RESULTS_ROOT):
-        raise ValueError(f"codex_test output_root must be under {CODEX_RESULTS_ROOT}, got {output_root_path}")
     dataset_name = safe_result_component(dataset_result_name(cfg))
     partition_name = safe_result_component(partition_dir.name)
     method_name = _cluster_method_name(cfg)
@@ -82,7 +73,6 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root, run_type="codex_test"):
     run_cfg["cluster"] = {**run_cfg.get("cluster", {}), "output_dir": str(cluster_dir), "method": method_name}
     run_cfg["result"] = {**run_cfg.get("result", {}), "output_dir": str(cluster_dir)}
     run_cfg["stage2"] = {
-        "run_type": run_type,
         "stage1_dir": str(partition_dir),
         "output_root": str(output_root_path),
         "cluster_dir": str(cluster_dir),
@@ -94,7 +84,6 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root, run_type="codex_test"):
         "partition_dir": partition_dir,
         "output_root": output_root_path,
         "cluster_dir": cluster_dir,
-        "run_type": run_type,
         "dataset": dataset_name,
         "partition_signature": partition_name,
         "cluster_method": method_name,
@@ -105,7 +94,6 @@ def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_second
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
     metadata = {
         "stage": "stage2_discovery",
-        "run_type": paths["run_type"],
         "dataset": paths["dataset"],
         "partition_signature": paths["partition_signature"],
         "cluster_method": paths["cluster_method"],
@@ -127,26 +115,18 @@ def parse_args(argv=None):
     parser.add_argument("--config", required=True, help="Path to yaml config")
     parser.add_argument("--stage1-dir", required=True, help="Existing Stage 1 partition directory, read-only input")
     parser.add_argument("--output-root", help="Root directory for Stage2 cluster outputs")
-    parser.add_argument("--run-type", choices=["codex_test", "user_formal"], default="codex_test")
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    if not args.output_root:
-        if args.run_type == "codex_test":
-            output_root = CODEX_RESULTS_ROOT / "cluster"
-        else:
-            output_root = ROOT / "local" / "results" / "cluster"
-    else:
-        output_root = args.output_root
+    output_root = args.output_root or ROOT / "local" / "results" / "cluster"
 
     cfg = load_config(args.config)
     cfg, paths = build_stage2_run(
         cfg,
         stage1_dir=args.stage1_dir,
         output_root=output_root,
-        run_type=args.run_type,
     )
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
 
@@ -158,7 +138,6 @@ def main(argv=None):
     _write_metadata(paths, cfg, metrics, runtime_seconds)
 
     print("Stage 2 finished.")
-    print(f"run_type={paths['run_type']}")
     print(f"stage1_dir={paths['partition_dir']}")
     print(f"cluster_dir={paths['cluster_dir']}")
     print(f"estimated_Q={metrics['estimated_Q']}")

@@ -115,7 +115,6 @@ def _stage2_dir(tmp_path, client_ids=("client_000", "client_001"), clusters=(0, 
     metadata = {
         "stage": "stage2_discovery",
         "git_commit": "freeze-sha",
-        "run_type": "user_formal",
         "dataset": dataset,
         "partition_signature": "m0_1clients_m1_1clients",
         "cluster_method": "adaptive_isodata",
@@ -172,7 +171,6 @@ def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
         stage2_dir=stage2,
         output_root=tmp_path / "experiments",
         run_id="run_1",
-        run_type="user_formal",
     )
 
     expected_run = (tmp_path / "experiments" / "synthetic_stage3" / "run_1").resolve()
@@ -181,6 +179,26 @@ def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
     assert Path(cfg["result"]["output_dir"]) == expected_run
     assert Path(cfg["result_model"]["output_dir"]) == expected_run
     assert paths["run_dir"] == expected_run
+
+
+def test_stage3_cli_rejects_removed_run_type_option():
+    script = _load_script()
+
+    with pytest.raises(SystemExit):
+        script.parse_args(
+            [
+                "--config",
+                "configs/uci_har.yaml",
+                "--stage1-dir",
+                "stage1",
+                "--stage2-dir",
+                "stage2",
+                "--run-id",
+                "run_1",
+                "--run-type",
+                "user_formal",
+            ]
+        )
 
 
 def test_stage3_refuses_existing_non_empty_run_dir(tmp_path):
@@ -192,7 +210,7 @@ def test_stage3_refuses_existing_non_empty_run_dir(tmp_path):
     (existing / "old.txt").write_text("old", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", "run_1", "user_formal")
+        script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", "run_1")
 
 
 def test_stage3_rejects_run_id_dataset_escape_and_output_overlap(tmp_path):
@@ -202,30 +220,16 @@ def test_stage3_rejects_run_id_dataset_escape_and_output_overlap(tmp_path):
 
     for run_id in ["../escape", "a/b", r"a\\b", ""]:
         with pytest.raises(ValueError, match="run_id"):
-            script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", run_id, "user_formal")
+            script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", run_id)
 
     cfg = _cfg()
     cfg["dataset"]["type"] = "../escape"
     with pytest.raises(ValueError, match="dataset"):
-        script.build_stage3_run(cfg, stage1, stage2, tmp_path / "experiments", "run_1", "user_formal")
+        script.build_stage3_run(cfg, stage1, stage2, tmp_path / "experiments", "run_1")
     with pytest.raises(ValueError, match="overlap Stage1"):
-        script.build_stage3_run(_cfg(), stage1, stage2, stage1, "run_1", "user_formal")
+        script.build_stage3_run(_cfg(), stage1, stage2, stage1, "run_1")
     with pytest.raises(ValueError, match="overlap Stage2"):
-        script.build_stage3_run(_cfg(), stage1, stage2, stage2, "run_1", "user_formal")
-
-
-def test_codex_test_output_must_stay_under_codex_results(tmp_path):
-    script = _load_script()
-
-    with pytest.raises(ValueError, match="codex_test output_root"):
-        script.build_stage3_run(
-            _cfg(),
-            stage1_dir=tmp_path / "stage1",
-            stage2_dir=tmp_path / "stage2",
-            output_root=tmp_path / "outside",
-            run_id="run_1",
-            run_type="codex_test",
-        )
+        script.build_stage3_run(_cfg(), stage1, stage2, stage2, "run_1")
 
 
 def test_audit_accepts_valid_stage1_and_stage2_inputs(tmp_path):
@@ -262,8 +266,6 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
                 str(tmp_path / "experiments"),
                 "--run-id",
                 "run_1",
-                "--run-type",
-                "user_formal",
             ]
         )
 
@@ -293,8 +295,6 @@ def test_missing_validation_file_blocks_training_before_output_creation(monkeypa
                 str(tmp_path / "experiments"),
                 "--run-id",
                 "run_1",
-                "--run-type",
-                "user_formal",
             ]
         )
 
@@ -324,8 +324,6 @@ def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch,
                 str(tmp_path / "experiments"),
                 "--run-id",
                 "run_1",
-                "--run-type",
-                "user_formal",
             ]
         )
 
@@ -508,8 +506,6 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
             str(tmp_path / "experiments"),
             "--run-id",
             "run_1",
-            "--run-type",
-            "user_formal",
         ]
     )
 
@@ -596,8 +592,6 @@ def test_discovery_status_never_gates_mocked_trainer(
             str(tmp_path / "experiments"),
             "--run-id",
             "run_1",
-            "--run-type",
-            "user_formal",
         ]
     )
 
@@ -629,8 +623,6 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
                 str(tmp_path / "experiments"),
                 "--run-id",
                 "run_1",
-                "--run-type",
-                "user_formal",
             ]
         )
 
@@ -675,8 +667,6 @@ def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkey
                 str(tmp_path / "experiments"),
                 "--run-id",
                 "run_1",
-                "--run-type",
-                "user_formal",
             ]
         )
 
@@ -722,8 +712,6 @@ def test_latest_run_marker_is_ignored_by_stage3(monkeypatch, tmp_path):
             str(output_root),
             "--run-id",
             "run_1",
-            "--run-type",
-            "user_formal",
         ]
     )
 

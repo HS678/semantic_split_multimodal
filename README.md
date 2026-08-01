@@ -130,8 +130,7 @@ UCI-HAR:
 python scripts/stage2_discovery.py \
   --config configs/uci_har.yaml \
   --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster \
-  --run-type user_formal
+  --output-root local/results/cluster
 ```
 
 MHEALTH:
@@ -140,8 +139,7 @@ MHEALTH:
 python scripts/stage2_discovery.py \
   --config configs/mhealth.yaml \
   --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster \
-  --run-type user_formal
+  --output-root local/results/cluster
 ```
 
 PAMAP2:
@@ -150,8 +148,7 @@ PAMAP2:
 python scripts/stage2_discovery.py \
   --config configs/pamap2.yaml \
   --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster \
-  --run-type user_formal
+  --output-root local/results/cluster
 ```
 
 CMU-MOSEI:
@@ -160,8 +157,7 @@ CMU-MOSEI:
 python scripts/stage2_discovery.py \
   --config configs/cmu_mosei.yaml \
   --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
-  --output-root local/results/cluster \
-  --run-type user_formal
+  --output-root local/results/cluster
 ```
 
 Stage 2 keeps only:
@@ -197,8 +193,7 @@ python scripts/stage3_train.py \
   --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
   --run-id adaptive_tvt_seed101 \
-  --seed 101 \
-  --run-type user_formal
+  --seed 101
 ```
 
 MHEALTH:
@@ -210,8 +205,7 @@ python scripts/stage3_train.py \
   --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
   --run-id adaptive_tvt_seed101 \
-  --seed 101 \
-  --run-type user_formal
+  --seed 101
 ```
 
 PAMAP2:
@@ -223,8 +217,7 @@ python scripts/stage3_train.py \
   --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
   --run-id adaptive_tvt_seed101 \
-  --seed 101 \
-  --run-type user_formal
+  --seed 101
 ```
 
 CMU-MOSEI:
@@ -236,8 +229,7 @@ python scripts/stage3_train.py \
   --stage2-dir local/results/cluster/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
   --run-id adaptive_tvt_seed101 \
-  --seed 101 \
-  --run-type user_formal
+  --seed 101
 ```
 
 Stage 3 writes directly under `local/results/experiments/<dataset>/<run_id>/`:
@@ -273,8 +265,7 @@ python scripts/stage3_train.py \
   --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
   --output-root local/results/experiments \
   --run-id adaptive_tvt_seed202 \
-  --seed 202 \
-  --run-type user_formal
+  --seed 202
 ```
 
 Each dataset has an independent launcher that runs Stage 1, Stage 2, and all five Stage 3 seeds:

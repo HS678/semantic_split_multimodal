@@ -25,7 +25,6 @@ from semantic_split_multimodal.utils.results import dataset_result_name
 from semantic_split_multimodal.utils.seed import set_seed
 
 
-CODEX_RESULTS_ROOT = (ROOT / "local" / "results" / "codex").resolve()
 SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -101,18 +100,13 @@ def _load_json(path: Path, label: str):
         return json.load(f)
 
 
-def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id, run_type="codex_test"):
-    run_type = str(run_type)
-    if run_type not in {"codex_test", "user_formal"}:
-        raise ValueError("run_type must be 'codex_test' or 'user_formal'.")
+def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id):
     if not output_root:
         raise ValueError("--output-root is required.")
 
     stage1_path = _resolve(stage1_dir)
     stage2_path = _resolve(stage2_dir)
     output_root_path = _resolve(output_root)
-    if run_type == "codex_test" and not _is_relative_to(output_root_path, CODEX_RESULTS_ROOT):
-        raise ValueError(f"codex_test output_root must be under {CODEX_RESULTS_ROOT}, got {output_root_path}")
 
     dataset_name = _validate_path_component(dataset_result_name(cfg), "dataset")
     resolved_run_id = _validate_path_component(run_id, "run_id")
@@ -135,7 +129,6 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id, run
     run_cfg["result"] = {**run_cfg.get("result", {}), "output_dir": str(run_dir)}
     run_cfg["result_model"] = {**run_cfg.get("result_model", {}), "output_dir": str(run_dir)}
     run_cfg["stage3"] = {
-        "run_type": run_type,
         "stage1_dir": str(stage1_path),
         "stage2_dir": str(stage2_path),
         "output_root": str(output_root_path),
@@ -148,7 +141,6 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id, run
         "output_root": output_root_path,
         "run_dir": run_dir,
         "metadata": run_dir / "stage3_metadata.json",
-        "run_type": run_type,
         "run_id": resolved_run_id,
         "dataset": dataset_name,
     }
@@ -412,7 +404,6 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
     metrics = metrics if isinstance(metrics, dict) else None
     return {
         "stage": "stage3_train",
-        "run_type": paths["run_type"],
         "run_id": paths["run_id"],
         "dataset": paths["dataset"],
         "status": status,
@@ -478,18 +469,12 @@ def parse_args(argv=None):
     parser.add_argument("--stage2-dir", required=True, help="Frozen Stage 2 cluster directory")
     parser.add_argument("--output-root", help="Root directory for Stage3 experiment outputs")
     parser.add_argument("--run-id", required=True, help="Run id under output-root/<dataset>/")
-    parser.add_argument("--run-type", choices=["codex_test", "user_formal"], required=True)
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    output_root = args.output_root
-    if not output_root:
-        if args.run_type == "codex_test":
-            output_root = CODEX_RESULTS_ROOT / "experiments"
-        else:
-            output_root = ROOT / "local" / "results" / "experiments"
+    output_root = args.output_root or ROOT / "local" / "results" / "experiments"
 
     cfg = load_config(args.config)
     resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
@@ -500,7 +485,6 @@ def main(argv=None):
         stage2_dir=args.stage2_dir,
         output_root=output_root,
         run_id=args.run_id,
-        run_type=args.run_type,
     )
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
@@ -526,7 +510,6 @@ def main(argv=None):
     if status != "success":
         raise RuntimeError(f"Stage3 run did not complete successfully: {failure_reason}")
     print("Stage 3 finished.")
-    print(f"run_type={paths['run_type']}")
     print(f"stage1_dir={paths['stage1_dir']}")
     print(f"stage2_dir={paths['stage2_dir']}")
     print(f"run_dir={paths['run_dir']}")

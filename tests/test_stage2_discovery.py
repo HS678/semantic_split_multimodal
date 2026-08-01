@@ -42,7 +42,6 @@ def test_stage2_builds_isolated_output_paths_without_touching_stage1(tmp_path):
         _cfg(),
         stage1_dir=stage1,
         output_root=output_root,
-        run_type="user_formal",
     )
 
     assert Path(cfg["partition"]["output_dir"]) == stage1.resolve()
@@ -50,7 +49,6 @@ def test_stage2_builds_isolated_output_paths_without_touching_stage1(tmp_path):
     assert Path(cfg["cluster"]["output_dir"]) == expected_run
     assert Path(cfg["result"]["output_dir"]) == expected_run
     assert not any(stage1.parent.glob("synthetic_stage2*"))
-    assert paths["run_type"] == "user_formal"
     assert paths["cluster_method"] == "adaptive_isodata"
 
 
@@ -66,37 +64,20 @@ def test_stage2_refuses_existing_outputs(tmp_path):
             _cfg(),
             stage1_dir=stage1,
             output_root=output_root,
-            run_type="user_formal",
         )
 
 
-def test_codex_test_output_must_stay_under_codex_results(tmp_path):
+def test_stage2_cli_rejects_removed_run_type_option():
     script = _load_script()
-    stage1 = _stage1_dir(tmp_path)
 
-    with pytest.raises(ValueError, match="codex_test output_root"):
-        script.build_stage2_run(
-            _cfg(),
-            stage1_dir=stage1,
-            output_root=tmp_path / "outside_codex",
-            run_type="codex_test",
+    with pytest.raises(SystemExit):
+        script.parse_args(
+            [
+                "--config",
+                "configs/uci_har.yaml",
+                "--stage1-dir",
+                "stage1",
+                "--run-type",
+                "user_formal",
+            ]
         )
-
-
-def test_codex_test_can_plan_under_codex_results_without_creating_stage3(tmp_path):
-    script = _load_script()
-    stage1 = _stage1_dir(tmp_path)
-    output_root = PROJECT_ROOT / "local" / "results" / "codex" / "test_artifacts"
-
-    cfg, paths = script.build_stage2_run(
-        _cfg(),
-        stage1_dir=stage1,
-        output_root=output_root,
-        run_type="codex_test",
-    )
-
-    assert script._is_relative_to(paths["output_root"], script.CODEX_RESULTS_ROOT)
-    assert paths["cluster_dir"].name == "adaptive_isodata"
-    assert paths["cluster_dir"].parent.name == stage1.name
-    assert paths["cluster_dir"].parts[-3:] == ("synthetic_stage2", stage1.name, "adaptive_isodata")
-    assert cfg["stage2"]["stage1_dir"] == str(stage1.resolve())
