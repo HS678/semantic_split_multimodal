@@ -346,6 +346,33 @@ def test_true_cluster_is_optional_and_never_gates_training_audit(tmp_path):
     assert audit["stage2"]["estimated_Q"] == 2
 
 
+def test_true_cluster_can_be_selected_as_stage3_training_assignments(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path, clusters=(7, 7))
+    (stage2 / "pred_cluster.csv").unlink()
+    cfg = _cfg()
+    cfg["training"]["cluster_assignment_source"] = "true_cluster"
+
+    audit = script.audit_stage3_inputs(cfg, stage1, stage2)
+
+    assert audit["stage2"]["cluster_assignment_source"] == "true_cluster"
+    assert audit["stage2"]["cluster_assignment_path"] == str(stage2 / "true_cluster.csv")
+    assert audit["stage2"]["cluster_ids"] == [0, 1]
+    assert audit["stage2"]["estimated_Q"] == 2
+
+
+def test_invalid_stage3_cluster_assignment_source_is_rejected(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    cfg = _cfg()
+    cfg["training"]["cluster_assignment_source"] = "oracle"
+
+    with pytest.raises(ValueError, match="cluster_assignment_source"):
+        script.audit_stage3_inputs(cfg, stage1, stage2)
+
+
 def test_stage2_metadata_is_optional_and_never_gates_training_audit(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)

@@ -173,11 +173,20 @@ pretrained_encoders/
 stage2_metadata.json
 ```
 
-The technical Stage 3 inputs are a complete `pred_cluster.csv` and one pretrained encoder per client. `true_cluster.csv` and `stage2_metadata.json` are optional audit inputs; missing audit files, inconsistent true clusters, or a non-success `discovery_status` do not gate Stage 3 startup.
+By default, the technical Stage 3 inputs are a complete `pred_cluster.csv` and one pretrained encoder per client. In the default mode, `true_cluster.csv` and `stage2_metadata.json` are optional audit inputs; missing audit files, inconsistent true clusters, or a non-success `discovery_status` do not gate Stage 3 startup.
 
 ## Stage 3
 
 Run Stage 3 from a frozen Stage 1 partition and a frozen Stage 2 cluster directory. Formal YAML files keep the base `seed` at `42` for Stage 1/Stage 2 and default Stage 3 behavior. `--seed` overrides only the in-memory Stage 3 experiment seed; it does not modify YAML or affect the frozen Stage 1/Stage 2 artifacts. Start with UCI-HAR, then run the larger datasets.
+
+Select the Stage 3 cluster assignment source with:
+
+```yaml
+training:
+  cluster_assignment_source: pred_cluster  # formal default
+```
+
+For Stage 3 debugging, set it to `true_cluster` to bypass predicted clustering. Training, scheduling, binding, fusion slots, and the evaluation mapping will then consistently read `true_cluster.csv`. This is an oracle/debug mode that uses true modality clusters; do not report it as the no-leakage main result, and use a clearly distinguishable `run-id`.
 
 UCI-HAR:
 

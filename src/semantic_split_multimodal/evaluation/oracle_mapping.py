@@ -9,9 +9,14 @@ MERGED_TRUE_MODALITY_FAILURE = "merged_true_modality_failure"
 EVALUATION_MAPPING_FAILURE = "evaluation_mapping_failure"
 
 
-def build_oracle_eval_mapping(client_meta_path: Path, cluster_assignments_path: Path, output_path: Path | None = None):
+def build_oracle_eval_mapping(
+    client_meta_path: Path,
+    cluster_assignments_path: Path,
+    output_path: Path | None = None,
+    assignment_column: str = "pred_cluster",
+):
     client_meta = _read_client_meta(Path(client_meta_path))
-    assignments = _read_cluster_assignments(Path(cluster_assignments_path))
+    assignments = _read_cluster_assignments(Path(cluster_assignments_path), assignment_column)
 
     rows = []
     for client_id, meta in client_meta.items():
@@ -137,13 +142,13 @@ def _read_client_meta(path: Path):
     return rows
 
 
-def _read_cluster_assignments(path: Path):
+def _read_cluster_assignments(path: Path, assignment_column: str = "pred_cluster"):
     if not path.exists():
         raise FileNotFoundError(f"Missing cluster assignments: {path}")
     rows = {}
     with path.open("r", newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            rows[row["client_id"]] = int(row["pred_cluster"])
+            rows[row["client_id"]] = int(row[assignment_column])
     return rows
 
 

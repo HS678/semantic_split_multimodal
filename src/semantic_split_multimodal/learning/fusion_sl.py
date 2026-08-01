@@ -49,18 +49,29 @@ class FusionSplitClient:
         self.optimizer.step()
 
 
-def _read_assignments(path: Path):
+def _cluster_assignment_spec(cfg: dict, cluster_dir: Path):
+    source = str(cfg.get("training", {}).get("cluster_assignment_source", "pred_cluster")).strip().lower()
+    if source not in {"pred_cluster", "true_cluster"}:
+        raise ValueError(
+            "training.cluster_assignment_source must be 'pred_cluster' or 'true_cluster', "
+            f"got {source!r}."
+        )
+    return source, cluster_dir / f"{source}.csv", source
+
+
+def _read_assignments(path: Path, assignment_column: str):
     if not path.exists():
         raise FileNotFoundError(f"Missing cluster assignments: {path}. Run Stage 2 first.")
     rows = {}
     with path.open("r", newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            rows[row["client_id"]] = int(row["pred_cluster"])
+            rows[row["client_id"]] = int(row[assignment_column])
     return rows
 
 
 def _load_clients(cfg, partition_dir: Path, cluster_dir: Path, device):
-    assignments = _read_assignments(cluster_dir / "pred_cluster.csv")
+    _, assignment_path, assignment_column = _cluster_assignment_spec(cfg, cluster_dir)
+    assignments = _read_assignments(assignment_path, assignment_column)
     encoder_dir = cluster_dir / "pretrained_encoders"
     clients = []
     for path in sorted((partition_dir / "train_clients").glob("client_*.pt")):
@@ -266,6 +277,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     result_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
+    cluster_assignment_source, cluster_assignment_path, cluster_assignment_column = _cluster_assignment_spec(
+        cfg, cluster_dir
+    )
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     clients_by_id = {client.client_id: client for client in clients}
     cluster_ids = sorted({int(client.pred_cluster) for client in clients})
@@ -426,7 +440,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                 if oracle_mapping is None:
                     oracle_mapping = build_oracle_eval_mapping(
                         partition_dir / "client_meta.csv",
-                        cluster_dir / "pred_cluster.csv",
+                        cluster_assignment_path,
+                        None,
+                        cluster_assignment_column,
                     )
                 validation_eval = evaluate_naturally_paired_fusion(
                     server,
@@ -544,6 +560,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "cluster_ids": cluster_ids,
         "cluster_to_slot": cluster_to_slot,
         "estimated_num_clusters": len(cluster_ids),
+        "cluster_assignment_source": cluster_assignment_source,
+        "cluster_assignment_path": str(cluster_assignment_path),
         "clients_per_round": clients_per_round,
         "clients_per_cluster_per_round": clients_per_cluster,
         "configured_local_steps": int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1))),

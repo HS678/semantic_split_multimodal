@@ -231,8 +231,18 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
         raise FileNotFoundError(f"Missing Stage2 cluster directory: {stage2_dir}")
     pred_path = stage2_dir / "pred_cluster.csv"
     true_path = stage2_dir / "true_cluster.csv"
+    assignment_source = str(
+        cfg.get("training", {}).get("cluster_assignment_source", "pred_cluster")
+    ).strip().lower()
+    if assignment_source not in {"pred_cluster", "true_cluster"}:
+        raise ValueError(
+            "training.cluster_assignment_source must be 'pred_cluster' or 'true_cluster', "
+            f"got {assignment_source!r}."
+        )
+    assignment_path = pred_path if assignment_source == "pred_cluster" else true_path
+    assignment_column = assignment_source
     metadata_path = stage2_dir / "stage2_metadata.json"
-    _require_readable_file(pred_path, "Stage2 pred_cluster.csv")
+    _require_readable_file(assignment_path, f"Stage2 {assignment_path.name}")
     stage2_metadata = None
     stage2_metadata_read_error = None
     if metadata_path.exists():
@@ -260,16 +270,16 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
     except (TypeError, ValueError):
         reported_estimated_q = None
 
-    rows = _read_csv_rows(pred_path)
+    rows = _read_csv_rows(assignment_path)
     if not rows:
-        raise ValueError("Stage2 pred_cluster.csv is empty.")
-    if "pred_cluster" not in rows[0]:
-        raise ValueError("Stage2 pred_cluster.csv must contain pred_cluster.")
+        raise ValueError(f"Stage2 {assignment_path.name} is empty.")
+    if assignment_column not in rows[0]:
+        raise ValueError(f"Stage2 {assignment_path.name} must contain {assignment_column}.")
     assignment_ids = [row.get("client_id") for row in rows]
     if any(not client_id for client_id in assignment_ids):
-        raise ValueError("Stage2 pred_cluster.csv must contain non-empty client_id values.")
+        raise ValueError(f"Stage2 {assignment_path.name} must contain non-empty client_id values.")
     if len(set(assignment_ids)) != len(assignment_ids):
-        raise ValueError("Stage2 pred_cluster.csv contains duplicate client_id values.")
+        raise ValueError(f"Stage2 {assignment_path.name} contains duplicate client_id values.")
     stage1_ids = set(stage1_audit["client_ids"])
     assignment_set = set(assignment_ids)
     if assignment_set != stage1_ids:
@@ -280,11 +290,13 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
     clusters = []
     for row in rows:
         try:
-            cluster_id = int(row["pred_cluster"])
+            cluster_id = int(row[assignment_column])
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"Invalid pred_cluster for client {row.get('client_id')}: {row.get('pred_cluster')}") from exc
+            raise ValueError(
+                f"Invalid {assignment_column} for client {row.get('client_id')}: {row.get(assignment_column)}"
+            ) from exc
         if cluster_id < 0:
-            raise ValueError(f"pred_cluster must be non-negative, got {cluster_id}")
+            raise ValueError(f"{assignment_column} must be non-negative, got {cluster_id}")
         clusters.append(cluster_id)
     cluster_ids = sorted(set(clusters))
     estimated_q = len(cluster_ids)
@@ -322,6 +334,9 @@ def _audit_stage2_inputs(cfg: dict, stage2_dir: Path, stage1_audit: dict):
             true_cluster_audit["read_error"] = f"{type(exc).__name__}: {exc}"
 
     return {
+        "cluster_assignment_source": assignment_source,
+        "cluster_assignment_path": str(assignment_path),
+        "cluster_assignment_column": assignment_column,
         "pred_cluster_path": str(pred_path),
         "true_cluster_path": str(true_path) if true_path.exists() else None,
         "true_cluster_audit": true_cluster_audit,

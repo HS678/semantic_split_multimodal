@@ -173,11 +173,20 @@ pretrained_encoders/
 stage2_metadata.json
 ```
 
-Stage 3 的技术输入要求是完整的 `pred_cluster.csv` 和逐客户端 `pretrained_encoders/`。`true_cluster.csv` 与 `stage2_metadata.json` 仅用于可选审计；文件缺失、真实簇不一致或 `discovery_status` 非成功都不会作为 Stage 3 启动门槛。
+Stage 3 默认的技术输入要求是完整的 `pred_cluster.csv` 和逐客户端 `pretrained_encoders/`。默认模式下，`true_cluster.csv` 与 `stage2_metadata.json` 仅用于可选审计；文件缺失、真实簇不一致或 `discovery_status` 非成功都不会作为 Stage 3 启动门槛。
 
 ## Stage 3：Fusion Split Learning
 
 Stage 3 从冻结的 Stage 1 partition 和冻结的 Stage 2 cluster 目录读取输入。正式 YAML 的基础 `seed` 固定为 `42`，供 Stage 1/Stage 2 和默认 Stage 3 使用；`--seed` 只在内存中覆盖本次 Stage 3 的实验种子，不修改 YAML，也不影响冻结的 Stage 1/Stage 2。建议先只运行 UCI-HAR，再运行较大的数据集。
+
+Stage 3 的簇分配来源由下列配置控制：
+
+```yaml
+training:
+  cluster_assignment_source: pred_cluster  # 正式默认值
+```
+
+调试 Stage 3、需要绕过预测聚类时，可改为 `true_cluster`。此时训练、调度、binding、fusion slot 和 evaluation mapping 统一读取 `true_cluster.csv`；该模式使用真实模态簇，属于 oracle/debug 实验，不得作为无模态泄漏的正式主结果，且应使用可明确区分的 `run-id`。
 
 UCI-HAR：
 
