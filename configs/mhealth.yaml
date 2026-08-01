@@ -67,7 +67,7 @@ cluster:
 
 training:
   # Debug/oracle only: set to true_cluster to bypass predicted clustering in Stage 3.
-  cluster_assignment_source: pred_cluster
+  cluster_assignment_source: true_cluster
   scheduler: balanced_cluster_round_robin
   global_rounds: 200
   local_steps: 1
