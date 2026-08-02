@@ -39,6 +39,53 @@ def test_config_round_trip_preserves_nested_types(tmp_path):
     assert load_config(path) == cfg
 
 
+def test_none_is_preserved_as_enum_while_null_is_empty(tmp_path):
+    path = tmp_path / "enums.config"
+    path.write_text(
+        "[config]\nclass_weighting=none\nknown_k=null\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(path)
+    assert cfg["class_weighting"] == "none"
+    assert cfg["known_k"] is None
+
+
+def test_config_extends_deep_merges_relative_parent(tmp_path):
+    parent = tmp_path / "parent.config"
+    child = tmp_path / "nested" / "child.config"
+    child.parent.mkdir()
+    parent.write_text(
+        "[config]\nseed=42\n[training]\nclient_lr=0.001\nserver_lr=0.001\n",
+        encoding="utf-8",
+    )
+    child.write_text(
+        "[config]\nextends=../parent.config\nseed=101\n[training]\nclient_lr=0.0002\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(child)
+    assert cfg["seed"] == 101
+    assert cfg["training"] == {"client_lr": 0.0002, "server_lr": 0.001}
+    assert "extends" not in cfg
+
+
+def test_formal_configs_resolve_expected_protocols_and_objective():
+    formal_dir = PROJECT_ROOT / "configs" / "formal"
+    for dataset in ["uci_har", "mhealth", "pamap2", "cmu_mosei"]:
+        cfg = load_config(formal_dir / f"{dataset}.config")
+        assert cfg["dataset"]["type"] == dataset
+        assert cfg["fusion"]["training_objective"] == "mmbind_weighted_contrastive"
+        assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
+        assert cfg["evaluation"]["run_test"] is True
+
+    for fold in range(1, 6):
+        cfg = load_config(formal_dir / f"iemocap_fold{fold}.config")
+        assert cfg["dataset"]["test_sessions"] == [fold]
+        assert set(cfg["dataset"]["train_sessions"]) == set(range(1, 6)) - {fold}
+        assert cfg["dataset"]["split_strategy"] == "session_loso_5fold_group_validation_v1"
+        assert cfg["dataset"]["split_protocol"] == f"iemocap_session_loso_fold{fold}_v1"
+
+
 def test_yaml_extension_is_rejected(tmp_path):
     path = tmp_path / "legacy.yaml"
     path.write_text("seed: 42\n", encoding="utf-8")

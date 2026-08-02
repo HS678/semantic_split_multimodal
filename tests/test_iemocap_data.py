@@ -78,6 +78,45 @@ def _config(raw_root: Path, processed_root: Path):
     }
 
 
+def _write_loso_iemocap_cache(tmp_path: Path):
+    raw_root = tmp_path / "loso_raw"
+    processed_root = tmp_path / "loso_processed"
+    raw_root.mkdir()
+    processed_root.mkdir()
+    rows = []
+    for session_id in range(1, 6):
+        for dialog_idx in range(8):
+            dialog_id = f"Ses{session_id:02d}_dialog{dialog_idx:02d}"
+            for label in range(4):
+                rows.append(
+                    {
+                        "utterance_id": f"{dialog_id}_{label}",
+                        "session_id": session_id,
+                        "dialog_id": dialog_id,
+                        "label": label,
+                    }
+                )
+    sample_ids = [row["utterance_id"] for row in rows]
+    (processed_root / "manifest.json").write_text(
+        json.dumps({"samples": rows}), encoding="utf-8"
+    )
+    for modality_name, time, dim in (
+        ("audio", 12, 4),
+        ("video", 8, 6),
+        ("text", 10, 8),
+    ):
+        torch.save(
+            {
+                "sample_ids": sample_ids,
+                "features": torch.randn(len(rows), time, dim),
+                "lengths": torch.full((len(rows),), time, dtype=torch.long),
+                "feature_extractor": {"type": f"synthetic_{modality_name}"},
+            },
+            processed_root / f"{modality_name}.pt",
+        )
+    return raw_root, processed_root
+
+
 def test_iemocap_loader_returns_three_sequence_modalities(tmp_path):
     raw_root, processed_root = _write_synthetic_iemocap_cache(tmp_path)
     dataset = load_dataset(_config(raw_root, processed_root), tmp_path)
@@ -145,3 +184,64 @@ def test_fedmultimodal_sequence_encoders_produce_common_activation_size():
     video = video_encoder(torch.randn(3, 5, 6), torch.tensor([5, 4, 3]))
     assert audio.shape == (3, 16)
     assert video.shape == (3, 16)
+
+
+def test_iemocap_loso_uses_unseen_test_session_and_dialog_disjoint_validation(tmp_path):
+    raw_root, processed_root = _write_loso_iemocap_cache(tmp_path)
+    cfg = _config(raw_root, processed_root)
+    cfg["dataset"].update(
+        {
+            "split_strategy": "session_loso_5fold_group_validation_v1",
+            "split_protocol": "iemocap_session_loso_fold2_v1",
+            "train_sessions": [1, 3, 4, 5],
+            "validation_sessions": [],
+            "test_sessions": [2],
+            "validation_folds": 4,
+            "validation_fold_index": 0,
+            "validation_seed": 101,
+        }
+    )
+
+    dataset = load_dataset(cfg, tmp_path)
+    assert dataset["split_num_samples"]["test"] == 32
+    assert dataset["split_num_samples"]["train"] + dataset["split_num_samples"]["validation"] == 128
+    assert dataset["split_metadata"]["test_sessions"] == [2]
+    assert dataset["split_metadata"]["train_dialogs"] == 24
+    assert dataset["split_metadata"]["validation_dialogs"] == 8
+
+
+def test_temporal_and_attention_encoders_produce_configured_activation_size():
+    temporal_cfg = {
+        "encoder_hidden_dim": 16,
+        "model": {
+            "encoder": {
+                "type": "temporal_conv_gru",
+                "conv_channels": [8, 12],
+                "kernel_sizes": [5, 3],
+                "gru_hidden_dim": 12,
+                "gru_layers": 2,
+                "bidirectional": True,
+                "pooling": "attention",
+                "dropout": 0.0,
+            }
+        },
+    }
+    temporal = create_client_encoder(temporal_cfg, input_shape=[3, 32])
+    assert temporal(torch.randn(4, 3, 32)).shape == (4, 16)
+
+    sequence_cfg = {
+        "encoder_hidden_dim": 16,
+        "model": {
+            "encoder": {"type": "gru"},
+            "encoders": {
+                "gru": {
+                    "gru_layers": 2,
+                    "bidirectional": True,
+                    "pooling": "attention",
+                    "dropout": 0.0,
+                }
+            },
+        },
+    }
+    sequence = create_client_encoder(sequence_cfg, input_shape=[12, 6], encoder_type="gru")
+    assert sequence(torch.randn(4, 12, 6), torch.tensor([12, 10, 8, 6])).shape == (4, 16)

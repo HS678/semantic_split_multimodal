@@ -94,13 +94,19 @@ class AudioEncoder(nn.Module):
 
 
 class MLPEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, layer_dims=None, dropout=0.0, layer_norm=False):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(int(input_dim), int(hidden_dim)),
-            nn.ReLU(),
-            nn.Linear(int(hidden_dim), int(hidden_dim)),
-        )
+        dims = [int(input_dim), *[int(value) for value in (layer_dims or [hidden_dim])], int(hidden_dim)]
+        layers = []
+        for layer_index, (in_dim, out_dim) in enumerate(zip(dims[:-1], dims[1:])):
+            layers.append(nn.Linear(in_dim, out_dim))
+            if layer_index < len(dims) - 2:
+                if bool(layer_norm):
+                    layers.append(nn.LayerNorm(out_dim))
+                layers.append(nn.GELU())
+                if float(dropout) > 0:
+                    layers.append(nn.Dropout(float(dropout)))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x, lengths=None):
         return self.net(x.reshape(x.shape[0], -1))
@@ -115,8 +121,31 @@ def _masked_sequence_mean(x, lengths):
     return weighted.sum(dim=1) / lengths.unsqueeze(1).to(dtype=x.dtype)
 
 
+class MaskedAttentionPooling(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        self.score = nn.Linear(int(input_dim), 1)
+
+    def forward(self, x, lengths=None):
+        scores = self.score(x).squeeze(-1)
+        if lengths is not None:
+            lengths = lengths.to(device=x.device, dtype=torch.long).clamp(min=1, max=x.shape[1])
+            mask = torch.arange(x.shape[1], device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+            scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+        weights = torch.softmax(scores, dim=1)
+        return torch.sum(x * weights.unsqueeze(-1), dim=1)
+
+
 class GRUSequenceEncoder(nn.Module):
-    def __init__(self, input_shape, hidden_dim, num_layers=1, dropout=0.1, bidirectional=False):
+    def __init__(
+        self,
+        input_shape,
+        hidden_dim,
+        num_layers=1,
+        dropout=0.1,
+        bidirectional=False,
+        pooling="mean",
+    ):
         super().__init__()
         if input_shape is None or len(input_shape) != 2:
             raise ValueError(f"GRUSequenceEncoder expects [time, feature_dim], got {input_shape}")
@@ -134,17 +163,36 @@ class GRUSequenceEncoder(nn.Module):
         self.output_projection = (
             nn.Identity() if gru_output_dim == self.hidden_dim else nn.Linear(gru_output_dim, self.hidden_dim)
         )
+        self.pooling = str(pooling).strip().lower()
+        if self.pooling not in {"mean", "attention"}:
+            raise ValueError("GRUSequenceEncoder pooling must be 'mean' or 'attention'.")
+        self.attention_pool = MaskedAttentionPooling(gru_output_dim) if self.pooling == "attention" else None
 
     def forward(self, x, lengths=None):
         x = x.float()
         if x.ndim != 3:
             raise ValueError(f"GRUSequenceEncoder expects [batch, time, feature], got {tuple(x.shape)}")
         output, _ = self.gru(x)
-        return self.output_projection(_masked_sequence_mean(output, lengths))
+        pooled = (
+            self.attention_pool(output, lengths)
+            if self.attention_pool is not None
+            else _masked_sequence_mean(output, lengths)
+        )
+        return self.output_projection(pooled)
 
 
 class ConvGRUSequenceEncoder(nn.Module):
-    def __init__(self, input_shape, hidden_dim, conv_channels=(32, 64, 128), kernel_size=5, dropout=0.1):
+    def __init__(
+        self,
+        input_shape,
+        hidden_dim,
+        conv_channels=(32, 64, 128),
+        kernel_size=5,
+        dropout=0.1,
+        gru_layers=1,
+        bidirectional=False,
+        pooling="mean",
+    ):
         super().__init__()
         if input_shape is None or len(input_shape) != 2:
             raise ValueError(f"ConvGRUSequenceEncoder expects [time, feature_dim], got {input_shape}")
@@ -168,10 +216,19 @@ class ConvGRUSequenceEncoder(nn.Module):
         self.gru = nn.GRU(
             input_size=channels[-1],
             hidden_size=int(hidden_dim),
-            num_layers=1,
+            num_layers=int(gru_layers),
             batch_first=True,
-            bidirectional=False,
+            dropout=float(dropout) if int(gru_layers) > 1 else 0.0,
+            bidirectional=bool(bidirectional),
         )
+        gru_output_dim = int(hidden_dim) * (2 if bool(bidirectional) else 1)
+        self.output_projection = (
+            nn.Identity() if gru_output_dim == int(hidden_dim) else nn.Linear(gru_output_dim, int(hidden_dim))
+        )
+        self.pooling = str(pooling).strip().lower()
+        if self.pooling not in {"mean", "attention"}:
+            raise ValueError("ConvGRUSequenceEncoder pooling must be 'mean' or 'attention'.")
+        self.attention_pool = MaskedAttentionPooling(gru_output_dim) if self.pooling == "attention" else None
 
     def forward(self, x, lengths=None):
         x = x.float()
@@ -183,14 +240,94 @@ class ConvGRUSequenceEncoder(nn.Module):
             pooled_lengths = torch.div(lengths.to(dtype=torch.long), 8, rounding_mode="floor").clamp_min(1)
             pooled_lengths = pooled_lengths.clamp_max(x.shape[1])
         output, _ = self.gru(x)
-        return _masked_sequence_mean(output, pooled_lengths)
+        pooled = (
+            self.attention_pool(output, pooled_lengths)
+            if self.attention_pool is not None
+            else _masked_sequence_mean(output, pooled_lengths)
+        )
+        return self.output_projection(pooled)
+
+
+class TemporalConvGRUEncoder(nn.Module):
+    """Temporal CNN followed by a GRU and masked attention/mean pooling."""
+
+    def __init__(
+        self,
+        input_shape,
+        hidden_dim,
+        conv_channels=(64, 128, 128),
+        kernel_sizes=(7, 5, 3),
+        gru_hidden_dim=None,
+        gru_layers=2,
+        bidirectional=True,
+        dropout=0.2,
+        pooling="attention",
+    ):
+        super().__init__()
+        if input_shape is None or len(input_shape) != 2:
+            raise ValueError(f"TemporalConvGRUEncoder expects [channels, length], got {input_shape}")
+        channels = [int(value) for value in conv_channels]
+        kernels = [int(value) for value in kernel_sizes]
+        if not channels or len(channels) != len(kernels):
+            raise ValueError("conv_channels and kernel_sizes must be non-empty and have equal length.")
+        blocks = []
+        in_channels = int(input_shape[0])
+        for out_channels, kernel_size in zip(channels, kernels):
+            blocks.extend(
+                [
+                    nn.Conv1d(in_channels, out_channels, kernel_size, padding=kernel_size // 2),
+                    nn.BatchNorm1d(out_channels),
+                    nn.GELU(),
+                    nn.MaxPool1d(2),
+                    nn.Dropout(float(dropout)),
+                ]
+            )
+            in_channels = out_channels
+        self.conv = nn.Sequential(*blocks)
+        self.downsample_factor = 2 ** len(channels)
+        gru_hidden_dim = int(gru_hidden_dim or hidden_dim)
+        self.gru = nn.GRU(
+            input_size=channels[-1],
+            hidden_size=gru_hidden_dim,
+            num_layers=int(gru_layers),
+            batch_first=True,
+            dropout=float(dropout) if int(gru_layers) > 1 else 0.0,
+            bidirectional=bool(bidirectional),
+        )
+        gru_output_dim = gru_hidden_dim * (2 if bool(bidirectional) else 1)
+        self.pooling = str(pooling).strip().lower()
+        if self.pooling not in {"mean", "attention"}:
+            raise ValueError("TemporalConvGRUEncoder pooling must be 'mean' or 'attention'.")
+        self.attention_pool = MaskedAttentionPooling(gru_output_dim) if self.pooling == "attention" else None
+        self.output_projection = nn.Sequential(
+            nn.LayerNorm(gru_output_dim),
+            nn.Linear(gru_output_dim, int(hidden_dim)),
+        )
+
+    def forward(self, x, lengths=None):
+        if x.ndim != 3:
+            raise ValueError(f"TemporalConvGRUEncoder expects [batch, channels, length], got {tuple(x.shape)}")
+        sequence = self.conv(x.float()).transpose(1, 2)
+        pooled_lengths = None
+        if lengths is not None:
+            pooled_lengths = torch.div(
+                lengths.to(dtype=torch.long), self.downsample_factor, rounding_mode="floor"
+            ).clamp(min=1, max=sequence.shape[1])
+        output, _ = self.gru(sequence)
+        pooled = (
+            self.attention_pool(output, pooled_lengths)
+            if self.attention_pool is not None
+            else _masked_sequence_mean(output, pooled_lengths)
+        )
+        return self.output_projection(pooled)
 
 
 ENCODER_REGISTRY = {
     "time_series": TimeSeriesEncoder,
     "timeseries": TimeSeriesEncoder,
     "cnn1d": TimeSeriesEncoder,
-    "cnn_gru": TimeSeriesEncoder,
+    "cnn_gru": TemporalConvGRUEncoder,
+    "temporal_conv_gru": TemporalConvGRUEncoder,
     "image": ImageEncoder,
     "resnet18": ImageEncoder,
     "video": VideoEncoder,
@@ -205,6 +342,12 @@ def _encoder_cfg(cfg):
     return cfg.get("model", {}).get("encoder", {})
 
 
+def _encoder_type_cfg(cfg, encoder_type):
+    base = dict(_encoder_cfg(cfg))
+    specific = cfg.get("model", {}).get("encoders", {}).get(str(encoder_type), {})
+    return {**base, **specific}
+
+
 def resolve_encoder_type(cfg, payload_encoder_type=None):
     if payload_encoder_type:
         return str(payload_encoder_type).lower()
@@ -214,15 +357,21 @@ def resolve_encoder_type(cfg, payload_encoder_type=None):
 
 def create_client_encoder(cfg, input_shape=None, encoder_type=None, input_dim=None):
     hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
-    enc_cfg = _encoder_cfg(cfg)
     key = resolve_encoder_type(cfg, payload_encoder_type=encoder_type)
+    enc_cfg = _encoder_type_cfg(cfg, key)
     if key not in ENCODER_REGISTRY:
         raise ValueError(f"Unsupported encoder type: {key}. Available: {sorted(ENCODER_REGISTRY)}")
     if input_shape is None and input_dim is not None:
         input_shape = [int(input_dim)]
     if key == "mlp":
         dim = int(input_dim or flattened_dim(input_shape))
-        return MLPEncoder(dim, hidden_dim)
+        return MLPEncoder(
+            dim,
+            hidden_dim,
+            layer_dims=enc_cfg.get("layer_dims", enc_cfg.get("mlp_hidden_dims")),
+            dropout=float(enc_cfg.get("dropout", 0.0)),
+            layer_norm=bool(enc_cfg.get("layer_norm", False)),
+        )
     if key == "gru":
         return GRUSequenceEncoder(
             input_shape=input_shape,
@@ -230,6 +379,7 @@ def create_client_encoder(cfg, input_shape=None, encoder_type=None, input_dim=No
             num_layers=int(enc_cfg.get("gru_layers", 1)),
             dropout=float(enc_cfg.get("dropout", 0.1)),
             bidirectional=bool(enc_cfg.get("bidirectional", False)),
+            pooling=enc_cfg.get("pooling", "mean"),
         )
     if key == "conv_gru":
         return ConvGRUSequenceEncoder(
@@ -238,8 +388,23 @@ def create_client_encoder(cfg, input_shape=None, encoder_type=None, input_dim=No
             conv_channels=enc_cfg.get("conv_channels", [32, 64, 128]),
             kernel_size=int(enc_cfg.get("kernel_size", 5)),
             dropout=float(enc_cfg.get("dropout", 0.1)),
+            gru_layers=int(enc_cfg.get("gru_layers", 1)),
+            bidirectional=bool(enc_cfg.get("bidirectional", False)),
+            pooling=enc_cfg.get("pooling", "mean"),
         )
-    if key in {"time_series", "timeseries", "cnn1d", "cnn_gru"}:
+    if key in {"cnn_gru", "temporal_conv_gru"}:
+        return TemporalConvGRUEncoder(
+            input_shape=input_shape,
+            hidden_dim=hidden_dim,
+            conv_channels=enc_cfg.get("conv_channels", [64, 128, 128]),
+            kernel_sizes=enc_cfg.get("kernel_sizes", [7, 5, 3]),
+            gru_hidden_dim=enc_cfg.get("gru_hidden_dim"),
+            gru_layers=int(enc_cfg.get("gru_layers", 2)),
+            bidirectional=bool(enc_cfg.get("bidirectional", True)),
+            dropout=float(enc_cfg.get("dropout", 0.2)),
+            pooling=enc_cfg.get("pooling", "attention"),
+        )
+    if key in {"time_series", "timeseries", "cnn1d"}:
         return TimeSeriesEncoder(
             input_shape=input_shape,
             hidden_dim=hidden_dim,
@@ -260,7 +425,7 @@ def flattened_dim(input_shape):
     return int(math.prod([int(v) for v in input_shape]))
 
 
-CNNGRUEncoder = TimeSeriesEncoder
+CNNGRUEncoder = TemporalConvGRUEncoder
 
 
 class ClusterAdapter(nn.Module):

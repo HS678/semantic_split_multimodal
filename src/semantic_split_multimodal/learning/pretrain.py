@@ -23,20 +23,38 @@ def _load_clients(partition_dir: Path):
     return [Client.from_payload(torch.load(path, map_location="cpu")) for path in paths]
 
 
-class _AutoEncoder(nn.Module):
-    def __init__(self, client: Client, cfg: dict):
+class _ClientPretrainModel(nn.Module):
+    def __init__(self, client: Client, cfg: dict, objective: str):
         super().__init__()
         self.encoder = create_client_encoder(cfg, input_shape=client.input_shape, encoder_type=client.encoder_type)
-        self.decoder = nn.Linear(int(cfg.get("encoder_hidden_dim", 128)), flattened_dim(client.input_shape))
+        hidden_dim = int(cfg.get("encoder_hidden_dim", 128))
+        self.objective = str(objective)
+        if self.objective == "reconstruction":
+            self.head = nn.Linear(hidden_dim, flattened_dim(client.input_shape))
+        elif self.objective == "classification":
+            self.head = nn.Linear(hidden_dim, int(cfg.get("num_classes", 2)))
+        else:
+            raise ValueError("pretrain.objective must be 'reconstruction' or 'classification'.")
 
     def forward(self, x, lengths=None):
         z = self.encoder(x, lengths)
-        return self.decoder(z), z
+        return self.head(z), z
+
+
+def _inverse_sqrt_class_weights(labels, num_classes: int, device):
+    counts = torch.bincount(labels.detach().cpu().long(), minlength=int(num_classes)).float()
+    weights = torch.zeros_like(counts)
+    present = counts > 0
+    weights[present] = counts[present].rsqrt()
+    if bool(present.any()):
+        weights[present] = weights[present] / weights[present].mean()
+    return weights.to(device)
 
 
 def _pretrain_client_encoder(client: Client, cfg: dict, device):
     pre_cfg = cfg.get("pretrain", {})
-    model = _AutoEncoder(client, cfg).to(device)
+    objective = str(pre_cfg.get("objective", "reconstruction")).strip().lower()
+    model = _ClientPretrainModel(client, cfg, objective).to(device)
     epochs = int(pre_cfg.get("epochs", 5))
     batch_size = int(pre_cfg.get("batch_size", cfg.get("batch_size", 64)))
     lr = float(pre_cfg.get("lr", cfg.get("learning_rate", 1e-3)))
@@ -44,30 +62,61 @@ def _pretrain_client_encoder(client: Client, cfg: dict, device):
     x = client.samples
     if max_samples is not None:
         x = x[: min(int(max_samples), int(x.shape[0]))]
+    labels = client.labels[: x.shape[0]].long()
     lengths = client.sequence_lengths
     if lengths is not None:
         lengths = lengths[: x.shape[0]]
-        loader = DataLoader(TensorDataset(x, lengths), batch_size=batch_size, shuffle=True)
+        loader = DataLoader(TensorDataset(x, lengths, labels), batch_size=batch_size, shuffle=True)
     else:
-        loader = DataLoader(TensorDataset(x), batch_size=batch_size, shuffle=True)
+        loader = DataLoader(TensorDataset(x, labels), batch_size=batch_size, shuffle=True)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=float(pre_cfg.get("weight_decay", 0.0)))
-    loss_fn = nn.MSELoss()
+    if objective == "classification":
+        class_weighting = str(pre_cfg.get("class_weighting", "none")).strip().lower()
+        if class_weighting not in {"none", "inverse_sqrt"}:
+            raise ValueError("pretrain.class_weighting must be 'none' or 'inverse_sqrt'.")
+        class_weights = (
+            _inverse_sqrt_class_weights(labels, int(cfg.get("num_classes", 2)), device)
+            if class_weighting == "inverse_sqrt"
+            else None
+        )
+        loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+    else:
+        loss_fn = nn.MSELoss()
     total = 0.0
     steps = 0
+    correct = 0
+    total_examples = 0
     model.train()
     for _ in range(max(0, epochs)):
         for batch in loader:
             xb = batch[0]
-            length_batch = batch[1].to(device) if len(batch) > 1 else None
+            if lengths is None:
+                length_batch = None
+                label_batch = batch[1].to(device)
+            else:
+                length_batch = batch[1].to(device)
+                label_batch = batch[2].to(device)
             xb = xb.to(device)
-            recon, _ = model(xb, length_batch)
-            loss = loss_fn(recon, xb.reshape(xb.shape[0], -1))
+            output, _ = model(xb, length_batch)
+            target = label_batch if objective == "classification" else xb.reshape(xb.shape[0], -1)
+            loss = loss_fn(output, target)
             opt.zero_grad()
             loss.backward()
+            max_grad_norm = pre_cfg.get("max_grad_norm")
+            if max_grad_norm is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), float(max_grad_norm))
             opt.step()
             total += float(loss.item())
             steps += 1
-    return model.encoder, (total / steps if steps else None)
+            if objective == "classification":
+                correct += int((output.argmax(dim=1) == label_batch).sum().item())
+                total_examples += int(label_batch.numel())
+    return model.encoder, {
+        "objective": objective,
+        "loss": total / steps if steps else None,
+        "accuracy": None if objective != "classification" else float(correct / max(1, total_examples)),
+        "epochs": epochs,
+    }
 
 
 def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
@@ -80,9 +129,9 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
     encoders = {}
     losses = {}
     for client in clients:
-        encoder, avg_loss = _pretrain_client_encoder(client, cfg, device)
+        encoder, pretrain_metrics = _pretrain_client_encoder(client, cfg, device)
         encoders[client.client_id] = encoder
-        losses[client.client_id] = avg_loss
+        losses[client.client_id] = pretrain_metrics
         torch.save(
             {
                 "client_id": client.client_id,
@@ -126,7 +175,7 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
             "method": method,
             "known_k": known_k,
             "true_num_modalities": int(len(np.unique(true))),
-            "pretrain_reconstruction_loss": losses,
+            "pretrain_metrics": losses,
             "fingerprint_type": str(cfg.get("fingerprint", {}).get("type", "hybrid")),
             "uses_input_dimension_hint": False,
         }

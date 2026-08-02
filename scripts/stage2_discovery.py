@@ -65,6 +65,10 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root):
     partition_name = safe_result_component(partition_dir.name)
     method_name = _cluster_method_name(cfg)
     cluster_dir = (output_root_path / dataset_name / partition_name / method_name).resolve()
+    raw_run_name = cfg.get("stage2", {}).get("run_name")
+    run_name = safe_result_component(raw_run_name) if raw_run_name else None
+    if run_name:
+        cluster_dir = (cluster_dir / run_name).resolve()
     if cluster_dir.exists():
         raise FileExistsError(f"Refusing to overwrite existing Stage2 output directory: {cluster_dir}")
 
@@ -79,6 +83,7 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root):
         "dataset": dataset_name,
         "partition_signature": partition_name,
         "cluster_method": method_name,
+        "run_name": run_name,
     }
     return run_cfg, {
         "partition_dir": partition_dir,
@@ -87,6 +92,7 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root):
         "dataset": dataset_name,
         "partition_signature": partition_name,
         "cluster_method": method_name,
+        "run_name": run_name,
     }
 
 
@@ -97,6 +103,7 @@ def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_second
         "dataset": paths["dataset"],
         "partition_signature": paths["partition_signature"],
         "cluster_method": paths["cluster_method"],
+        "run_name": paths["run_name"],
         "stage1_dir": str(paths["partition_dir"]),
         "output_root": str(paths["output_root"]),
         "cluster_dir": str(paths["cluster_dir"]),

@@ -403,6 +403,17 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     ]:
         if not (run_dir / name).exists():
             return "failed", f"missing_{name}"
+    run_test = bool(metrics.get("evaluation_mode") != "validation_only_test_deferred")
+    if not run_test:
+        if metrics.get("test_eval_status") != "deferred":
+            return "failed", "validation_only_run_must_defer_test"
+        if int(metrics.get("test_evaluation_count", -1)) != 0:
+            return "failed", "validation_only_test_evaluation_count_must_equal_zero"
+        if metrics.get("official_result") is not None:
+            return "failed", "validation_only_run_must_not_claim_official_result"
+        if not _is_finite_number(metrics.get("best_round")):
+            return "failed", "missing_best_round"
+        return "success", None
     if metrics.get("test_eval_status") != "success":
         return "failed", metrics.get("test_eval_failure_reason") or "test_evaluation_failed"
     for key in ["test_accuracy", "test_macro_f1", "test_weighted_f1", "test_loss"]:
@@ -467,6 +478,11 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
             for split_name in ("train", "validation", "test")
         },
         "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
+        "evaluation_mode": (
+            "formal_test"
+            if bool(cfg.get("evaluation", {}).get("run_test", True))
+            else "validation_only_test_deferred"
+        ),
         "configured_global_rounds": int(training_cfg.get("global_rounds", 0)),
         "validation_interval": int(training_cfg.get("validation_every", 0)),
         "early_stopping_patience": int(early_stopping_cfg.get("patience", 0)),

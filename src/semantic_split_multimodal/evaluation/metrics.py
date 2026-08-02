@@ -1,6 +1,14 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from sklearn.metrics import accuracy_score, adjusted_rand_score, f1_score, normalized_mutual_info_score
+from sklearn.metrics import (
+    accuracy_score,
+    adjusted_rand_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    normalized_mutual_info_score,
+    precision_recall_fscore_support,
+)
 
 
 def discovery_metrics(true_modality, pred_cluster):
@@ -122,11 +130,43 @@ def learning_metrics(y_true, y_pred, modality_ids=None):
     y_pred = np.asarray(y_pred, dtype=int)
     out = {
         "accuracy": float(accuracy_score(y_true, y_pred)) if len(y_true) else 0.0,
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)) if len(y_true) else 0.0,
+        "macro_recall": float(balanced_accuracy_score(y_true, y_pred)) if len(y_true) else 0.0,
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)) if len(y_true) else 0.0,
         "weighted_f1": (
             float(f1_score(y_true, y_pred, average="weighted", zero_division=0)) if len(y_true) else 0.0
         ),
     }
+    labels = sorted(set(y_true.tolist()) | set(y_pred.tolist()))
+    if labels:
+        precision, recall, per_class_f1, support = precision_recall_fscore_support(
+            y_true,
+            y_pred,
+            labels=labels,
+            zero_division=0,
+        )
+        out["class_labels"] = [int(label) for label in labels]
+        out["per_class_precision"] = [float(value) for value in precision]
+        out["per_class_recall"] = [float(value) for value in recall]
+        out["per_class_f1"] = [float(value) for value in per_class_f1]
+        out["per_class_support"] = [int(value) for value in support]
+        out["confusion_matrix"] = confusion_matrix(y_true, y_pred, labels=labels).astype(int).tolist()
+    else:
+        out.update(
+            {
+                "class_labels": [],
+                "per_class_precision": [],
+                "per_class_recall": [],
+                "per_class_f1": [],
+                "per_class_support": [],
+                "confusion_matrix": [],
+            }
+        )
+    out["binary_f1"] = (
+        float(f1_score(y_true, y_pred, pos_label=1, zero_division=0))
+        if len(y_true) and set(y_true.tolist()).issubset({0, 1})
+        else None
+    )
     if modality_ids is not None:
         modality_ids = np.asarray(modality_ids, dtype=int)
         out["per_modality_accuracy"] = {}

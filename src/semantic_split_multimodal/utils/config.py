@@ -18,7 +18,7 @@ def _parse_value(raw_value: str):
         return True
     if lowered == "false":
         return False
-    if lowered in {"null", "none"}:
+    if lowered == "null":
         return None
     if value.startswith(("[", "{", '"')):
         try:
@@ -49,12 +49,28 @@ def _section_target(cfg: dict, section: str) -> dict:
     return target
 
 
-def load_config(path: str | Path) -> dict:
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: str | Path, _seen: set[Path] | None = None) -> dict:
     config_path = Path(path)
     if config_path.suffix.lower() != ".config":
         raise ValueError(f"Config file must use the .config extension: {config_path}")
+    config_path = config_path.resolve()
     if not config_path.is_file():
         raise FileNotFoundError(f"Config file does not exist: {config_path}")
+    seen = set() if _seen is None else set(_seen)
+    if config_path in seen:
+        chain = " -> ".join(str(item) for item in [*seen, config_path])
+        raise ValueError(f"Circular config extends chain: {chain}")
+    seen.add(config_path)
 
     parser = configparser.ConfigParser(
         interpolation=None,
@@ -78,7 +94,14 @@ def load_config(path: str | Path) -> dict:
             if not clean_key:
                 raise ValueError(f"Config section {section!r} contains an empty key.")
             target[clean_key] = _parse_value(raw_value)
-    return cfg
+    extends = cfg.pop("extends", None)
+    if extends is None:
+        return cfg
+    parent_path = Path(str(extends))
+    if not parent_path.is_absolute():
+        parent_path = config_path.parent / parent_path
+    parent = load_config(parent_path, _seen=seen)
+    return _deep_merge(parent, cfg)
 
 
 def _format_value(value) -> str:

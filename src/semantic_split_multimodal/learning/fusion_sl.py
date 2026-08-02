@@ -33,7 +33,9 @@ class FusionSplitClient:
         self.optimizer = torch.optim.Adam(
             self.encoder.parameters(),
             lr=float(cfg.get("training", {}).get("client_lr", cfg.get("learning_rate", 1e-3))),
+            weight_decay=float(cfg.get("training", {}).get("client_weight_decay", 0.0)),
         )
+        self.max_grad_norm = cfg.get("training", {}).get("max_grad_norm")
 
     def sample_batch(self):
         n = int(self.samples.shape[0])
@@ -50,6 +52,8 @@ class FusionSplitClient:
     def backward_from_server(self, z_client, grad):
         self.optimizer.zero_grad()
         z_client.backward(grad)
+        if self.max_grad_norm is not None:
+            nn.utils.clip_grad_norm_(self.encoder.parameters(), float(self.max_grad_norm))
         self.optimizer.step()
 
 
@@ -203,7 +207,7 @@ def _weighted_cross_cluster_contrastive_loss(adapted_slots, labels, confidences,
     return torch.stack(losses).mean()
 
 
-def _mmbind_fusion_losses(server, pseudo, spec):
+def _mmbind_fusion_losses(server, pseudo, spec, class_weights=None):
     if not hasattr(server, "adapt_slots") or not hasattr(server, "classify_adapted"):
         raise TypeError(
             "mmbind_weighted_contrastive requires a fusion server with "
@@ -213,7 +217,7 @@ def _mmbind_fusion_losses(server, pseudo, spec):
     adapted_slots = server.adapt_slots(pseudo.slot_activations)
     logits, _ = server.classify_adapted(adapted_slots)
     labels = pseudo.labels.to(logits.device)
-    classification_loss = nn.CrossEntropyLoss()(logits, labels)
+    classification_loss = nn.CrossEntropyLoss(weight=class_weights)(logits, labels)
     contrastive_loss = _weighted_cross_cluster_contrastive_loss(
         adapted_slots,
         labels,
@@ -230,7 +234,7 @@ def _mmbind_fusion_losses(server, pseudo, spec):
             for cluster_id, value in adapted_slots.items()
         }
         heterogeneous_logits, _ = server.classify_adapted(heterogeneous_slots)
-        heterogeneous_losses.append(nn.CrossEntropyLoss()(heterogeneous_logits, labels))
+        heterogeneous_losses.append(nn.CrossEntropyLoss(weight=class_weights)(heterogeneous_logits, labels))
     heterogeneous_loss = torch.stack(heterogeneous_losses).mean()
     loss = (
         classification_loss
@@ -240,7 +244,7 @@ def _mmbind_fusion_losses(server, pseudo, spec):
     return loss, logits, classification_loss, contrastive_loss, heterogeneous_loss
 
 
-def _train_local_step(server, server_optimizer, selected, required_clusters, cfg):
+def _train_local_step(server, server_optimizer, selected, required_clusters, cfg, class_weights=None):
     expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
     selected_clusters = sorted({int(client.pred_cluster) for client in selected})
     activation_batches, client_paths = _collect_selected_activations(selected)
@@ -289,7 +293,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     server_optimizer.zero_grad()
     if fusion_training["objective"] == "label_random_ce":
         logits, _ = server(pseudo.slot_activations)
-        classification_loss = nn.CrossEntropyLoss()(logits, pseudo.labels.to(logits.device))
+        classification_loss = nn.CrossEntropyLoss(weight=class_weights)(
+            logits, pseudo.labels.to(logits.device)
+        )
         contrastive_loss = classification_loss.detach() * 0.0
         heterogeneous_loss = classification_loss.detach() * 0.0
         loss = classification_loss
@@ -298,8 +304,12 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
             server,
             pseudo,
             fusion_training,
+            class_weights=class_weights,
         )
     loss.backward()
+    max_grad_norm = cfg.get("training", {}).get("max_grad_norm")
+    if max_grad_norm is not None:
+        nn.utils.clip_grad_norm_(server.parameters(), float(max_grad_norm))
     server_optimizer.step()
     _backward_to_clients(pseudo, client_paths)
     server_update_l1 = abs(_param_l1_norm(server) - server_norm_before)
@@ -325,7 +335,7 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     }
 
 
-def _train_round(server, server_optimizer, selected, required_clusters, cfg):
+def _train_round(server, server_optimizer, selected, required_clusters, cfg, class_weights=None):
     expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
     selected_clusters = sorted({int(client.pred_cluster) for client in selected})
     missing_clusters = sorted(set(expected_clusters) - set(selected_clusters))
@@ -355,7 +365,14 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
     cluster_slot_coverages = []
 
     for _ in range(configured_local_steps):
-        local_metrics = _train_local_step(server, server_optimizer, selected, expected_clusters, cfg)
+        local_metrics = _train_local_step(
+            server,
+            server_optimizer,
+            selected,
+            expected_clusters,
+            cfg,
+            class_weights=class_weights,
+        )
         common_labels_by_step.append(local_metrics["common_labels"])
         common_labels_seen.update(int(label) for label in local_metrics["common_labels"])
         cluster_slot_coverages.append(float(local_metrics["cluster_slot_coverage"]))
@@ -412,6 +429,24 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
     }
 
 
+def _training_class_weights(clients, cfg, device):
+    mode = str(cfg.get("training", {}).get("class_weighting", "none")).strip().lower()
+    if mode == "none":
+        return None
+    if mode != "inverse_sqrt":
+        raise ValueError("training.class_weighting must be 'none' or 'inverse_sqrt'.")
+    num_classes = int(cfg.get("num_classes", 2))
+    counts = torch.zeros(num_classes, dtype=torch.float32)
+    for client in clients:
+        counts += torch.bincount(client.labels.detach().cpu().long(), minlength=num_classes).float()
+    weights = torch.zeros_like(counts)
+    present = counts > 0
+    weights[present] = counts[present].rsqrt()
+    if bool(present.any()):
+        weights[present] = weights[present] / weights[present].mean()
+    return weights.to(device)
+
+
 def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "local/results/data_partition"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "local/results/cluster"))
@@ -424,6 +459,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         cfg, cluster_dir
     )
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
+    class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}
     cluster_ids = sorted({int(client.pred_cluster) for client in clients})
     cluster_to_slot = {int(cluster_id): int(slot) for slot, cluster_id in enumerate(cluster_ids)}
@@ -449,6 +485,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     server_optimizer = torch.optim.Adam(
         server.parameters(),
         lr=float(cfg.get("training", {}).get("server_lr", cfg.get("learning_rate", 1e-3))),
+        weight_decay=float(cfg.get("training", {}).get("server_weight_decay", 0.0)),
     )
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
     validation_every = int(training_cfg.get("validation_every", 10))
@@ -539,7 +576,14 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             executed_rounds = round_idx
             selected = scheduler.sample_round()
             start = time.perf_counter()
-            train_metrics = _train_round(server, server_optimizer, selected, cluster_ids, cfg)
+            train_metrics = _train_round(
+                server,
+                server_optimizer,
+                selected,
+                cluster_ids,
+                cfg,
+                class_weights=class_weights,
+            )
             latency = time.perf_counter() - start
             sched_metrics = scheduler.metrics(selected)
             empty_binding_rounds += int(train_metrics["empty_binding_round"])
@@ -672,6 +716,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         last_metrics,
     )
 
+    run_test = bool(cfg.get("evaluation", {}).get("run_test", True))
     test_evaluation_count = 0
     if best_metrics is not None:
         _load_checkpoint(
@@ -682,23 +727,41 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             cluster_to_slot,
             device,
         )
-        test_eval = evaluate_naturally_paired_fusion(
-            server,
-            clients_by_id,
-            partition_dir / "test_multimodal.pt",
-            oracle_mapping,
-            cfg,
-            device,
-        )
-        test_evaluation_count = 1
+        if run_test:
+            test_eval = evaluate_naturally_paired_fusion(
+                server,
+                clients_by_id,
+                partition_dir / "test_multimodal.pt",
+                oracle_mapping,
+                cfg,
+                device,
+            )
+            test_evaluation_count = 1
+        else:
+            test_eval = {
+                "eval_status": "deferred",
+                "eval_failure_reason": None,
+                "loss": None,
+                "accuracy": None,
+                "balanced_accuracy": None,
+                "macro_recall": None,
+                "macro_f1": None,
+                "weighted_f1": None,
+                "binary_f1": None,
+                "confusion_matrix": None,
+            }
     else:
         test_eval = {
             "eval_status": "failed",
             "eval_failure_reason": "no_successful_validation_checkpoint",
             "loss": None,
             "accuracy": None,
+            "balanced_accuracy": None,
+            "macro_recall": None,
             "macro_f1": None,
             "weighted_f1": None,
+            "binary_f1": None,
+            "confusion_matrix": None,
         }
 
     final_metrics = {
@@ -709,8 +772,16 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "test_eval_failure_reason": test_eval["eval_failure_reason"],
         "test_loss": test_eval["loss"],
         "test_accuracy": test_eval["accuracy"],
+        "test_balanced_accuracy": test_eval.get("balanced_accuracy"),
+        "test_macro_recall": test_eval.get("macro_recall"),
         "test_macro_f1": test_eval["macro_f1"],
         "test_weighted_f1": test_eval["weighted_f1"],
+        "test_binary_f1": test_eval.get("binary_f1"),
+        "test_confusion_matrix": test_eval.get("confusion_matrix"),
+        "test_per_class_precision": test_eval.get("per_class_precision"),
+        "test_per_class_recall": test_eval.get("per_class_recall"),
+        "test_per_class_f1": test_eval.get("per_class_f1"),
+        "test_per_class_support": test_eval.get("per_class_support"),
         "test_num_eval_samples": test_eval.get("num_eval_samples"),
         "test_num_eval_batches": test_eval.get("num_eval_batches"),
         "oracle_eval_mapping": oracle_mapping,
@@ -735,6 +806,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "binding": str(cfg.get("binding", {}).get("type", "label_random")),
         "fusion": "concat_mlp",
         "fusion_training": _fusion_training_spec(cfg),
+        "class_weighting": training_cfg.get("class_weighting", "none"),
+        "class_weights": None if class_weights is None else class_weights.detach().cpu().tolist(),
         "device": str(device),
         "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
         "validation_every": validation_every,
@@ -746,11 +819,16 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "stop_round": int(executed_rounds),
         "stop_reason": stop_reason,
         "test_evaluation_count": int(test_evaluation_count),
-        "official_result": {
-            "selection": "best_validation_weighted_f1",
-            "metrics_file": "final_metrics.json",
-            "model_file": "best_model.pt",
-        },
+        "evaluation_mode": "formal_test" if run_test else "validation_only_test_deferred",
+        "official_result": (
+            {
+                "selection": "best_validation_weighted_f1",
+                "metrics_file": "final_metrics.json",
+                "model_file": "best_model.pt",
+            }
+            if run_test
+            else None
+        ),
     }
     with (result_dir / "final_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(final_metrics, f, indent=2)

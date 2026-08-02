@@ -67,6 +67,30 @@ def test_stage2_refuses_existing_outputs(tmp_path):
         )
 
 
+def test_stage2_optional_run_name_preserves_other_config_outputs(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    output_root = tmp_path / "formal_outputs"
+    cfg = _cfg()
+    cfg["stage2"] = {"run_name": "temporal_bigru_cls_v1"}
+
+    resolved, paths = script.build_stage2_run(
+        cfg,
+        stage1_dir=stage1,
+        output_root=output_root,
+    )
+    expected = (
+        output_root.resolve()
+        / "synthetic_stage2"
+        / stage1.name
+        / "adaptive_isodata"
+        / "temporal_bigru_cls_v1"
+    )
+    assert paths["cluster_dir"] == expected
+    assert paths["run_name"] == "temporal_bigru_cls_v1"
+    assert resolved["stage2"]["run_name"] == "temporal_bigru_cls_v1"
+
+
 def test_stage2_cli_rejects_removed_run_type_option():
     script = _load_script()
 
