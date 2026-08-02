@@ -4,7 +4,7 @@
 
 ## 1. 配置加载
 
-- 输入：`configs/<dataset>.yaml`
+- 输入：`configs/<dataset>.config`
 - 对应文件：`scripts/stage1_partition.py`、`scripts/stage2_discovery.py`、`scripts/stage3_train.py`
 - 关键函数：`semantic_split_multimodal.utils.config.load_config`
 - 协议限制：D2D 尚未实现，保持 `d2d.enabled: false`
@@ -64,8 +64,8 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。其技�
 ## 8. Stage 3 Training
 
 - 输入：Stage 1 partition、Stage 2 cluster、`training.*`、`binding.*`、`fusion.*`
-- 输出目录：`local/results/experiments/<dataset>/<run_id>/`
-- 输出文件：`resolved_config.yaml`、`train_log.csv`、`validation_log.csv`、`best_metrics.json`、`final_metrics.json`、`best_model.pt`、`last_model.pt`、`training_curves.png`、`stage3_metadata.json`
+- 输出目录：`local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/`
+- 输出文件：`source_config.config`、`resolved_config.config`、`train_log.csv`、`validation_log.csv`、`best_metrics.json`、`final_metrics.json`、`best_model.pt`、`last_model.pt`、`training_curves.png`、`stage3_metadata.json`
 - 对应文件：`scripts/stage3_train.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`
 

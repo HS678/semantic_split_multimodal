@@ -1,6 +1,6 @@
 # Configuration Reference
 
-五个数据集配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml`、`configs/pamap2.yaml`、`configs/cmu_mosei.yaml` 和 `configs/iemocap.yaml`。其中 IEMOCAP 配置按本次实验要求使用 `true_cluster`，属于 Oracle/debug 对照。
+五个数据集配置位于 `configs/uci_har.config`、`configs/mhealth.config`、`configs/pamap2.config`、`configs/cmu_mosei.config` 和 `configs/iemocap.config`。完整字段、类型和取值说明位于 `configs/config.config`。当前五份开发配置统一使用 `true_cluster`，属于 Oracle/debug 实验。
 
 ## 顶层字段
 
@@ -119,7 +119,7 @@ acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 ## fusion
 
 - `fusion.type`：正式主线为 `concat_mlp`。
-- `fusion.training_objective`：融合训练机制。`label_random_ce` 保留原有完整伪元组分类 CE，并作为默认值；`mmbind_weighted_contrastive` 在相同融合结构上联合计算完整伪元组 CE、跨预测簇同标签 group contrastive loss 和单簇异构输入 CE。也可通过 Stage 3 CLI 的 `--fusion-training-objective` 只覆盖本次运行，覆盖值会写入 `resolved_config.yaml`。
+- `fusion.training_objective`：融合训练机制。`label_random_ce` 保留原有完整伪元组分类 CE，并作为默认值；`mmbind_weighted_contrastive` 在相同融合结构上联合计算完整伪元组 CE、跨所选簇同标签 group contrastive loss 和单簇异构输入 CE。也可通过 Stage 3 CLI 的 `--fusion-training-objective` 临时覆盖，最终值会写入 `resolved_config.config`。
 - `fusion.adapter_dim`：每个 cluster slot 的 `ClusterAdapter` 输出维度。
 - `fusion.hidden_dim`：concat MLP hidden dim。
 - `fusion.num_layers`：concat MLP hidden layer 数。
@@ -135,7 +135,7 @@ MMBind 式分支不修改 `ClusterAdapter + Concat Fusion + Classifier` 的推�
 Stage 3 CLI 在内存配置中注入输出路径，正式 YAML 不保存 `result` 或 `result_model` 字段。所有输出写入：
 
 ```text
-local/results/experiments/<dataset>/<run_id>/
+local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 解析后的配置、训练日志、验证日志、最佳验证指标、最终测试指标、`best_model.pt`、诊断用 `last_model.pt` 和训练曲线都直接保存在该目录下。正式模型使用 `best_model.pt`，正式 test 指标使用 `final_metrics.json`。

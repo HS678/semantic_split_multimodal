@@ -1,11 +1,24 @@
 from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 import re
 
-import yaml
-
 
 SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
+_NON_IDENTITY_KEYS = {
+    "base_dir",
+    "dataset_dir",
+    "output_dir",
+    "run_dir",
+    "run_id",
+    "stage1_dir",
+    "stage2_dir",
+    "output_root",
+    "attempt",
+    "root",
+    "processed_root",
+}
 
 
 def _resolve_project_path(project_root: Path, value: str) -> Path:
@@ -40,6 +53,52 @@ def partition_signature(modality_names, clients_per_modality: int, split_protoco
     if split_protocol:
         signature = f"{signature}__{safe_result_component(split_protocol)}"
     return signature
+
+
+def cluster_assignment_scope(cfg: dict) -> str:
+    source = str(
+        cfg.get("training", {}).get("cluster_assignment_source", "pred_cluster")
+    ).strip().lower()
+    if source == "true_cluster":
+        return "oracle_true_cluster"
+    if source == "pred_cluster":
+        return "predicted_cluster"
+    raise ValueError(
+        "training.cluster_assignment_source must be 'pred_cluster' or 'true_cluster', "
+        f"got {source!r}."
+    )
+
+
+def _identity_payload(value):
+    if isinstance(value, dict):
+        return {
+            key: _identity_payload(item)
+            for key, item in sorted(value.items())
+            if key not in _NON_IDENTITY_KEYS and key not in {"seed", "device"}
+        }
+    if isinstance(value, (list, tuple)):
+        return [_identity_payload(item) for item in value]
+    return value
+
+
+def experiment_config_signature(cfg: dict) -> str:
+    payload = _identity_payload(cfg)
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+    encoder_cfg = cfg.get("model", {}).get("encoder", {})
+    dataset_cfg = cfg.get("dataset", {})
+    encoder_parts = [encoder_cfg.get("type"), dataset_cfg.get("feature_recipe")]
+    encoder = "-".join(str(part) for part in encoder_parts if part) or "encoder"
+    binding = cfg.get("binding", {}).get("type", "binding")
+    objective = cfg.get("fusion", {}).get("training_objective", "objective")
+    scheduler = cfg.get("training", {}).get("scheduler", "scheduler")
+    readable = (
+        f"enc-{safe_result_component(encoder)}"
+        f"__bind-{safe_result_component(binding)}"
+        f"__loss-{safe_result_component(objective)}"
+        f"__sched-{safe_result_component(scheduler)}"
+    )
+    return f"{readable}__h-{digest}"
 
 
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
@@ -116,6 +175,6 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
         "run_dir": str(run_dir),
         "paths": paths,
     }
-    with (run_dir / "run_meta.yaml").open("w", encoding="utf-8") as f:
-        yaml.safe_dump(run_meta, f, sort_keys=False)
+    with (run_dir / "run_meta.json").open("w", encoding="utf-8") as f:
+        json.dump(run_meta, f, indent=2, ensure_ascii=False, sort_keys=True)
     return cfg

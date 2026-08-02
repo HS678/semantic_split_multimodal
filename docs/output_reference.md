@@ -26,8 +26,8 @@ local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
 
 文件：
 
-- `true_cluster.csv`：`client_id -> true_cluster`，仅用于可选 post-hoc audit；Stage 3 不要求该文件存在，也不以其一致性或可解析性决定是否训练，读取异常只记录到 input audit。
-- `pred_cluster.csv`：`client_id -> pred_cluster`，Stage 3 的训练输入。
+- `true_cluster.csv`：`client_id -> true_cluster`。当前开发配置的 Stage 3 固定读取它；该结果必须标记为 Oracle/debug。
+- `pred_cluster.csv`：`client_id -> pred_cluster`。Stage 2 始终生成并审计，后续论文正式配置切换为该输入。
 - `pretrained_encoders/client_XXX_encoder.pt`：Stage 2 预训练 encoder state dict。
 - `fingerprints.npz`：逐客户端原始 fingerprint、client ID、审计标签及二维 PCA 坐标，用于结果复现和绘图审计。
 - `fingerprint_pca.pdf`：基于聚类前 fingerprint 的双面板矢量 PCA 图，可直接用于论文。
@@ -37,19 +37,20 @@ local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
 
 PCA 坐标仅由 fingerprint 计算。`true_cluster` 与 `pred_cluster` 只用于 post-hoc audit 着色，不得参与 PCA 拟合、聚类或参数选择。
 
-Stage 3 的技术输入门槛仅包括完整且合法的 `pred_cluster.csv`、与 Stage 1 一致的 client IDs，以及逐客户端可加载的 pretrained encoder 文件。
+Stage 3 按 `training.cluster_assignment_source` 检查所选 cluster CSV、与 Stage 1 一致的 client IDs，以及逐客户端可加载的 pretrained encoder 文件。
 
 ## Stage 3 Experiment
 
 默认目录：
 
 ```text
-local/results/experiments/<dataset>/<run_id>/
+local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 文件：
 
-- `resolved_config.yaml`：本次 run 的完整内存配置，包括 CLI seed 和解析后的输入输出路径。
+- `source_config.config`：本次 run 原样复制的输入配置文件。
+- `resolved_config.config`：本次 run 的完整解析配置，包括最终 seed、attempt 和输入输出路径。
 - `train_log.csv`：每轮训练指标，包括 selected clients、selected clusters、binding 成功率、pseudo batch size、coverage 和参数更新量。
 - `validation_log.csv`：每 10 rounds 的 naturally paired validation loss、accuracy、macro-F1、weighted-F1、是否更新 best 和 patience 计数。
 - `best_metrics.json`：最佳 validation 指标、`best_round` 和选择规则。

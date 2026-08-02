@@ -21,22 +21,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 DATASET_CASES = [
-    ("uci_har", "configs/uci_har.yaml", ["acc", "gyro"], [[6, 128], [3, 128]]),
+    ("uci_har", "configs/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
     (
         "mhealth",
-        "configs/mhealth.yaml",
+        "configs/mhealth.config",
         ["accelerometer", "gyroscope", "magnetometer", "ecg"],
         [[9, 128], [6, 128], [6, 128], [2, 128]],
     ),
     (
         "pamap2",
-        "configs/pamap2.yaml",
+        "configs/pamap2.config",
         ["accelerometer", "gyroscope", "magnetometer"],
         [[9, 128], [9, 128], [9, 128]],
     ),
     (
         "cmu_mosei",
-        "configs/cmu_mosei.yaml",
+        "configs/cmu_mosei.config",
         ["text", "audio", "visual"],
         [[768], [74], [35]],
     ),
@@ -221,7 +221,7 @@ def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
 
 
 def test_cmu_mosei_uses_official_splits_binary_labels_and_train_only_standardization():
-    cfg = load_config(PROJECT_ROOT / "configs/cmu_mosei.yaml")
+    cfg = load_config(PROJECT_ROOT / "configs/cmu_mosei.config")
     dataset = load_dataset(cfg, PROJECT_ROOT)
 
     assert dataset["split_num_samples"] == {"train": 16327, "validation": 1871, "test": 4662}

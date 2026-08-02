@@ -88,7 +88,7 @@ local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
 Stage 3 的训练和测试结果是正式实验 run：
 
 ```text
-local/results/experiments/<dataset>/<run_id>/
+local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 当 `clients_per_modality: 10` 时，默认 partition signature 为：
@@ -101,24 +101,24 @@ CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visu
 IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
-每个阶段都会拒绝覆盖已有的非空输出目录。三划分 Stage 3 请使用新的 `run_id`，例如 `adaptive_tvt_seed101`。
+每个阶段都会拒绝覆盖已有的非空输出目录。同配置、同 seed 重跑 Stage 3 时，在 `.config` 中递增 `stage3.attempt`。
 
 ## Stage 1：数据划分
 
 运行单个数据集：
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.yaml
+python scripts/stage1_partition.py --config configs/uci_har.config
 ```
 
 五个数据集依次运行：
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.yaml
-python scripts/stage1_partition.py --config configs/mhealth.yaml
-python scripts/stage1_partition.py --config configs/pamap2.yaml
-python scripts/stage1_partition.py --config configs/cmu_mosei.yaml
-python scripts/stage1_partition.py --config configs/iemocap.yaml
+python scripts/stage1_partition.py --config configs/uci_har.config
+python scripts/stage1_partition.py --config configs/mhealth.config
+python scripts/stage1_partition.py --config configs/pamap2.config
+python scripts/stage1_partition.py --config configs/cmu_mosei.config
+python scripts/stage1_partition.py --config configs/iemocap.config
 ```
 
 Stage 1 直接在 partition 目录下写入：
@@ -133,53 +133,38 @@ partition_config.json
 
 UCI-HAR、MHEALTH、PAMAP2 使用固定、互斥的 subject-level train/validation/test 划分；CMU-MOSEI 使用来源仓库的官方 video-disjoint train/validation/test，样本数分别为 16,327、1,871、4,662。CMU-MOSEI 任务为 `polarity < 0` 对 `polarity >= 0` 的二分类；audio/visual 按时间 mean pooling，三个模态都只用 train 统计量标准化。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。
 
-IEMOCAP 采用固定且互斥的 Session 1-3/4/5 划分，共 5,531 条四分类语句。补齐后的序列长度会贯穿 Stage 1、encoder 预训练、fingerprint、Split Learning 和 naturally paired evaluation。`configs/iemocap.yaml` 按本次对照实验要求显式使用 `true_cluster`，属于 Oracle/debug 结果，不是无泄漏主结果。
+IEMOCAP 采用固定且互斥的 Session 1-3/4/5 划分，共 5,531 条四分类语句。补齐后的序列长度会贯穿 Stage 1、encoder 预训练、fingerprint、Split Learning 和 naturally paired evaluation。`configs/iemocap.config` 按本次对照实验要求显式使用 `true_cluster`，属于 Oracle/debug 结果，不是无泄漏主结果。
 
 ## Stage 2：未知 Q 模态发现
 
 UCI-HAR：
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/uci_har.config
 ```
 
 MHEALTH：
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/mhealth.config
 ```
 
 PAMAP2：
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/pamap2.config
 ```
 
 CMU-MOSEI：
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/cmu_mosei.yaml \
-  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP：
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/iemocap.yaml \
-  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/iemocap.config
 ```
 
 Stage 2 只保留：
@@ -197,85 +182,56 @@ stage2_metadata.json
 
 `fingerprint_pca.pdf` 是可直接用于论文的矢量图；`fingerprint_pca.png` 为 600 DPI 预览图。PCA 坐标只由聚类前 client fingerprint 计算，真实模态与预测簇仅用于聚类完成后的两个审计着色面板，不参与 PCA 拟合或聚类。
 
-Stage 3 默认的技术输入要求是完整的 `pred_cluster.csv` 和逐客户端 `pretrained_encoders/`。默认模式下，`true_cluster.csv` 与 `stage2_metadata.json` 仅用于可选审计；文件缺失、真实簇不一致或 `discovery_status` 非成功都不会作为 Stage 3 启动门槛。
+Stage 2 始终生成 `pred_cluster.csv`、PCA 图和聚类审计。本轮开发实验的 Stage 3 配置固定选择 `true_cluster.csv`；论文正式实验后再切换为 `pred_cluster` 并调节现有聚类参数。
 
 ## Stage 3：Fusion Split Learning
 
-Stage 3 从冻结的 Stage 1 partition 和冻结的 Stage 2 cluster 目录读取输入。正式 YAML 的基础 `seed` 固定为 `42`，供 Stage 1/Stage 2 和默认 Stage 3 使用；`--seed` 只在内存中覆盖本次 Stage 3 的实验种子，不修改 YAML，也不影响冻结的 Stage 1/Stage 2。建议先只运行 UCI-HAR，再运行较大的数据集。
+Stage 3 从 `.config` 中读取冻结的 Stage 1/Stage 2 输入、seed、输出根目录和 attempt。命令行路径参数仅保留为可选调试覆盖项。
 
 Stage 3 的簇分配来源由下列配置控制：
 
-```yaml
-training:
-  cluster_assignment_source: pred_cluster  # 正式默认值
+```ini
+[training]
+cluster_assignment_source=true_cluster
 ```
 
-调试 Stage 3、需要绕过预测聚类时，可改为 `true_cluster`。此时训练、调度、binding、fusion slot 和 evaluation mapping 统一读取 `true_cluster.csv`；该模式使用真实模态簇，属于 oracle/debug 实验，不得作为无模态泄漏的正式主结果，且应使用可明确区分的 `run-id`。
+调试 Stage 3、需要绕过预测聚类时，可改为 `true_cluster`。此时训练、调度、binding、fusion slot 和 evaluation mapping 统一读取 `true_cluster.csv`；该模式使用真实模态簇，属于 oracle/debug 实验，不得作为无模态泄漏的正式主结果，且应使用可明确区分的 `attempt`。
 
 UCI-HAR：
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
 MHEALTH：
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/mhealth.config
 ```
 
 PAMAP2：
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/pamap2.config
 ```
 
 CMU-MOSEI：
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/cmu_mosei.yaml \
-  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP true-cluster Oracle/debug 对照：
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/iemocap.yaml \
-  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
-  --stage2-dir local/results/cluster/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id true_cluster_weighted_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/iemocap.config
 ```
 
-Stage 3 直接在 `local/results/experiments/<dataset>/<run_id>/` 下写入：
+Stage 3 在上述 config-signature/seed/attempt 目录下写入：
 
 ```text
-resolved_config.yaml
+source_config.config
+resolved_config.config
 train_log.csv
 validation_log.csv
 final_metrics.json
@@ -293,22 +249,16 @@ stage3_metadata.json
 ```bash
 PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
   -m semantic_split_multimodal.evaluation.plot_training_curves \
-  --run-dir local/results/experiments/<dataset>/<run_id>
+  --run-dir local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
 ```
 
-正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。每次运行使用独立 `run_id`，例如：
+正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。修改 `.config` 的 `seed`；同一 seed 重跑时递增 `stage3.attempt`。
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed202 \
-  --seed 202
+python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
-原有四个数据集各有独立正式实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds：
+五个数据集各有独立实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds。当前配置固定 `true_cluster`，因此 Stage3 输出属于 Oracle/debug：
 
 ```bash
 nohup bash local/tools/launch_uci_har_formal.sh \
@@ -322,16 +272,19 @@ nohup bash local/tools/launch_pamap2_formal.sh \
 
 nohup bash local/tools/launch_cmu_mosei_formal.sh \
   > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+
+nohup bash local/tools/launch_iemocap_formal.sh \
+  > "local/tools/iemocap_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-`launch_stage3_formal.sh` 保留为一次顺序启动上述四个数据集正式实验的聚合脚本：
+`launch_stage3_formal.sh` 是顺序启动上述五个数据集的聚合脚本：
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \
   > "local/tools/formal_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-脚本使用 `adaptive_tvt_seed<N>`，不会覆盖旧 train/test 正式 run。`local/` 被 Git 忽略，因此该启动脚本和运行日志只保留在本地。
+脚本通过 seed 覆盖生成独立 `seed-<seed>/attempt-01` 目录，不会覆盖已有 run。`local/` 被 Git 忽略，因此启动脚本和运行日志只保留在本地。
 
 ## 测试
 

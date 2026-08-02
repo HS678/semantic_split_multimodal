@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import yaml
 from sklearn.metrics import adjusted_rand_score
 
 from semantic_split_multimodal.discovery.clustering import (
@@ -15,6 +14,7 @@ from semantic_split_multimodal.discovery.clustering import (
     adaptive_isodata,
 )
 from semantic_split_multimodal.evaluation.metrics import discovery_metrics
+from semantic_split_multimodal.utils.config import load_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -231,14 +231,14 @@ def test_estimator_api_does_not_accept_hidden_modality_or_true_q():
 
 def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k():
     configs = [
-        PROJECT_ROOT / "configs" / "uci_har.yaml",
-        PROJECT_ROOT / "configs" / "mhealth.yaml",
-        PROJECT_ROOT / "configs" / "pamap2.yaml",
-        PROJECT_ROOT / "configs" / "cmu_mosei.yaml",
+        PROJECT_ROOT / "configs" / "uci_har.config",
+        PROJECT_ROOT / "configs" / "mhealth.config",
+        PROJECT_ROOT / "configs" / "pamap2.config",
+        PROJECT_ROOT / "configs" / "cmu_mosei.config",
     ]
     adaptive_blocks = []
     for path in configs:
-        cfg = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+        cfg = load_config(path)
         cluster = cfg["cluster"]
         assert cluster["method"] == "adaptive_isodata"
         assert cluster["known_k"] is None
@@ -255,10 +255,10 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
 
 def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
     expected = {
-        "uci_har.yaml": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
-        "mhealth.yaml": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
-        "pamap2.yaml": {"lr": 0.0005, "split_protocol": "subject_disjoint_tvt_v1"},
-        "cmu_mosei.yaml": {"lr": 0.001, "split_protocol": "official_video_disjoint_tvt_v1"},
+        "uci_har.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
+        "mhealth.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
+        "pamap2.config": {"lr": 0.0005, "split_protocol": "subject_disjoint_tvt_v1"},
+        "cmu_mosei.config": {"lr": 0.001, "split_protocol": "official_video_disjoint_tvt_v1"},
     }
     adaptive_blocks = []
     forbidden_top_level = {
@@ -271,7 +271,7 @@ def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
     }
     for filename, values in expected.items():
         path = PROJECT_ROOT / "configs" / filename
-        cfg = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+        cfg = load_config(path)
         assert cfg["seed"] == 42
         assert not forbidden_top_level.intersection(cfg)
         assert "server" not in cfg["model"]

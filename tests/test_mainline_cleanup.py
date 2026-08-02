@@ -19,7 +19,7 @@ def test_tracked_runtime_code_has_no_legacy_method_imports():
         path
         for path in tracked
         if path.startswith(("src/", "scripts/", "configs/", "tests/"))
-        and path.endswith((".py", ".yaml", ".yml"))
+        and path.endswith((".py", ".config"))
     ]
 
     offenders = []

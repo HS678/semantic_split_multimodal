@@ -54,7 +54,7 @@ scripts/
 
 - Stage 1：`local/results/partition/<dataset>/<partition_signature>/`
 - Stage 2：`local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/`
-- Stage 3：`local/results/experiments/<dataset>/<run_id>/`
+- Stage 3：`local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/`
 
 Stage 2 不回写 Stage 1。Stage 3 不回写 Stage 1 或 Stage 2。
 

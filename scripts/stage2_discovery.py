@@ -11,7 +11,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from semantic_split_multimodal.learning.pretrain import run_stage2_discovery
-from semantic_split_multimodal.utils.config import load_config
+from semantic_split_multimodal.utils.config import load_config, save_config_artifacts
 from semantic_split_multimodal.utils.device import select_device
 from semantic_split_multimodal.utils.results import dataset_result_name, safe_result_component
 from semantic_split_multimodal.utils.seed import set_seed
@@ -112,23 +112,31 @@ def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_second
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 2: discover modality clusters from a frozen Stage1 partition.")
-    parser.add_argument("--config", required=True, help="Path to yaml config")
-    parser.add_argument("--stage1-dir", required=True, help="Existing Stage 1 partition directory, read-only input")
-    parser.add_argument("--output-root", help="Root directory for Stage2 cluster outputs")
+    parser.add_argument("--config", required=True, help="Path to INI-style .config file")
+    parser.add_argument("--stage1-dir", help="Optional override for stage2.stage1_dir")
+    parser.add_argument("--output-root", help="Optional override for stage2.output_root")
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    output_root = args.output_root or ROOT / "local" / "results" / "cluster"
-
     cfg = load_config(args.config)
+    stage2_cfg = cfg.get("stage2", {})
+    stage1_dir = args.stage1_dir or stage2_cfg.get("stage1_dir")
+    if not stage1_dir:
+        raise ValueError("Set stage2.stage1_dir in the .config file or pass --stage1-dir.")
+    output_root = (
+        args.output_root
+        or stage2_cfg.get("output_root")
+        or ROOT / "local" / "results" / "cluster"
+    )
     cfg, paths = build_stage2_run(
         cfg,
-        stage1_dir=args.stage1_dir,
+        stage1_dir=stage1_dir,
         output_root=output_root,
     )
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
+    save_config_artifacts(args.config, cfg, paths["cluster_dir"])
 
     start = time.time()
     set_seed(int(cfg.get("seed", 42)))

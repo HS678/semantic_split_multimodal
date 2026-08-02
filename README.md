@@ -88,7 +88,7 @@ local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
 Stage 3 training and evaluation outputs are full experiment runs:
 
 ```text
-local/results/experiments/<dataset>/<run_id>/
+local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 Default partition signatures with `clients_per_modality: 10`:
@@ -101,24 +101,24 @@ CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visu
 IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
-No stage overwrites an existing non-empty output directory. Use a three-split Stage 3 `run_id`, such as `adaptive_tvt_seed101`.
+No stage overwrites an existing non-empty output directory. Increment `stage3.attempt` in the `.config` when repeating the same config and seed.
 
 ## Stage 1
 
 Run one dataset:
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.yaml
+python scripts/stage1_partition.py --config configs/uci_har.config
 ```
 
 Run all five datasets one by one:
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.yaml
-python scripts/stage1_partition.py --config configs/mhealth.yaml
-python scripts/stage1_partition.py --config configs/pamap2.yaml
-python scripts/stage1_partition.py --config configs/cmu_mosei.yaml
-python scripts/stage1_partition.py --config configs/iemocap.yaml
+python scripts/stage1_partition.py --config configs/uci_har.config
+python scripts/stage1_partition.py --config configs/mhealth.config
+python scripts/stage1_partition.py --config configs/pamap2.config
+python scripts/stage1_partition.py --config configs/cmu_mosei.config
+python scripts/stage1_partition.py --config configs/iemocap.config
 ```
 
 Stage 1 writes directly under the partition directory:
@@ -133,53 +133,38 @@ partition_config.json
 
 UCI-HAR, MHEALTH, and PAMAP2 use fixed, disjoint subject-level train/validation/test splits. CMU-MOSEI uses the source repository's official video-disjoint train/validation/test splits with 16,327/1,871/4,662 samples. Its task is binary `polarity < 0` versus `polarity >= 0`; audio/visual sequences are mean-pooled, and all three modalities are standardized from train statistics only. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired.
 
-IEMOCAP uses the fixed disjoint Session 1-3/4/5 split with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/iemocap.yaml` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
+IEMOCAP uses the fixed disjoint Session 1-3/4/5 split with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/iemocap.config` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
 
 ## Stage 2
 
 UCI-HAR:
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/uci_har.config
 ```
 
 MHEALTH:
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/mhealth.config
 ```
 
 PAMAP2:
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/pamap2.config
 ```
 
 CMU-MOSEI:
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/cmu_mosei.yaml \
-  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP:
 
 ```bash
-python scripts/stage2_discovery.py \
-  --config configs/iemocap.yaml \
-  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
-  --output-root local/results/cluster
+python scripts/stage2_discovery.py --config configs/iemocap.config
 ```
 
 Stage 2 keeps only:
@@ -197,85 +182,56 @@ stage2_metadata.json
 
 `fingerprint_pca.pdf` is a publication-ready vector figure and `fingerprint_pca.png` is a 600-DPI preview. PCA coordinates are computed only from pre-clustering client fingerprints; true modalities and predicted clusters are used only to color the two post-hoc audit panels and never enter PCA fitting or clustering.
 
-By default, the technical Stage 3 inputs are a complete `pred_cluster.csv` and one pretrained encoder per client. In the default mode, `true_cluster.csv` and `stage2_metadata.json` are optional audit inputs; missing audit files, inconsistent true clusters, or a non-success `discovery_status` do not gate Stage 3 startup.
+Stage 2 always produces `pred_cluster.csv`, PCA figures, and discovery audits. The current development configs deliberately select `true_cluster.csv` in Stage 3; the paper protocol will later switch to `pred_cluster` after tuning the existing clustering parameters.
 
 ## Stage 3
 
-Run Stage 3 from a frozen Stage 1 partition and a frozen Stage 2 cluster directory. Formal YAML files keep the base `seed` at `42` for Stage 1/Stage 2 and default Stage 3 behavior. `--seed` overrides only the in-memory Stage 3 experiment seed; it does not modify YAML or affect the frozen Stage 1/Stage 2 artifacts. Start with UCI-HAR, then run the larger datasets.
+Stage 3 reads its frozen Stage 1/Stage 2 inputs, seed, output root, and attempt from `.config`. CLI path arguments remain optional debugging overrides.
 
 Select the Stage 3 cluster assignment source with:
 
-```yaml
-training:
-  cluster_assignment_source: pred_cluster  # formal default
+```ini
+[training]
+cluster_assignment_source=true_cluster
 ```
 
-For Stage 3 debugging, set it to `true_cluster` to bypass predicted clustering. Training, scheduling, binding, fusion slots, and the evaluation mapping will then consistently read `true_cluster.csv`. This is an oracle/debug mode that uses true modality clusters; do not report it as the no-leakage main result, and use a clearly distinguishable `run-id`.
+For Stage 3 debugging, set it to `true_cluster` to bypass predicted clustering. Training, scheduling, binding, fusion slots, and the evaluation mapping will then consistently read `true_cluster.csv`. This is an oracle/debug mode that uses true modality clusters; do not report it as the no-leakage main result, and use a clearly distinguishable `attempt`.
 
 UCI-HAR:
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
 MHEALTH:
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/mhealth.yaml \
-  --stage1-dir local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/mhealth.config
 ```
 
 PAMAP2:
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/pamap2.yaml \
-  --stage1-dir local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/pamap2.config
 ```
 
 CMU-MOSEI:
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/cmu_mosei.yaml \
-  --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP true-cluster Oracle/debug comparison:
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/iemocap.yaml \
-  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
-  --stage2-dir local/results/cluster/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id true_cluster_weighted_seed101 \
-  --seed 101
+python scripts/stage3_train.py --config configs/iemocap.config
 ```
 
-Stage 3 writes directly under `local/results/experiments/<dataset>/<run_id>/`:
+Stage 3 writes under the config-signature/seed/attempt directory shown above:
 
 ```text
-resolved_config.yaml
+source_config.config
+resolved_config.config
 train_log.csv
 validation_log.csv
 final_metrics.json
@@ -293,22 +249,16 @@ Stage 3 generates `training_curves.png` automatically. To redraw it from existin
 ```bash
 PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
   -m semantic_split_multimodal.evaluation.plot_training_curves \
-  --run-dir local/results/experiments/<dataset>/<run_id>
+  --run-dir local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
 ```
 
-The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Give every run a distinct `run_id`, for example:
+The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Change `seed` in `.config`; increment `stage3.attempt` only when repeating a seed.
 
 ```bash
-python scripts/stage3_train.py \
-  --config configs/uci_har.yaml \
-  --stage1-dir local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1 \
-  --stage2-dir local/results/cluster/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1/adaptive_isodata \
-  --output-root local/results/experiments \
-  --run-id adaptive_tvt_seed202 \
-  --seed 202
+python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
-The four pre-existing datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds:
+All five datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds. With the current `true_cluster` configs, Stage 3 outputs are Oracle/debug results:
 
 ```bash
 nohup bash local/tools/launch_uci_har_formal.sh \
@@ -322,16 +272,19 @@ nohup bash local/tools/launch_pamap2_formal.sh \
 
 nohup bash local/tools/launch_cmu_mosei_formal.sh \
   > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+
+nohup bash local/tools/launch_iemocap_formal.sh \
+  > "local/tools/iemocap_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-`launch_stage3_formal.sh` is retained as the aggregate launcher that sequentially starts formal experiments for those four datasets:
+`launch_stage3_formal.sh` sequentially starts experiments for all five datasets:
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \
   > "local/tools/formal_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-It uses `adaptive_tvt_seed<N>` and therefore does not overwrite old train/test runs. The entire `local/` tree, including this launcher and its logs, is ignored by Git.
+It creates independent `seed-<seed>/attempt-01` directories and therefore does not overwrite old runs. The entire `local/` tree, including this launcher and its logs, is ignored by Git.
 
 ## Testing
 

@@ -10,7 +10,6 @@ import sys
 import time
 
 import torch
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -19,9 +18,13 @@ if str(SRC) not in sys.path:
 
 from semantic_split_multimodal.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
 from semantic_split_multimodal.evaluation.plot_training_curves import write_training_curves
-from semantic_split_multimodal.utils.config import load_config
+from semantic_split_multimodal.utils.config import load_config, save_config_artifacts
 from semantic_split_multimodal.utils.device import select_device
-from semantic_split_multimodal.utils.results import dataset_result_name
+from semantic_split_multimodal.utils.results import (
+    cluster_assignment_scope,
+    dataset_result_name,
+    experiment_config_signature,
+)
 from semantic_split_multimodal.utils.seed import set_seed
 
 
@@ -100,7 +103,7 @@ def _load_json(path: Path, label: str):
         return json.load(f)
 
 
-def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id):
+def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
     if not output_root:
         raise ValueError("--output-root is required.")
 
@@ -109,12 +112,28 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id):
     output_root_path = _resolve(output_root)
 
     dataset_name = _validate_path_component(dataset_result_name(cfg), "dataset")
-    resolved_run_id = _validate_path_component(run_id, "run_id")
+    scope = _validate_path_component(cluster_assignment_scope(cfg), "cluster assignment scope")
+    config_signature = _validate_path_component(
+        experiment_config_signature(cfg), "config signature"
+    )
+    seed = int(cfg.get("seed", 42))
+    attempt = int(attempt)
+    if attempt <= 0:
+        raise ValueError(f"attempt must be a positive integer, got {attempt}.")
+    seed_component = _validate_path_component(f"seed-{seed}", "seed")
+    attempt_component = _validate_path_component(f"attempt-{attempt:02d}", "attempt")
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
         if _paths_overlap(output_root_path, input_path):
             raise ValueError(f"output_root must not overlap {input_label} input directory: {input_path}")
 
-    run_dir = (output_root_path / dataset_name / resolved_run_id).resolve()
+    run_dir = (
+        output_root_path
+        / scope
+        / dataset_name
+        / config_signature
+        / seed_component
+        / attempt_component
+    ).resolve()
     if not _is_relative_to(run_dir, output_root_path):
         raise ValueError(f"Stage3 run directory escaped output_root: {run_dir}")
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
@@ -133,7 +152,10 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id):
         "stage2_dir": str(stage2_path),
         "output_root": str(output_root_path),
         "run_dir": str(run_dir),
-        "run_id": resolved_run_id,
+        "cluster_assignment_scope": scope,
+        "config_signature": config_signature,
+        "seed": seed,
+        "attempt": attempt,
     }
     paths = {
         "stage1_dir": stage1_path,
@@ -141,8 +163,12 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, run_id):
         "output_root": output_root_path,
         "run_dir": run_dir,
         "metadata": run_dir / "stage3_metadata.json",
-        "run_id": resolved_run_id,
+        "run_id": attempt_component,
         "dataset": dataset_name,
+        "cluster_assignment_scope": scope,
+        "config_signature": config_signature,
+        "seed": seed,
+        "attempt": attempt,
     }
     return run_cfg, paths
 
@@ -365,7 +391,8 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
         return "failed", "training_function_returned_non_dict_metrics"
     run_dir = paths["run_dir"]
     for name in [
-        "resolved_config.yaml",
+        "source_config.config",
+        "resolved_config.config",
         "train_log.csv",
         "validation_log.csv",
         "final_metrics.json",
@@ -405,6 +432,9 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
     return {
         "stage": "stage3_train",
         "run_id": paths["run_id"],
+        "cluster_assignment_scope": paths["cluster_assignment_scope"],
+        "config_signature": paths["config_signature"],
+        "attempt": paths["attempt"],
         "dataset": paths["dataset"],
         "status": status,
         "failure_reason": failure_reason,
@@ -464,29 +494,44 @@ _metadata.start_monotonic = 0.0
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 3: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
-    parser.add_argument("--config", required=True, help="Path to yaml config")
+    parser.add_argument("--config", required=True, help="Path to INI-style .config file")
     parser.add_argument(
         "--seed",
         type=int,
-        help="Override the Stage3 experiment seed in memory; does not modify the YAML or affect Stage1/Stage2",
+        help="Override the Stage3 experiment seed in memory; does not modify the source .config or affect Stage1/Stage2",
     )
     parser.add_argument(
         "--fusion-training-objective",
         choices=["label_random_ce", "mmbind_weighted_contrastive"],
-        help="Override fusion.training_objective in memory and record it in resolved_config.yaml",
+        help="Override fusion.training_objective in memory and record it in resolved_config.config",
     )
-    parser.add_argument("--stage1-dir", required=True, help="Frozen Stage 1 partition directory")
-    parser.add_argument("--stage2-dir", required=True, help="Frozen Stage 2 cluster directory")
-    parser.add_argument("--output-root", help="Root directory for Stage3 experiment outputs")
-    parser.add_argument("--run-id", required=True, help="Run id under output-root/<dataset>/")
+    parser.add_argument("--stage1-dir", help="Optional override for stage3.stage1_dir")
+    parser.add_argument("--stage2-dir", help="Optional override for stage3.stage2_dir")
+    parser.add_argument("--output-root", help="Optional override for stage3.output_root")
+    parser.add_argument(
+        "--attempt",
+        type=int,
+        help="Optional override for stage3.attempt; the run fails instead of overwriting an existing attempt",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
-    output_root = args.output_root or ROOT / "local" / "results" / "experiments"
-
     cfg = load_config(args.config)
+    stage3_cfg = cfg.get("stage3", {})
+    stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
+    stage2_dir = args.stage2_dir or stage3_cfg.get("stage2_dir")
+    if not stage1_dir or not stage2_dir:
+        raise ValueError(
+            "Set stage3.stage1_dir and stage3.stage2_dir in the .config file or pass CLI overrides."
+        )
+    output_root = (
+        args.output_root
+        or stage3_cfg.get("output_root")
+        or ROOT / "local" / "results" / "experiments"
+    )
+    attempt = args.attempt if args.attempt is not None else int(stage3_cfg.get("attempt", 1))
     resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
     cfg = {**cfg, "seed": resolved_seed}
     if args.fusion_training_objective is not None:
@@ -496,16 +541,15 @@ def main(argv=None):
         }
     run_cfg, paths = build_stage3_run(
         cfg,
-        stage1_dir=args.stage1_dir,
-        stage2_dir=args.stage2_dir,
+        stage1_dir=stage1_dir,
+        stage2_dir=stage2_dir,
         output_root=output_root,
-        run_id=args.run_id,
+        attempt=attempt,
     )
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)
-    with (paths["run_dir"] / "resolved_config.yaml").open("w", encoding="utf-8") as f:
-        yaml.safe_dump(run_cfg, f, sort_keys=False)
+    save_config_artifacts(args.config, run_cfg, paths["run_dir"])
 
     start = _utc_now()
     _metadata.start_monotonic = time.time()

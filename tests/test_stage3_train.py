@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 import torch
-import yaml
+
+from semantic_split_multimodal.utils.config import write_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -132,8 +133,8 @@ def _stage2_dir(tmp_path, client_ids=("client_000", "client_001"), clusters=(0, 
 
 
 def _config_file(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump(_cfg(), sort_keys=False), encoding="utf-8")
+    path = tmp_path / "config.config"
+    write_config(_cfg(), path)
     return path
 
 
@@ -160,6 +161,12 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
     (result_dir / "last_model.pt").write_text("checkpoint", encoding="utf-8")
 
 
+def _only_attempt_dir(output_root: Path) -> Path:
+    candidates = list(Path(output_root).rglob("attempt-01"))
+    assert len(candidates) == 1
+    return candidates[0]
+
+
 def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)
@@ -170,10 +177,18 @@ def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
         stage1_dir=stage1,
         stage2_dir=stage2,
         output_root=tmp_path / "experiments",
-        run_id="run_1",
+        attempt=1,
     )
 
-    expected_run = (tmp_path / "experiments" / "synthetic_stage3" / "run_1").resolve()
+    expected_run = (
+        tmp_path
+        / "experiments"
+        / "predicted_cluster"
+        / "synthetic_stage3"
+        / paths["config_signature"]
+        / "seed-7"
+        / "attempt-01"
+    ).resolve()
     assert Path(cfg["partition"]["output_dir"]) == stage1.resolve()
     assert Path(cfg["cluster"]["output_dir"]) == stage2.resolve()
     assert Path(cfg["result"]["output_dir"]) == expected_run
@@ -188,7 +203,7 @@ def test_stage3_cli_rejects_removed_run_type_option():
         script.parse_args(
             [
                 "--config",
-                "configs/uci_har.yaml",
+                "configs/uci_har.config",
                 "--stage1-dir",
                 "stage1",
                 "--stage2-dir",
@@ -201,35 +216,36 @@ def test_stage3_cli_rejects_removed_run_type_option():
         )
 
 
-def test_stage3_refuses_existing_non_empty_run_dir(tmp_path):
+def test_stage3_refuses_existing_non_empty_attempt_dir(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)
     stage2 = _stage2_dir(tmp_path)
-    existing = tmp_path / "experiments" / "synthetic_stage3" / "run_1"
+    _, initial_paths = script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", 1)
+    existing = initial_paths["run_dir"]
     existing.mkdir(parents=True)
     (existing / "old.txt").write_text("old", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", "run_1")
+        script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", 1)
 
 
-def test_stage3_rejects_run_id_dataset_escape_and_output_overlap(tmp_path):
+def test_stage3_rejects_invalid_attempt_dataset_escape_and_output_overlap(tmp_path):
     script = _load_script()
     stage1 = _stage1_dir(tmp_path)
     stage2 = _stage2_dir(tmp_path)
 
-    for run_id in ["../escape", "a/b", r"a\\b", ""]:
-        with pytest.raises(ValueError, match="run_id"):
-            script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", run_id)
+    for attempt in [0, -1]:
+        with pytest.raises(ValueError, match="attempt"):
+            script.build_stage3_run(_cfg(), stage1, stage2, tmp_path / "experiments", attempt)
 
     cfg = _cfg()
     cfg["dataset"]["type"] = "../escape"
     with pytest.raises(ValueError, match="dataset"):
-        script.build_stage3_run(cfg, stage1, stage2, tmp_path / "experiments", "run_1")
+        script.build_stage3_run(cfg, stage1, stage2, tmp_path / "experiments", 1)
     with pytest.raises(ValueError, match="overlap Stage1"):
-        script.build_stage3_run(_cfg(), stage1, stage2, stage1, "run_1")
+        script.build_stage3_run(_cfg(), stage1, stage2, stage1, 1)
     with pytest.raises(ValueError, match="overlap Stage2"):
-        script.build_stage3_run(_cfg(), stage1, stage2, stage2, "run_1")
+        script.build_stage3_run(_cfg(), stage1, stage2, stage2, 1)
 
 
 def test_audit_accepts_valid_stage1_and_stage2_inputs(tmp_path):
@@ -264,13 +280,11 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
                 str(stage2),
                 "--output-root",
                 str(tmp_path / "experiments"),
-                "--run-id",
-                "run_1",
             ]
         )
 
     assert not called["train"]
-    assert not (tmp_path / "experiments" / "synthetic_stage3" / "run_1").exists()
+    assert not list((tmp_path / "experiments").rglob("attempt-01"))
 
 
 def test_missing_validation_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
@@ -293,13 +307,11 @@ def test_missing_validation_file_blocks_training_before_output_creation(monkeypa
                 str(stage2),
                 "--output-root",
                 str(tmp_path / "experiments"),
-                "--run-id",
-                "run_1",
             ]
         )
 
     assert not called["train"]
-    assert not (tmp_path / "experiments" / "synthetic_stage3" / "run_1").exists()
+    assert not list((tmp_path / "experiments").rglob("attempt-01"))
 
 
 def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
@@ -322,13 +334,11 @@ def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch,
                 str(stage2),
                 "--output-root",
                 str(tmp_path / "experiments"),
-                "--run-id",
-                "run_1",
             ]
         )
 
     assert not called["train"]
-    assert not (tmp_path / "experiments" / "synthetic_stage3" / "run_1").exists()
+    assert not list((tmp_path / "experiments").rglob("attempt-01"))
 
 
 def test_true_cluster_is_optional_and_never_gates_training_audit(tmp_path):
@@ -504,13 +514,11 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
             str(stage2),
             "--output-root",
             str(tmp_path / "experiments"),
-            "--run-id",
-            "run_1",
         ]
     )
 
     assert config.read_text(encoding="utf-8") == before
-    run_dir = tmp_path / "experiments" / "synthetic_stage3" / "run_1"
+    run_dir = _only_attempt_dir(tmp_path / "experiments")
     metadata = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert seen["root"] == script.ROOT
     assert Path(seen["cfg"]["partition"]["output_dir"]) == stage1.resolve()
@@ -522,7 +530,8 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert metadata["runtime_seconds"] >= 0
     assert metadata["stage1_dir"] == str(stage1.resolve())
     assert metadata["stage2_dir"] == str(stage2.resolve())
-    assert metadata["run_id"] == "run_1"
+    assert metadata["run_id"] == "attempt-01"
+    assert metadata["attempt"] == 1
     assert metadata["seed"] == 101
     assert metadata["config_snapshot"]["seed"] == 101
     assert metadata["cli_arguments"]["seed"] == 101
@@ -531,7 +540,8 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert not (run_dir / "train_clients").exists()
     assert not (run_dir / "pred_cluster.csv").exists()
     for name in [
-        "resolved_config.yaml",
+        "source_config.config",
+        "resolved_config.config",
         "train_log.csv",
         "validation_log.csv",
         "final_metrics.json",
@@ -542,6 +552,43 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         "stage3_metadata.json",
     ]:
         assert (run_dir / name).exists()
+
+
+def test_stage3_can_run_with_config_as_the_only_cli_input(monkeypatch, tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    output_root = tmp_path / "experiments"
+    cfg = {
+        **_cfg(),
+        "stage3": {
+            "stage1_dir": str(stage1),
+            "stage2_dir": str(stage2),
+            "output_root": str(output_root),
+            "attempt": 1,
+        },
+    }
+    config = tmp_path / "config_only.config"
+    write_config(cfg, config)
+
+    def fake_train(run_cfg, *_args):
+        metrics = {
+            "test_eval_status": "success",
+            "test_eval_failure_reason": None,
+            "test_accuracy": 0.5,
+            "test_macro_f1": 0.4,
+            "test_loss": 1.0,
+        }
+        _write_success_outputs(Path(run_cfg["result"]["output_dir"]), metrics)
+        return metrics
+
+    monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
+    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
+    script.main(["--config", str(config)])
+
+    run_dir = _only_attempt_dir(output_root)
+    assert (run_dir / "source_config.config").read_bytes() == config.read_bytes()
+    assert (run_dir / "resolved_config.config").exists()
 
 
 @pytest.mark.parametrize("discovery_status", ["discovery_failure", None])
@@ -590,13 +637,11 @@ def test_discovery_status_never_gates_mocked_trainer(
             str(stage2),
             "--output-root",
             str(tmp_path / "experiments"),
-            "--run-id",
-            "run_1",
         ]
     )
 
     assert called["train"]
-    run_dir = tmp_path / "experiments" / "synthetic_stage3" / "run_1"
+    run_dir = _only_attempt_dir(tmp_path / "experiments")
     recorded = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert recorded["status"] == "success"
     assert recorded["stage2_discovery_status"] == discovery_status
@@ -621,12 +666,11 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
                 str(stage2),
                 "--output-root",
                 str(tmp_path / "experiments"),
-                "--run-id",
-                "run_1",
             ]
         )
 
-    metadata = json.loads((tmp_path / "experiments" / "synthetic_stage3" / "run_1" / "stage3_metadata.json").read_text(encoding="utf-8"))
+    run_dir = _only_attempt_dir(tmp_path / "experiments")
+    metadata = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "failed"
     assert metadata["failure_reason"] == "boom"
 
@@ -665,12 +709,11 @@ def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkey
                 str(stage2),
                 "--output-root",
                 str(tmp_path / "experiments"),
-                "--run-id",
-                "run_1",
             ]
         )
 
-    metadata = json.loads((tmp_path / "experiments" / "synthetic_stage3" / "run_1" / "stage3_metadata.json").read_text(encoding="utf-8"))
+    run_dir = _only_attempt_dir(tmp_path / "experiments")
+    metadata = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "failed"
     assert metadata["failure_reason"] == "mapping_failed"
 
@@ -710,13 +753,11 @@ def test_latest_run_marker_is_ignored_by_stage3(monkeypatch, tmp_path):
             str(stage2),
             "--output-root",
             str(output_root),
-            "--run-id",
-            "run_1",
         ]
     )
 
     assert (output_root / "synthetic_stage3" / "latest_run.txt").read_text(encoding="utf-8") == "old_run"
-    assert (output_root / "synthetic_stage3" / "run_1").exists()
+    assert _only_attempt_dir(output_root).exists()
     assert not (output_root / "synthetic_stage3" / "old_run").exists()
 
 

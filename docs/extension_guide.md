@@ -33,7 +33,7 @@
 
 encoder 与 server 组件集中在 `src/semantic_split_multimodal/learning/models.py`。通过 registry 增加 encoder：
 
-```yaml
+```ini
 model:
   encoder:
     type: time_series
