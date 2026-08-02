@@ -8,16 +8,17 @@
 
 ```python
 {
-    "train": {"modalities": [x0, x1, x2], "labels": y_train},
+    "train": {"modalities": [x0, x1, x2], "modality_lengths": [l0, l1, l2], "labels": y_train},
     "validation": {"modalities": [x0_val, x1_val, x2_val], "labels": y_val},
     "test": {"modalities": [x0_test, x1_test, x2_test], "labels": y_test},
     "root": str(root),
     "modality_names": ["mod0", "mod1", "mod2"],
     "modality_input_shapes": [[c0, t0], [c1, t1], [c2, t2]],
+    "modality_encoder_types": ["conv_gru", "gru", "gru"],
 }
 ```
 
-现有正式 loader 包括 `uci_har`、`mhealth`、`pamap2` 和 `cmu_mosei`。CMU-MOSEI 的官方 split ID 对齐、负/非负标签转换、mean pooling 与 train-only 标准化都属于数据适配层，不改变 Stage2/Stage3 核心算法。
+现有 loader 包括 `uci_har`、`mhealth`、`pamap2`、`cmu_mosei` 和 `iemocap`。IEMOCAP 的 loader 独立位于 `data/iemocap.py`；可变长序列通过可选 `modality_lengths` 传递。CMU-MOSEI 与 IEMOCAP 的数据适配逻辑均不改变 Stage2/Stage3 核心算法。
 
 规则：
 
@@ -38,7 +39,7 @@ model:
     type: time_series
 ```
 
-已有类型：`time_series`、`image`、`video`、`audio`、`mlp`。
+已有类型：`time_series`、`image`、`video`、`audio`、`mlp`、`gru`、`conv_gru`。
 
 ## 聚类
 

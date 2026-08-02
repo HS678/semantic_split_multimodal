@@ -44,6 +44,7 @@ def test_label_random_binding_pairs_same_label_across_pred_cluster_slots():
     assert pseudo is not None
     assert pseudo.batch_size == 4
     assert pseudo.cluster_ids == [0, 1]
+    assert torch.equal(pseudo.binding_confidences, torch.ones(4))
     assert set(pseudo.slot_activations) == {0, 1}
     for cluster_id, activations in pseudo.slot_activations.items():
         assert activations.shape == (4, 2)

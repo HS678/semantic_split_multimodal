@@ -100,10 +100,15 @@ binding:
 
 fusion:
   type: concat_mlp
+  training_objective: label_random_ce
   adapter_dim: 128
   hidden_dim: 128
   num_layers: 1
   dropout: 0.0
+  mmbind:
+    temperature: 0.1
+    contrastive_weight: 0.1
+    heterogeneous_ce_weight: 0.5
 
 d2d:
   enabled: false

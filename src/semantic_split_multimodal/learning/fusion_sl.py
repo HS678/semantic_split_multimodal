@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from semantic_split_multimodal.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch, common_labels_for_clusters
 from semantic_split_multimodal.data.partitioner import resolve_project_path
@@ -22,6 +23,8 @@ class FusionSplitClient:
         self.device = device
         self.samples = payload["samples"].to(device)
         self.labels = payload["labels"].to(device)
+        sequence_lengths = payload.get("sequence_lengths")
+        self.sequence_lengths = None if sequence_lengths is None else sequence_lengths.to(device)
         self.batch_size = int(cfg.get("training", {}).get("batch_size", cfg.get("batch_size", 32)))
         input_shape = [int(v) for v in payload.get("input_shape", list(payload["samples"].shape[1:]))]
         encoder_type = str(payload.get("encoder_type", "time_series"))
@@ -36,10 +39,11 @@ class FusionSplitClient:
         n = int(self.samples.shape[0])
         replace = n < self.batch_size
         idx = torch.randint(0, n, (self.batch_size,), device=self.device) if replace else torch.randperm(n, device=self.device)[: self.batch_size]
-        return self.samples[idx], self.labels[idx]
+        lengths = None if self.sequence_lengths is None else self.sequence_lengths[idx]
+        return self.samples[idx], self.labels[idx], lengths
 
-    def forward_detached(self, x):
-        z_client = self.encoder(x)
+    def forward_detached(self, x, lengths=None):
+        z_client = self.encoder(x, lengths)
         z_server = z_client.detach().requires_grad_(True)
         return z_client, z_server
 
@@ -88,8 +92,16 @@ def _collect_selected_activations(selected):
     activation_batches = []
     client_paths = {}
     for client in selected:
-        x, y = client.sample_batch()
-        z_client, z_server = client.forward_detached(x)
+        sampled = client.sample_batch()
+        if len(sampled) == 2:
+            x, y = sampled
+            lengths = None
+        else:
+            x, y, lengths = sampled
+        if lengths is None:
+            z_client, z_server = client.forward_detached(x)
+        else:
+            z_client, z_server = client.forward_detached(x, lengths)
         activation_batches.append(
             ClientActivationBatch(
                 client_id=client.client_id,
@@ -131,6 +143,103 @@ def _client_param_l1_norm(clients):
     return sum(_param_l1_norm(client.encoder) for client in clients)
 
 
+def _fusion_training_spec(cfg):
+    fusion_cfg = cfg.get("fusion", {})
+    objective = str(fusion_cfg.get("training_objective", "label_random_ce")).strip().lower()
+    supported = {"label_random_ce", "mmbind_weighted_contrastive"}
+    if objective not in supported:
+        raise ValueError(
+            "fusion.training_objective must be one of "
+            f"{sorted(supported)}, got {objective!r}."
+        )
+
+    mmbind_cfg = fusion_cfg.get("mmbind", {})
+    spec = {
+        "objective": objective,
+        "temperature": float(mmbind_cfg.get("temperature", 0.1)),
+        "contrastive_weight": float(mmbind_cfg.get("contrastive_weight", 0.1)),
+        "heterogeneous_ce_weight": float(mmbind_cfg.get("heterogeneous_ce_weight", 0.5)),
+    }
+    if objective == "mmbind_weighted_contrastive":
+        if spec["temperature"] <= 0.0:
+            raise ValueError("fusion.mmbind.temperature must be positive.")
+        if spec["contrastive_weight"] < 0.0:
+            raise ValueError("fusion.mmbind.contrastive_weight must be non-negative.")
+        if spec["heterogeneous_ce_weight"] < 0.0:
+            raise ValueError("fusion.mmbind.heterogeneous_ce_weight must be non-negative.")
+    return spec
+
+
+def _weighted_cross_cluster_contrastive_loss(adapted_slots, labels, confidences, temperature):
+    """MMBind-style label-shared group contrastive loss across predicted clusters."""
+
+    cluster_ids = sorted(int(cluster_id) for cluster_id in adapted_slots)
+    if len(cluster_ids) < 2 or int(torch.unique(labels).numel()) < 2:
+        return sum(value.sum() * 0.0 for value in adapted_slots.values())
+
+    labels = labels.reshape(-1)
+    confidences = confidences.reshape(-1).clamp_min(0.0)
+    same_label = labels[:, None].eq(labels[None, :])
+    pair_confidence = torch.sqrt(confidences[:, None] * confidences[None, :])
+    positive_weights = same_label.to(pair_confidence.dtype) * pair_confidence
+    losses = []
+
+    def directional_loss(similarity, weights):
+        log_prob = F.log_softmax(similarity / float(temperature), dim=1)
+        positive_mass = weights.sum(dim=1)
+        valid = positive_mass > 0
+        if not bool(valid.any()):
+            return similarity.sum() * 0.0
+        per_anchor = -(weights * log_prob).sum(dim=1) / positive_mass.clamp_min(1.0e-12)
+        return per_anchor[valid].mean()
+
+    for left_pos, left_cluster in enumerate(cluster_ids):
+        left = F.normalize(adapted_slots[left_cluster], dim=1)
+        for right_cluster in cluster_ids[left_pos + 1 :]:
+            right = F.normalize(adapted_slots[right_cluster], dim=1)
+            similarity = left @ right.transpose(0, 1)
+            losses.append(directional_loss(similarity, positive_weights))
+            losses.append(directional_loss(similarity.transpose(0, 1), positive_weights.transpose(0, 1)))
+    return torch.stack(losses).mean()
+
+
+def _mmbind_fusion_losses(server, pseudo, spec):
+    if not hasattr(server, "adapt_slots") or not hasattr(server, "classify_adapted"):
+        raise TypeError(
+            "mmbind_weighted_contrastive requires a fusion server with "
+            "adapt_slots() and classify_adapted()."
+        )
+
+    adapted_slots = server.adapt_slots(pseudo.slot_activations)
+    logits, _ = server.classify_adapted(adapted_slots)
+    labels = pseudo.labels.to(logits.device)
+    classification_loss = nn.CrossEntropyLoss()(logits, labels)
+    contrastive_loss = _weighted_cross_cluster_contrastive_loss(
+        adapted_slots,
+        labels,
+        pseudo.binding_confidences.to(logits.device),
+        spec["temperature"],
+    )
+
+    heterogeneous_losses = []
+    for retained_cluster in sorted(adapted_slots):
+        heterogeneous_slots = {
+            cluster_id: (
+                value if cluster_id == retained_cluster else torch.zeros_like(value)
+            )
+            for cluster_id, value in adapted_slots.items()
+        }
+        heterogeneous_logits, _ = server.classify_adapted(heterogeneous_slots)
+        heterogeneous_losses.append(nn.CrossEntropyLoss()(heterogeneous_logits, labels))
+    heterogeneous_loss = torch.stack(heterogeneous_losses).mean()
+    loss = (
+        classification_loss
+        + spec["contrastive_weight"] * contrastive_loss
+        + spec["heterogeneous_ce_weight"] * heterogeneous_loss
+    )
+    return loss, logits, classification_loss, contrastive_loss, heterogeneous_loss
+
+
 def _train_local_step(server, server_optimizer, selected, required_clusters, cfg):
     expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
     selected_clusters = sorted({int(client.pred_cluster) for client in selected})
@@ -138,6 +247,7 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     binding_cfg = cfg.get("binding", {})
     pseudo_batch_size = int(binding_cfg.get("batch_size", cfg.get("training", {}).get("batch_size", 32)))
     common_labels = common_labels_for_clusters(activation_batches, expected_clusters)
+    fusion_training = _fusion_training_spec(cfg)
     pseudo = build_label_random_pseudo_batch(
         activation_batches,
         required_clusters=expected_clusters,
@@ -146,6 +256,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     if pseudo is None:
         return {
             "loss": 0.0,
+            "classification_loss": 0.0,
+            "contrastive_loss": 0.0,
+            "heterogeneous_loss": 0.0,
             "accuracy": 0.0,
             "pseudo_batch_size": 0,
             "common_labels": common_labels,
@@ -154,6 +267,8 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
             "cluster_slot_coverage": float(len(selected_clusters) / max(1, len(expected_clusters))),
             "server_update_l1": 0.0,
             "client_update_l1": 0.0,
+            "fusion_training_objective": fusion_training["objective"],
+            "binding_confidence_mean": 0.0,
         }
 
     server_norm_before = _param_l1_norm(server)
@@ -172,8 +287,18 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     }
     client_norm_before = _client_param_l1_norm([clients_by_id[client_id] for client_id in bound_clients])
     server_optimizer.zero_grad()
-    logits, _ = server(pseudo.slot_activations)
-    loss = nn.CrossEntropyLoss()(logits, pseudo.labels.to(logits.device))
+    if fusion_training["objective"] == "label_random_ce":
+        logits, _ = server(pseudo.slot_activations)
+        classification_loss = nn.CrossEntropyLoss()(logits, pseudo.labels.to(logits.device))
+        contrastive_loss = classification_loss.detach() * 0.0
+        heterogeneous_loss = classification_loss.detach() * 0.0
+        loss = classification_loss
+    else:
+        loss, logits, classification_loss, contrastive_loss, heterogeneous_loss = _mmbind_fusion_losses(
+            server,
+            pseudo,
+            fusion_training,
+        )
     loss.backward()
     server_optimizer.step()
     _backward_to_clients(pseudo, client_paths)
@@ -184,6 +309,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     total = int(pseudo.labels.numel())
     return {
         "loss": float(loss.item()),
+        "classification_loss": float(classification_loss.item()),
+        "contrastive_loss": float(contrastive_loss.item()),
+        "heterogeneous_loss": float(heterogeneous_loss.item()),
         "accuracy": float(correct / max(1, total)),
         "pseudo_batch_size": int(total),
         "common_labels": common_labels,
@@ -192,6 +320,8 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
         "cluster_slot_coverage": float(len(pseudo.cluster_ids) / max(1, len(expected_clusters))),
         "server_update_l1": float(server_update_l1),
         "client_update_l1": float(client_update_l1),
+        "fusion_training_objective": fusion_training["objective"],
+        "binding_confidence_mean": float(pseudo.binding_confidences.mean().item()),
     }
 
 
@@ -210,6 +340,10 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
         raise ValueError("training.local_steps must be positive.")
 
     losses = []
+    classification_losses = []
+    contrastive_losses = []
+    heterogeneous_losses = []
+    binding_confidences = []
     correct_weighted_sum = 0.0
     total_pseudo_samples = 0
     effective_local_steps = 0
@@ -233,6 +367,10 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
         pseudo_batch_size = int(local_metrics["pseudo_batch_size"])
         total_pseudo_samples += pseudo_batch_size
         losses.append(float(local_metrics["loss"]))
+        classification_losses.append(float(local_metrics["classification_loss"]))
+        contrastive_losses.append(float(local_metrics["contrastive_loss"]))
+        heterogeneous_losses.append(float(local_metrics["heterogeneous_loss"]))
+        binding_confidences.append(float(local_metrics["binding_confidence_mean"]))
         correct_weighted_sum += float(local_metrics["accuracy"]) * pseudo_batch_size
         server_update_l1 += float(local_metrics["server_update_l1"])
         client_update_l1 += float(local_metrics["client_update_l1"])
@@ -248,6 +386,9 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
     return {
         "loss": mean_loss,
         "mean_loss": mean_loss,
+        "classification_loss": float(sum(classification_losses) / max(1, len(classification_losses))) if classification_losses else 0.0,
+        "contrastive_loss": float(sum(contrastive_losses) / max(1, len(contrastive_losses))) if contrastive_losses else 0.0,
+        "heterogeneous_loss": float(sum(heterogeneous_losses) / max(1, len(heterogeneous_losses))) if heterogeneous_losses else 0.0,
         "accuracy": accuracy,
         "K_t": int(len(selected)),
         "pseudo_batch_size": int(total_pseudo_samples),
@@ -266,6 +407,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg):
         "cluster_slot_coverage": float(sum(cluster_slot_coverages) / max(1, len(cluster_slot_coverages))),
         "server_update_l1": float(server_update_l1),
         "client_update_l1": float(client_update_l1),
+        "fusion_training_objective": _fusion_training_spec(cfg)["objective"],
+        "binding_confidence_mean": float(sum(binding_confidences) / max(1, len(binding_confidences))) if binding_confidences else 0.0,
     }
 
 
@@ -329,6 +472,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "round",
         "loss",
         "mean_loss",
+        "classification_loss",
+        "contrastive_loss",
+        "heterogeneous_loss",
         "accuracy",
         "K_t",
         "pseudo_batch_size",
@@ -351,6 +497,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "latency",
         "server_update_l1",
         "client_update_l1",
+        "fusion_training_objective",
+        "binding_confidence_mean",
         "selected_client_ids",
         "selected_cluster_ids",
         "expected_cluster_ids",
@@ -406,6 +554,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "round": round_idx,
                     "loss": train_metrics["loss"],
                     "mean_loss": train_metrics["mean_loss"],
+                    "classification_loss": train_metrics.get("classification_loss", 0.0),
+                    "contrastive_loss": train_metrics.get("contrastive_loss", 0.0),
+                    "heterogeneous_loss": train_metrics.get("heterogeneous_loss", 0.0),
                     "accuracy": train_metrics["accuracy"],
                     "K_t": train_metrics["K_t"],
                     "pseudo_batch_size": train_metrics["pseudo_batch_size"],
@@ -428,6 +579,11 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "latency": float(latency),
                     "server_update_l1": train_metrics["server_update_l1"],
                     "client_update_l1": train_metrics["client_update_l1"],
+                    "fusion_training_objective": train_metrics.get(
+                        "fusion_training_objective",
+                        _fusion_training_spec(cfg)["objective"],
+                    ),
+                    "binding_confidence_mean": train_metrics.get("binding_confidence_mean", 0.0),
                     "selected_client_ids": json.dumps([c.client_id for c in selected]),
                     "selected_cluster_ids": json.dumps(sorted({int(c.pred_cluster) for c in selected})),
                     "expected_cluster_ids": json.dumps(cluster_ids),
@@ -576,8 +732,9 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "local_step_binding_success_rate": float(total_effective_local_steps / max(1, total_attempted_local_steps)),
         "binding_success_rate": float(successful_binding_rounds / max(1, executed_rounds)),
         "scheduler": training_cfg.get("scheduler", "balanced_cluster_round_robin"),
-        "binding": "label_random",
+        "binding": str(cfg.get("binding", {}).get("type", "label_random")),
         "fusion": "concat_mlp",
+        "fusion_training": _fusion_training_spec(cfg),
         "device": str(device),
         "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
         "validation_every": validation_every,

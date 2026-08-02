@@ -29,6 +29,7 @@ scripts/
 
 - `data/client.py`：定义单模态 client payload 的内存对象和序列化字段。
 - `data/datasets.py`：加载 UCI-HAR、MHEALTH、PAMAP2、CMU-MOSEI，并输出统一 loader contract。CMU-MOSEI 在 loader 内完成官方 split ID 对齐、时间 mean pooling、train-only 标准化和负/非负二分类标签转换。
+- `data/iemocap.py`：加载 IEMOCAP Full 的 MFCC、MobileViT-XS、DistilBERT 序列缓存，执行固定 Session 1-3/4/5 划分、四分类映射和 train-only 有效帧标准化。
 - `data/partitioner.py`：把 naturally paired train split 划成单模态客户端，并保存 naturally paired validation/test payload。
 - `data/registry.py`：按 config 中的数据集类型分发 loader。
 - `discovery/fingerprint.py`：从预训练 encoder 提取客户端 fingerprint。
@@ -36,7 +37,7 @@ scripts/
 - `learning/pretrain.py`：Stage 2 主流程，负责 encoder pretraining、fingerprint、clustering 和 discovery metrics。
 - `learning/scheduling.py`：基于 `pred_cluster` 做每簇均衡的随机轮询调度。
 - `learning/binding.py`：根据训练 label 和 `pred_cluster` 构造 same-label pseudo multimodal batch。
-- `learning/models.py`：定义 client encoder、autoencoder、`ClusterAdapter` 和 `ConcatMLPFusionServer`。
+- `learning/models.py`：定义 client encoder、IEMOCAP 的 `Conv1D×3 -> GRU` 与序列 GRU encoder、autoencoder、`ClusterAdapter` 和 `ConcatMLPFusionServer`。
 - `learning/fusion_sl.py`：Stage 3 fusion Split Learning trainer、validation checkpoint selection、early stopping、best checkpoint 恢复和一次性 test 调用。
 - `evaluation/fusion_eval.py`：读取 `validation_multimodal.pt` 或 `test_multimodal.pt` 做 naturally paired fusion evaluation。
 - `evaluation/plot_fingerprint_embedding.py`：保存 Stage 2 fingerprint，并生成 fingerprint-only PCA 坐标的论文级矢量审计图。
@@ -47,6 +48,7 @@ scripts/
 - `scripts/stage1_partition.py`：Stage 1 CLI。
 - `scripts/stage2_discovery.py`：Stage 2 CLI，从冻结 Stage 1 partition 读取输入并写入独立 cluster 目录。
 - `scripts/stage3_train.py`：Stage 3 CLI，从冻结 Stage 1/Stage 2 输入训练 fusion Split Learning 模型并写入 experiment 目录。
+- `scripts/prepare_iemocap.py`：解析 Full 原始数据并生成冻结的音频、视频、文本序列特征缓存。
 
 ## 结果边界
 

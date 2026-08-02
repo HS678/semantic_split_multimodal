@@ -183,10 +183,22 @@ binding:
 fusion:
   # 当前正式结构：ClusterAdapter + concat MLP fusion + classifier。
   type: concat_mlp
+  # 融合训练机制：
+  # - label_random_ce：原有方法，仅在完整同标签伪元组上计算分类 CE（默认）。
+  # - mmbind_weighted_contrastive：完整伪元组 CE + 跨预测簇加权 group contrastive
+  #   + 单簇保留/其他槽置零的异构输入 CE。两种机制均保持同一推理结构。
+  training_objective: label_random_ce
   adapter_dim: 128
   hidden_dim: 128
   num_layers: 1
   dropout: 0.0
+  mmbind:
+    # 跨预测簇余弦相似度的 temperature。
+    temperature: 0.1
+    # 加权 group contrastive loss 系数。
+    contrastive_weight: 0.1
+    # MMBind 异构模态组合（dummy slot）分类 loss 系数。
+    heterogeneous_ce_weight: 0.5
 
 d2d:
   # 当前正式路线不启用 device-to-device 扩展。

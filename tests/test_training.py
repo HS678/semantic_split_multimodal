@@ -44,9 +44,15 @@ class TinyServer(nn.Module):
         super().__init__()
         self.fc = nn.Linear(6, 2)
 
-    def forward(self, slot_activations):
-        fused = torch.cat([slot_activations[0], slot_activations[1]], dim=1)
+    def adapt_slots(self, slot_activations):
+        return dict(slot_activations)
+
+    def classify_adapted(self, adapted_slots):
+        fused = torch.cat([adapted_slots[0], adapted_slots[1]], dim=1)
         return self.fc(fused), fused
+
+    def forward(self, slot_activations):
+        return self.classify_adapted(self.adapt_slots(slot_activations))
 
 
 def test_train_round_builds_label_random_pseudo_batch_and_splits_backward():
@@ -72,6 +78,45 @@ def test_train_round_builds_label_random_pseudo_batch_and_splits_backward():
     assert metrics["effective_local_steps"] == 1
     assert metrics["empty_binding_local_steps"] == 0
     assert metrics["round_status"] == "effective"
+    assert metrics["fusion_training_objective"] == "label_random_ce"
+    assert metrics["contrastive_loss"] == 0.0
+    assert metrics["heterogeneous_loss"] == 0.0
+    assert all(client.backward_called for client in clients)
+
+
+def test_train_round_supports_mmbind_weighted_contrastive_objective():
+    clients = [
+        TinyClient("c0", 0, torch.tensor([0, 1, 0])),
+        TinyClient("c1", 1, torch.tensor([1, 0, 1])),
+    ]
+    server = TinyServer()
+    opt = torch.optim.SGD(server.parameters(), lr=0.01)
+
+    metrics = _train_round(
+        server,
+        opt,
+        clients,
+        required_clusters=[0, 1],
+        cfg={
+            "binding": {"batch_size": 8},
+            "training": {"batch_size": 3},
+            "fusion": {
+                "training_objective": "mmbind_weighted_contrastive",
+                "mmbind": {
+                    "temperature": 0.2,
+                    "contrastive_weight": 0.1,
+                    "heterogeneous_ce_weight": 0.5,
+                },
+            },
+        },
+    )
+
+    assert metrics["fusion_training_objective"] == "mmbind_weighted_contrastive"
+    assert metrics["classification_loss"] > 0.0
+    assert metrics["contrastive_loss"] >= 0.0
+    assert metrics["heterogeneous_loss"] > 0.0
+    assert metrics["loss"] >= metrics["classification_loss"]
+    assert metrics["binding_confidence_mean"] == 1.0
     assert all(client.backward_called for client in clients)
 
 

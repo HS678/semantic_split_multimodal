@@ -31,6 +31,10 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     test = dataset["test"]
     modality_names = dataset["modality_names"]
     input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
+    modality_encoder_types = dataset.get("modality_encoder_types")
+    if modality_encoder_types is None:
+        default_encoder_type = cfg.get("partition", {}).get("encoder_type") or cfg.get("model", {}).get("encoder", {}).get("type", "time_series")
+        modality_encoder_types = [str(default_encoder_type)] * len(modality_names)
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
     split_protocol = str(cfg.get("dataset", {}).get("split_protocol", "subject_disjoint_tvt_v1"))
     if bool(partition_cfg.get("auto_signature_dir", False)):
@@ -48,7 +52,9 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         splits = _split_indices(int(train["labels"].shape[0]), clients_per_modality, seed + modality_id)
         for idx in splits:
             client_id = f"client_{client_id_num:03d}"
-            encoder_type = cfg.get("partition", {}).get("encoder_type") or cfg.get("model", {}).get("encoder", {}).get("type", "time_series")
+            encoder_type = str(modality_encoder_types[modality_id])
+            modality_lengths = train.get("modality_lengths")
+            sequence_lengths = None if modality_lengths is None else modality_lengths[modality_id][idx].contiguous()
             payload = Client(
                 client_id=client_id,
                 hidden_modality_id=int(modality_id),
@@ -56,6 +62,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
                 labels=train["labels"][idx].contiguous(),
                 encoder_type=str(encoder_type),
                 input_shape=[int(v) for v in input_shapes[modality_id]],
+                sequence_lengths=sequence_lengths,
             ).to_payload()
             payload["hidden_modality_name"] = modality_name
             torch.save(payload, train_clients_dir / f"{client_id}.pt")
@@ -85,6 +92,11 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             },
             "split": split_name,
         }
+        if split.get("modality_lengths") is not None:
+            split_payload["modality_lengths"] = {
+                name: split["modality_lengths"][idx].contiguous()
+                for idx, name in enumerate(modality_names)
+            }
         for name, tensor in split_modalities.items():
             split_payload[name] = tensor
         torch.save(split_payload, output_dir / f"{split_name}_multimodal.pt")
@@ -120,6 +132,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
                 "hidden_modality_id": i,
                 "hidden_modality_name": name,
                 "input_shape": [int(v) for v in input_shapes[i]],
+                "encoder_type": str(modality_encoder_types[i]),
             }
             for i, name in enumerate(modality_names)
         ],

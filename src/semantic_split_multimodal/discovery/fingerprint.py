@@ -3,15 +3,19 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 
-def encoder_fingerprint(encoder, samples, batch_size=64, max_batches=4, device="cpu"):
-    loader = DataLoader(TensorDataset(samples), batch_size=int(batch_size), shuffle=False)
+def encoder_fingerprint(encoder, samples, lengths=None, batch_size=64, max_batches=4, device="cpu"):
+    dataset = TensorDataset(samples, lengths) if lengths is not None else TensorDataset(samples)
+    loader = DataLoader(dataset, batch_size=int(batch_size), shuffle=False)
     chunks = []
     encoder.eval()
     with torch.no_grad():
-        for i, (xb,) in enumerate(loader):
+        for i, batch in enumerate(loader):
             if max_batches is not None and i >= int(max_batches):
                 break
-            chunks.append(encoder(xb.to(device)).detach().cpu())
+            xb = batch[0].to(device)
+            length_batch = batch[1].to(device) if len(batch) > 1 else None
+            encoded = encoder(xb) if length_batch is None else encoder(xb, length_batch)
+            chunks.append(encoded.detach().cpu())
     if not chunks:
         raise RuntimeError("Cannot extract fingerprint from an empty client dataset.")
     z = torch.cat(chunks, dim=0)
@@ -52,7 +56,16 @@ def build_fingerprints(clients, encoders, cfg, device):
     for client in clients:
         parts = []
         if source in {"encoder", "hybrid"}:
-            parts.append(encoder_fingerprint(encoders[client.client_id], client.samples, batch_size, max_batches, device))
+            parts.append(
+                encoder_fingerprint(
+                    encoders[client.client_id],
+                    client.samples,
+                    client.sequence_lengths,
+                    batch_size,
+                    max_batches,
+                    device,
+                )
+            )
         if source in {"signal", "signal_stats", "hybrid"}:
             parts.append(signal_stat_fingerprint(client.samples))
         if not parts:

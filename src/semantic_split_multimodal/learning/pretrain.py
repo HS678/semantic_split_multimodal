@@ -29,8 +29,8 @@ class _AutoEncoder(nn.Module):
         self.encoder = create_client_encoder(cfg, input_shape=client.input_shape, encoder_type=client.encoder_type)
         self.decoder = nn.Linear(int(cfg.get("encoder_hidden_dim", 128)), flattened_dim(client.input_shape))
 
-    def forward(self, x):
-        z = self.encoder(x)
+    def forward(self, x, lengths=None):
+        z = self.encoder(x, lengths)
         return self.decoder(z), z
 
 
@@ -44,16 +44,23 @@ def _pretrain_client_encoder(client: Client, cfg: dict, device):
     x = client.samples
     if max_samples is not None:
         x = x[: min(int(max_samples), int(x.shape[0]))]
-    loader = DataLoader(TensorDataset(x), batch_size=batch_size, shuffle=True)
+    lengths = client.sequence_lengths
+    if lengths is not None:
+        lengths = lengths[: x.shape[0]]
+        loader = DataLoader(TensorDataset(x, lengths), batch_size=batch_size, shuffle=True)
+    else:
+        loader = DataLoader(TensorDataset(x), batch_size=batch_size, shuffle=True)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=float(pre_cfg.get("weight_decay", 0.0)))
     loss_fn = nn.MSELoss()
     total = 0.0
     steps = 0
     model.train()
     for _ in range(max(0, epochs)):
-        for (xb,) in loader:
+        for batch in loader:
+            xb = batch[0]
+            length_batch = batch[1].to(device) if len(batch) > 1 else None
             xb = xb.to(device)
-            recon, _ = model(xb)
+            recon, _ = model(xb, length_batch)
             loss = loss_fn(recon, xb.reshape(xb.shape[0], -1))
             opt.zero_grad()
             loss.backward()

@@ -30,6 +30,7 @@ def evaluate_naturally_paired_fusion(
     labels = payload["label"].long()
     modality_names = list(payload["modality_names"])
     modalities = payload["modalities"]
+    modality_lengths = payload.get("modality_lengths")
     modality_to_cluster = {int(k): int(v) for k, v in oracle_mapping["modality_to_cluster"].items()}
     representative_clients = {int(k): v for k, v in oracle_mapping["representative_clients"].items()}
 
@@ -45,7 +46,12 @@ def evaluate_naturally_paired_fusion(
         }
 
     tensors = [modalities[name] for name in modality_names]
-    dataset = TensorDataset(*tensors, labels)
+    length_tensors = None
+    if modality_lengths is not None:
+        length_tensors = [modality_lengths[name] for name in modality_names]
+        dataset = TensorDataset(*tensors, *length_tensors, labels)
+    else:
+        dataset = TensorDataset(*tensors, labels)
     batch_size = int(cfg.get("training", {}).get("eval_batch_size", cfg.get("training", {}).get("batch_size", 64)))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
@@ -66,13 +72,25 @@ def evaluate_naturally_paired_fusion(
 
     with torch.no_grad():
         for batch in loader:
-            *xs, yb = batch
+            if length_tensors is None:
+                xs = list(batch[:-1])
+                batch_lengths = [None] * len(xs)
+            else:
+                xs = list(batch[: len(tensors)])
+                batch_lengths = list(batch[len(tensors) : 2 * len(tensors)])
+            yb = batch[-1]
             slot_activations = {}
             for modality_id, xb in enumerate(xs):
                 client_id = representative_clients[modality_id]
                 cluster_id = modality_to_cluster[modality_id]
                 client = clients_by_id[client_id]
-                slot_activations[cluster_id] = client.encoder(xb.to(device))
+                lengths = batch_lengths[modality_id]
+                if lengths is not None:
+                    lengths = lengths.to(device)
+                xb = xb.to(device)
+                slot_activations[cluster_id] = (
+                    client.encoder(xb) if lengths is None else client.encoder(xb, lengths)
+                )
             logits, _ = server(slot_activations)
             pred = logits.argmax(dim=1)
             y_true.extend(yb.tolist())

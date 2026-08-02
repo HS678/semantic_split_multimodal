@@ -45,6 +45,7 @@ local/datasets/uci_har/
 local/datasets/mhealth/
 local/datasets/pamap2/
 local/datasets/cmu_mosei/
+local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/
 ```
 
 CMU-MOSEI requires:
@@ -59,6 +60,14 @@ splits/df_test_MOSEI.tsv
 ```
 
 The split TSV files come from the feature source repository [Ighina/MultiModalSA](https://github.com/Ighina/MultiModalSA/tree/master/data). Their original row order must be preserved for exact BERT feature/label verification.
+
+IEMOCAP uses the Full release and the four-class `angry / happy-or-excited / sad / neutral` protocol. Prepare its frozen MFCC, MobileViT-XS, and DistilBERT sequence features before Stage 1:
+
+```bash
+python scripts/prepare_iemocap.py --device cuda
+```
+
+The fixed split is Session 1-3 train, Session 4 validation, and Session 5 test. Audio uses three 1D convolution blocks followed by a GRU; video and text use GRUs over the frozen MobileViT-XS frame embeddings and DistilBERT token embeddings.
 
 Local references may stay under `local/references/`. The whole `local/` tree is ignored by Git.
 
@@ -89,6 +98,7 @@ UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_d
 MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
 CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1
+IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
 No stage overwrites an existing non-empty output directory. Use a three-split Stage 3 `run_id`, such as `adaptive_tvt_seed101`.
@@ -101,13 +111,14 @@ Run one dataset:
 python scripts/stage1_partition.py --config configs/uci_har.yaml
 ```
 
-Run all four datasets one by one:
+Run all five datasets one by one:
 
 ```bash
 python scripts/stage1_partition.py --config configs/uci_har.yaml
 python scripts/stage1_partition.py --config configs/mhealth.yaml
 python scripts/stage1_partition.py --config configs/pamap2.yaml
 python scripts/stage1_partition.py --config configs/cmu_mosei.yaml
+python scripts/stage1_partition.py --config configs/iemocap.yaml
 ```
 
 Stage 1 writes directly under the partition directory:
@@ -121,6 +132,8 @@ partition_config.json
 ```
 
 UCI-HAR, MHEALTH, and PAMAP2 use fixed, disjoint subject-level train/validation/test splits. CMU-MOSEI uses the source repository's official video-disjoint train/validation/test splits with 16,327/1,871/4,662 samples. Its task is binary `polarity < 0` versus `polarity >= 0`; audio/visual sequences are mean-pooled, and all three modalities are standardized from train statistics only. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired.
+
+IEMOCAP uses the fixed disjoint Session 1-3/4/5 split with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/iemocap.yaml` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
 
 ## Stage 2
 
@@ -157,6 +170,15 @@ CMU-MOSEI:
 python scripts/stage2_discovery.py \
   --config configs/cmu_mosei.yaml \
   --stage1-dir local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1 \
+  --output-root local/results/cluster
+```
+
+IEMOCAP:
+
+```bash
+python scripts/stage2_discovery.py \
+  --config configs/iemocap.yaml \
+  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
   --output-root local/results/cluster
 ```
 
@@ -238,6 +260,18 @@ python scripts/stage3_train.py \
   --seed 101
 ```
 
+IEMOCAP true-cluster Oracle/debug comparison:
+
+```bash
+python scripts/stage3_train.py \
+  --config configs/iemocap.yaml \
+  --stage1-dir local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1 \
+  --stage2-dir local/results/cluster/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1/adaptive_isodata \
+  --output-root local/results/experiments \
+  --run-id true_cluster_weighted_seed101 \
+  --seed 101
+```
+
 Stage 3 writes directly under `local/results/experiments/<dataset>/<run_id>/`:
 
 ```text
@@ -274,7 +308,7 @@ python scripts/stage3_train.py \
   --seed 202
 ```
 
-Each dataset has an independent launcher that runs Stage 1, Stage 2, and all five Stage 3 seeds:
+The four pre-existing datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds:
 
 ```bash
 nohup bash local/tools/launch_uci_har_formal.sh \
@@ -290,7 +324,7 @@ nohup bash local/tools/launch_cmu_mosei_formal.sh \
   > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-`launch_stage3_formal.sh` is retained as the aggregate launcher that sequentially starts formal experiments for all four datasets:
+`launch_stage3_formal.sh` is retained as the aggregate launcher that sequentially starts formal experiments for those four datasets:
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \

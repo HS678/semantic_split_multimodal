@@ -42,6 +42,20 @@ def test_concat_mlp_fusion_accepts_explicit_noncontiguous_cluster_to_slot_mappin
     assert fused.shape == (2, 6)
 
 
+def test_concat_mlp_fusion_exposes_adapted_slots_for_mmbind_training():
+    cfg = {"fusion": {"adapter_dim": 3, "hidden_dim": 5}, "model": {"server": {}}}
+    server = ConcatMLPFusionServer(cluster_ids=[0, 1], feature_dim=4, num_classes=6, cfg=cfg)
+    activations = {0: torch.randn(2, 4), 1: torch.randn(2, 4)}
+
+    adapted = server.adapt_slots(activations)
+    logits, fused = server.classify_adapted(adapted)
+
+    assert set(adapted) == {0, 1}
+    assert all(value.shape == (2, 3) for value in adapted.values())
+    assert logits.shape == (2, 6)
+    assert fused.shape == (2, 6)
+
+
 def test_concat_mlp_fusion_rejects_incomplete_cluster_slots():
     cfg = {"fusion": {"adapter_dim": 3, "hidden_dim": 5}, "model": {"server": {}}}
     server = ConcatMLPFusionServer(cluster_ids=[0, 1], feature_dim=4, num_classes=6, cfg=cfg)

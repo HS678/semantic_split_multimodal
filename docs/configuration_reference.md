@@ -1,6 +1,6 @@
 # Configuration Reference
 
-四个正式配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml`、`configs/pamap2.yaml` 和 `configs/cmu_mosei.yaml`。
+五个数据集配置位于 `configs/uci_har.yaml`、`configs/mhealth.yaml`、`configs/pamap2.yaml`、`configs/cmu_mosei.yaml` 和 `configs/iemocap.yaml`。其中 IEMOCAP 配置按本次实验要求使用 `true_cluster`，属于 Oracle/debug 对照。
 
 ## 顶层字段
 
@@ -13,15 +13,17 @@
 
 ## dataset
 
-- `dataset.type`：`uci_har`、`mhealth`、`pamap2` 或 `cmu_mosei`。
+- `dataset.type`：`uci_har`、`mhealth`、`pamap2`、`cmu_mosei` 或 `iemocap`。
 - `dataset.root`：原始数据目录。
-- `dataset.split_protocol`：传感器数据集固定为 `subject_disjoint_tvt_v1`；CMU-MOSEI 固定为 `official_video_disjoint_tvt_v1`。该字段写入 partition signature。
+- `dataset.split_protocol`：传感器数据集固定为 `subject_disjoint_tvt_v1`；CMU-MOSEI 固定为 `official_video_disjoint_tvt_v1`；IEMOCAP 固定为 `session_disjoint_123_4_5_v1`。该字段写入 partition signature。
 - `dataset.modality_scheme`：传感器到模态的划分方案。
 - `dataset.train_subjects` / `dataset.validation_subjects` / `dataset.test_subjects`：互斥的 subject split。
 - `dataset.window_size` / `dataset.stride`：时间序列窗口设置。
 - `dataset.task` / `dataset.label_protocol`：CMU-MOSEI 固定为 `binary_sentiment` / `negative_vs_non_negative`，即 `< 0` 为负类、`>= 0` 为非负类。
 - `dataset.temporal_pooling`：CMU-MOSEI audio/visual 固定为 `mean`。
 - `dataset.normalize`：CMU-MOSEI 为 `true` 时，mean pooling 后三个模态都只使用 train 统计量标准化。
+- `dataset.processed_root` / `dataset.feature_recipe`：IEMOCAP 三模态冻结序列缓存目录及固定特征配方。
+- `dataset.train_sessions` / `dataset.validation_sessions` / `dataset.test_sessions`：IEMOCAP 固定为 `[1,2,3]` / `[4]` / `[5]`。
 
 正式 subject 划分固定为：
 
@@ -39,6 +41,7 @@ PAMAP2 validation:  104,106
 PAMAP2 test:        108,109
 
 CMU-MOSEI 使用来源仓库官方 split TSV，不重新按标签或样本随机划分。
+IEMOCAP train: Session 1,2,3；validation: Session 4；test: Session 5。
 ```
 
 按当前窗口与过滤配置实际加载后的样本数为：
@@ -48,6 +51,7 @@ UCI-HAR: train=5888, validation=1464, test=2947
 MHEALTH: train=3152, validation=1059, test=1043
 PAMAP2:  train=9298, validation=3757, test=2096
 CMU-MOSEI: train=16327, validation=1871, test=4662
+IEMOCAP: train=3259, validation=1031, test=1241
 ```
 
 三个 split 均覆盖各数据集配置的全部类别。
@@ -115,10 +119,16 @@ acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 ## fusion
 
 - `fusion.type`：正式主线为 `concat_mlp`。
+- `fusion.training_objective`：融合训练机制。`label_random_ce` 保留原有完整伪元组分类 CE，并作为默认值；`mmbind_weighted_contrastive` 在相同融合结构上联合计算完整伪元组 CE、跨预测簇同标签 group contrastive loss 和单簇异构输入 CE。也可通过 Stage 3 CLI 的 `--fusion-training-objective` 只覆盖本次运行，覆盖值会写入 `resolved_config.yaml`。
 - `fusion.adapter_dim`：每个 cluster slot 的 `ClusterAdapter` 输出维度。
 - `fusion.hidden_dim`：concat MLP hidden dim。
 - `fusion.num_layers`：concat MLP hidden layer 数。
 - `fusion.dropout`：fusion dropout。
+- `fusion.mmbind.temperature`：跨预测簇余弦对比的 temperature，默认 `0.1`。
+- `fusion.mmbind.contrastive_weight`：group contrastive loss 系数，默认 `0.1`。
+- `fusion.mmbind.heterogeneous_ce_weight`：只保留一个预测簇、其他 adapted slots 置零时的分类 loss 系数，默认 `0.5`。
+
+MMBind 式分支不修改 `ClusterAdapter + Concat Fusion + Classifier` 的推理结构，不读取真实模态名或 `hidden_modality_id`。完全相同标签的 binding confidence 当前为 `1.0`；没有软标签或共享传感器相似度时，它属于 MMBind label-shared 场景的适配实现，而不是原论文所有步骤的完整复现。
 
 ## CLI 注入的输出目录
 

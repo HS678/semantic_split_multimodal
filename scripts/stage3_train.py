@@ -426,6 +426,11 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "training_mode": "mmbind_fusion_split_learning",
         "binding_mode": cfg.get("binding", {}).get("type", "label_random"),
         "fusion_mode": cfg.get("fusion", {}).get("type", "concat_mlp"),
+        "fusion_training_objective": cfg.get("fusion", {}).get(
+            "training_objective",
+            "label_random_ce",
+        ),
+        "mmbind_training_config": cfg.get("fusion", {}).get("mmbind", {}),
         "split_protocol": cfg.get("dataset", {}).get("split_protocol"),
         "split_subjects": {
             split_name: cfg.get("dataset", {}).get(f"{split_name}_subjects")
@@ -465,6 +470,11 @@ def parse_args(argv=None):
         type=int,
         help="Override the Stage3 experiment seed in memory; does not modify the YAML or affect Stage1/Stage2",
     )
+    parser.add_argument(
+        "--fusion-training-objective",
+        choices=["label_random_ce", "mmbind_weighted_contrastive"],
+        help="Override fusion.training_objective in memory and record it in resolved_config.yaml",
+    )
     parser.add_argument("--stage1-dir", required=True, help="Frozen Stage 1 partition directory")
     parser.add_argument("--stage2-dir", required=True, help="Frozen Stage 2 cluster directory")
     parser.add_argument("--output-root", help="Root directory for Stage3 experiment outputs")
@@ -479,6 +489,11 @@ def main(argv=None):
     cfg = load_config(args.config)
     resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
     cfg = {**cfg, "seed": resolved_seed}
+    if args.fusion_training_objective is not None:
+        cfg["fusion"] = {
+            **cfg.get("fusion", {}),
+            "training_objective": args.fusion_training_objective,
+        }
     run_cfg, paths = build_stage3_run(
         cfg,
         stage1_dir=args.stage1_dir,

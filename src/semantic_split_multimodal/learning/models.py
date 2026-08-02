@@ -30,7 +30,7 @@ class TimeSeriesEncoder(nn.Module):
             nn.Linear(c2, int(hidden_dim)),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths=None):
         if x.dim() == 2:
             channels, length = self.input_shape
             x = x.reshape(x.shape[0], channels, length)
@@ -49,7 +49,7 @@ class ImageEncoder(nn.Module):
         in_features = self.model.fc.in_features
         self.model.fc = nn.Linear(in_features, int(hidden_dim))
 
-    def forward(self, x):
+    def forward(self, x, lengths=None):
         return self.model(x)
 
 
@@ -66,7 +66,7 @@ class VideoEncoder(nn.Module):
             nn.Linear(32, int(hidden_dim)),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths=None):
         return self.net(x)
 
 
@@ -87,7 +87,7 @@ class AudioEncoder(nn.Module):
             nn.Linear(64, int(hidden_dim)),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths=None):
         if x.dim() == 2:
             x = x.reshape(x.shape[0], self.input_shape[0], self.input_shape[1])
         return self.net(x)
@@ -102,8 +102,88 @@ class MLPEncoder(nn.Module):
             nn.Linear(int(hidden_dim), int(hidden_dim)),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths=None):
         return self.net(x.reshape(x.shape[0], -1))
+
+
+def _masked_sequence_mean(x, lengths):
+    if lengths is None:
+        return x.mean(dim=1)
+    lengths = lengths.to(device=x.device, dtype=torch.long).clamp(min=1, max=x.shape[1])
+    mask = torch.arange(x.shape[1], device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+    weighted = x * mask.unsqueeze(-1).to(dtype=x.dtype)
+    return weighted.sum(dim=1) / lengths.unsqueeze(1).to(dtype=x.dtype)
+
+
+class GRUSequenceEncoder(nn.Module):
+    def __init__(self, input_shape, hidden_dim, num_layers=1, dropout=0.1, bidirectional=False):
+        super().__init__()
+        if input_shape is None or len(input_shape) != 2:
+            raise ValueError(f"GRUSequenceEncoder expects [time, feature_dim], got {input_shape}")
+        input_dim = int(input_shape[1])
+        self.hidden_dim = int(hidden_dim)
+        self.gru = nn.GRU(
+            input_size=input_dim,
+            hidden_size=self.hidden_dim,
+            num_layers=int(num_layers),
+            batch_first=True,
+            dropout=float(dropout) if int(num_layers) > 1 else 0.0,
+            bidirectional=bool(bidirectional),
+        )
+        gru_output_dim = self.hidden_dim * (2 if bool(bidirectional) else 1)
+        self.output_projection = (
+            nn.Identity() if gru_output_dim == self.hidden_dim else nn.Linear(gru_output_dim, self.hidden_dim)
+        )
+
+    def forward(self, x, lengths=None):
+        x = x.float()
+        if x.ndim != 3:
+            raise ValueError(f"GRUSequenceEncoder expects [batch, time, feature], got {tuple(x.shape)}")
+        output, _ = self.gru(x)
+        return self.output_projection(_masked_sequence_mean(output, lengths))
+
+
+class ConvGRUSequenceEncoder(nn.Module):
+    def __init__(self, input_shape, hidden_dim, conv_channels=(32, 64, 128), kernel_size=5, dropout=0.1):
+        super().__init__()
+        if input_shape is None or len(input_shape) != 2:
+            raise ValueError(f"ConvGRUSequenceEncoder expects [time, feature_dim], got {input_shape}")
+        feature_dim = int(input_shape[1])
+        channels = [int(value) for value in conv_channels]
+        if len(channels) != 3:
+            raise ValueError("ConvGRUSequenceEncoder requires exactly three conv_channels values.")
+        blocks = []
+        in_channels = feature_dim
+        for out_channels in channels:
+            blocks.extend(
+                [
+                    nn.Conv1d(in_channels, out_channels, kernel_size=int(kernel_size), padding=int(kernel_size) // 2),
+                    nn.ReLU(),
+                    nn.MaxPool1d(kernel_size=2, stride=2),
+                    nn.Dropout(float(dropout)),
+                ]
+            )
+            in_channels = out_channels
+        self.conv = nn.Sequential(*blocks)
+        self.gru = nn.GRU(
+            input_size=channels[-1],
+            hidden_size=int(hidden_dim),
+            num_layers=1,
+            batch_first=True,
+            bidirectional=False,
+        )
+
+    def forward(self, x, lengths=None):
+        x = x.float()
+        if x.ndim != 3:
+            raise ValueError(f"ConvGRUSequenceEncoder expects [batch, time, feature], got {tuple(x.shape)}")
+        x = self.conv(x.transpose(1, 2)).transpose(1, 2)
+        pooled_lengths = None
+        if lengths is not None:
+            pooled_lengths = torch.div(lengths.to(dtype=torch.long), 8, rounding_mode="floor").clamp_min(1)
+            pooled_lengths = pooled_lengths.clamp_max(x.shape[1])
+        output, _ = self.gru(x)
+        return _masked_sequence_mean(output, pooled_lengths)
 
 
 ENCODER_REGISTRY = {
@@ -116,6 +196,8 @@ ENCODER_REGISTRY = {
     "video": VideoEncoder,
     "audio": AudioEncoder,
     "mlp": MLPEncoder,
+    "gru": GRUSequenceEncoder,
+    "conv_gru": ConvGRUSequenceEncoder,
 }
 
 
@@ -141,6 +223,22 @@ def create_client_encoder(cfg, input_shape=None, encoder_type=None, input_dim=No
     if key == "mlp":
         dim = int(input_dim or flattened_dim(input_shape))
         return MLPEncoder(dim, hidden_dim)
+    if key == "gru":
+        return GRUSequenceEncoder(
+            input_shape=input_shape,
+            hidden_dim=hidden_dim,
+            num_layers=int(enc_cfg.get("gru_layers", 1)),
+            dropout=float(enc_cfg.get("dropout", 0.1)),
+            bidirectional=bool(enc_cfg.get("bidirectional", False)),
+        )
+    if key == "conv_gru":
+        return ConvGRUSequenceEncoder(
+            input_shape=input_shape,
+            hidden_dim=hidden_dim,
+            conv_channels=enc_cfg.get("conv_channels", [32, 64, 128]),
+            kernel_size=int(enc_cfg.get("kernel_size", 5)),
+            dropout=float(enc_cfg.get("dropout", 0.1)),
+        )
     if key in {"time_series", "timeseries", "cnn1d", "cnn_gru"}:
         return TimeSeriesEncoder(
             input_shape=input_shape,
@@ -225,12 +323,12 @@ class ConcatMLPFusionServer(nn.Module):
         layers.append(nn.Linear(current_dim, int(num_classes)))
         self.classifier = nn.Sequential(*layers)
 
-    def forward(self, slot_activations: dict[int, torch.Tensor]):
+    def adapt_slots(self, slot_activations: dict[int, torch.Tensor]):
         missing = [cluster_id for cluster_id in self.cluster_ids if cluster_id not in slot_activations]
         if missing:
             raise ValueError(f"Missing fusion slot activations for pred_cluster ids: {missing}")
 
-        adapted = []
+        adapted = {}
         batch_size = None
         for slot in range(len(self.cluster_ids)):
             cluster_id = self.slot_to_cluster[slot]
@@ -239,10 +337,22 @@ class ConcatMLPFusionServer(nn.Module):
                 batch_size = int(activation.shape[0])
             elif int(activation.shape[0]) != batch_size:
                 raise ValueError("All fusion slot activations must share the same batch size.")
-            adapted.append(self.adapters[str(cluster_id)](activation))
+            adapted[cluster_id] = self.adapters[str(cluster_id)](activation)
+        return adapted
 
-        fused = torch.cat(adapted, dim=1)
+    def classify_adapted(self, adapted_slots: dict[int, torch.Tensor]):
+        missing = [cluster_id for cluster_id in self.cluster_ids if cluster_id not in adapted_slots]
+        if missing:
+            raise ValueError(f"Missing adapted fusion slots for pred_cluster ids: {missing}")
+        ordered = [
+            adapted_slots[self.slot_to_cluster[slot]]
+            for slot in range(len(self.cluster_ids))
+        ]
+        fused = torch.cat(ordered, dim=1)
         return self.classifier(fused), fused
+
+    def forward(self, slot_activations: dict[int, torch.Tensor]):
+        return self.classify_adapted(self.adapt_slots(slot_activations))
 
 
 def load_fusion_server_state_dict_compatible(server: ConcatMLPFusionServer, state_dict: dict):

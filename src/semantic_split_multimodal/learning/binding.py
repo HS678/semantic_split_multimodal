@@ -16,6 +16,7 @@ class ClientActivationBatch:
 class PseudoMultimodalBatch:
     slot_activations: dict[int, torch.Tensor]
     labels: torch.Tensor
+    binding_confidences: torch.Tensor
     source_client_ids: dict[int, list[str]]
     source_indices: dict[int, torch.Tensor]
 
@@ -114,10 +115,16 @@ def build_label_random_pseudo_batch(
         for cluster_id, values in source_indices.items()
     }
     labels = torch.tensor(out_labels, dtype=torch.long, device=device)
+    # Exact-label binding is the label-shared special case of MMBind. Every
+    # constructed tuple therefore has maximum label-similarity confidence.
+    # Keeping confidence explicit lets alternative soft semantic binders reuse
+    # the weighted contrastive objective without changing the training API.
+    binding_confidences = torch.ones(int(labels.shape[0]), dtype=torch.float32, device=device)
 
     return PseudoMultimodalBatch(
         slot_activations=stacked_activations,
         labels=labels,
+        binding_confidences=binding_confidences,
         source_client_ids=source_client_ids,
         source_indices=stacked_indices,
     )
