@@ -478,9 +478,9 @@ def _pamap2_input_shapes(modalities):
 def load_pamap2_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/pamap2"))
-    train_subjects = list(dataset_cfg.get("train_subjects", [101, 102, 103, 105, 107]))
-    validation_subjects = list(dataset_cfg.get("validation_subjects", [104, 106]))
-    test_subjects = list(dataset_cfg.get("test_subjects", [108, 109]))
+    train_subjects = list(dataset_cfg.get("train_subjects", [101, 102, 103, 104, 105, 106]))
+    validation_subjects = list(dataset_cfg.get("validation_subjects", [107, 108]))
+    test_subjects = list(dataset_cfg.get("test_subjects", [109]))
     _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "PAMAP2")
     all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
 

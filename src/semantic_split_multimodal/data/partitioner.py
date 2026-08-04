@@ -15,11 +15,115 @@ def resolve_project_path(project_root: Path, value: str) -> Path:
         path = project_root / path
     return path.resolve()
 
-
+# train内部随机划分为单模态客户端
 def _split_indices(num_samples: int, num_clients: int, seed: int):
     generator = torch.Generator().manual_seed(int(seed))
     perm = torch.randperm(num_samples, generator=generator)
     return [chunk.clone() for chunk in torch.tensor_split(perm, int(num_clients))]
+
+
+# 按照train的lable比例划分单模态客户端，保证每个客户端的label比例和全局train一致
+def _split_indices_stratified(
+    labels: torch.Tensor,
+    num_clients: int,
+    seed: int
+):
+    generator = torch.Generator().manual_seed(int(seed))
+
+    client_indices = [
+        []
+        for _ in range(num_clients)
+    ]
+
+    unique_labels = torch.unique(labels)
+
+    for label in unique_labels:
+
+        label_indices = torch.where(
+            labels == label
+        )[0]
+
+        perm = torch.randperm(
+            len(label_indices),
+            generator=generator
+        )
+
+        label_indices = label_indices[perm]
+
+        chunks = torch.tensor_split(
+            label_indices,
+            num_clients
+        )
+
+        for client_id, chunk in enumerate(chunks):
+            client_indices[client_id].extend(
+                chunk.tolist()
+            )
+
+    result = []
+
+    for indices in client_indices:
+
+        indices = torch.tensor(
+            indices,
+            dtype=torch.long
+        )
+
+        perm = torch.randperm(
+            len(indices),
+            generator=generator
+        )
+
+        result.append(indices[perm])
+
+    return result
+
+
+# debug调式信息，输出训练客户端的label分布情况
+def _debug_client_label_distribution(
+    labels: torch.Tensor,
+    splits,
+    modality_name: str
+):
+    print("\n" + "=" * 60)
+    print(f"Modality: {modality_name}")
+    print("=" * 60)
+
+    unique_labels = torch.unique(labels)
+
+    # 全局train分布
+    total = len(labels)
+
+    print("\nGlobal train distribution:")
+    for label in unique_labels:
+        count = torch.sum(labels == label).item()
+        ratio = count / total * 100
+
+        print(
+            f"Label {label.item()}: "
+            f"{count} samples ({ratio:.2f}%)"
+        )
+
+
+    # client分布
+    for client_id, idx in enumerate(splits):
+
+        client_labels = labels[idx]
+        client_total = len(client_labels)
+
+        print(f"\nclient_{client_id:03d}")
+
+        for label in unique_labels:
+            count = torch.sum(
+                client_labels == label
+            ).item()
+
+            ratio = count / client_total * 100
+
+            print(
+                f"  Label {label.item()}: "
+                f"{ratio:.2f}%"
+            )
 
 
 def run_stage1_partition(cfg: dict, project_root: Path):
@@ -49,7 +153,9 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     client_rows = []
     client_id_num = 0
     for modality_id, modality_name in enumerate(modality_names):
-        splits = _split_indices(int(train["labels"].shape[0]), clients_per_modality, seed + modality_id)
+        # splits = _split_indices(int(train["labels"].shape[0]), clients_per_modality, seed + modality_id)
+        splits = _split_indices_stratified(train["labels"], clients_per_modality, seed + modality_id)
+        _debug_client_label_distribution(train["labels"], splits, modality_name)
         for idx in splits:
             client_id = f"client_{client_id_num:03d}"
             encoder_type = str(modality_encoder_types[modality_id])
