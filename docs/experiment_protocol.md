@@ -6,7 +6,7 @@
 
 ## Stage 1
 
-输入是 naturally paired 多模态数据集。loader 输出统一 contract：`train`、`validation`、`test` 三个 split，每个 split 均包含 `modalities` 和 `labels`，另含 `modality_names` 与 `modality_input_shapes`。传感器数据集按固定 subject 划分且互斥；CMU-MOSEI 使用固定官方 video-disjoint split。partitioner 只将 train 按模态拆成多个单模态 client，同时保存自然配对的 `validation_multimodal.pt` 和 `test_multimodal.pt`。归一化统计量只从 train 拟合。
+输入是 naturally paired 多模态数据集。loader 输出统一 contract：`train`、`validation`、`test` 三个 split，每个 split 均包含 `modalities` 和 `labels`，另含 `modality_names` 与 `modality_input_shapes`。传感器数据集按固定 subject 划分且互斥。partitioner 只将 train 按模态拆成多个单模态 client，同时保存自然配对的 `validation_multimodal.pt` 和 `test_multimodal.pt`。归一化统计量只从 train 拟合。
 
 ## Stage 2
 

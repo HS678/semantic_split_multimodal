@@ -234,7 +234,6 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
         PROJECT_ROOT / "configs" / "uci_har.config",
         PROJECT_ROOT / "configs" / "mhealth.config",
         PROJECT_ROOT / "configs" / "pamap2.config",
-        PROJECT_ROOT / "configs" / "cmu_mosei.config",
     ]
     adaptive_blocks = []
     for path in configs:
@@ -258,7 +257,6 @@ def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
         "uci_har.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
         "mhealth.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
         "pamap2.config": {"lr": 0.0005, "split_protocol": "subject_disjoint_tvt_v1"},
-        "cmu_mosei.config": {"lr": 0.001, "split_protocol": "official_video_disjoint_tvt_v1"},
     }
     adaptive_blocks = []
     forbidden_top_level = {
@@ -282,19 +280,14 @@ def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
         assert cfg["cluster"]["known_k"] is None
         assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
         assert cfg["dataset"]["split_protocol"] == values["split_protocol"]
-        if values["split_protocol"] == "subject_disjoint_tvt_v1":
-            subject_sets = [
-                set(cfg["dataset"][f"{split_name}_subjects"])
-                for split_name in ("train", "validation", "test")
-            ]
-            assert all(subject_sets)
-            assert subject_sets[0].isdisjoint(subject_sets[1])
-            assert subject_sets[0].isdisjoint(subject_sets[2])
-            assert subject_sets[1].isdisjoint(subject_sets[2])
-        else:
-            assert cfg["dataset"]["task"] == "binary_sentiment"
-            assert cfg["dataset"]["label_protocol"] == "negative_vs_non_negative"
-            assert cfg["model"]["encoder"]["type"] == "mlp"
+        subject_sets = [
+            set(cfg["dataset"][f"{split_name}_subjects"])
+            for split_name in ("train", "validation", "test")
+        ]
+        assert all(subject_sets)
+        assert subject_sets[0].isdisjoint(subject_sets[1])
+        assert subject_sets[0].isdisjoint(subject_sets[2])
+        assert subject_sets[1].isdisjoint(subject_sets[2])
         assert cfg["training"]["global_rounds"] == 200
         assert cfg["training"]["validation_every"] == 10
         assert cfg["training"]["early_stopping"] == {

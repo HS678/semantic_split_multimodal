@@ -44,22 +44,8 @@ local/datasets/
 local/datasets/uci_har/
 local/datasets/mhealth/
 local/datasets/pamap2/
-local/datasets/cmu_mosei/
 local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/
 ```
-
-CMU-MOSEI 目录需要包含：
-
-```text
-features/BERT_MOSEI.pkl
-features/COAVAREP_aligned_MOSEI.pkl
-features/FACET_aligned_MOSEI.pkl
-splits/df_MOSEI.tsv
-splits/df_valid_MOSEI.tsv
-splits/df_test_MOSEI.tsv
-```
-
-三个 split TSV 来自特征来源仓库 [Ighina/MultiModalSA](https://github.com/Ighina/MultiModalSA/tree/master/data)，必须保持原始行顺序以便与 BERT 特征逐项核验。
 
 IEMOCAP 使用 Full 版本和 `angry / happy-or-excited / sad / neutral` 四分类协议。Stage 1 前先生成冻结的 MFCC、MobileViT-XS 和 DistilBERT 序列特征：
 
@@ -97,7 +83,6 @@ local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<con
 UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
-CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1
 IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
@@ -111,13 +96,12 @@ IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10
 python scripts/stage1_partition.py --config configs/uci_har.config
 ```
 
-五个数据集依次运行：
+四个数据集依次运行：
 
 ```bash
 python scripts/stage1_partition.py --config configs/uci_har.config
 python scripts/stage1_partition.py --config configs/mhealth.config
 python scripts/stage1_partition.py --config configs/pamap2.config
-python scripts/stage1_partition.py --config configs/cmu_mosei.config
 python scripts/stage1_partition.py --config configs/iemocap.config
 ```
 
@@ -131,7 +115,7 @@ test_multimodal.pt
 partition_config.json
 ```
 
-UCI-HAR、MHEALTH、PAMAP2 使用固定、互斥的 subject-level train/validation/test 划分；CMU-MOSEI 使用来源仓库的官方 video-disjoint train/validation/test，样本数分别为 16,327、1,871、4,662。CMU-MOSEI 任务为 `polarity < 0` 对 `polarity >= 0` 的二分类；audio/visual 按时间 mean pooling，三个模态都只用 train 统计量标准化。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。
+UCI-HAR、MHEALTH、PAMAP2 使用固定、互斥的 subject-level train/validation/test 划分。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。
 
 IEMOCAP 采用固定且互斥的 Session 1-3/4/5 划分，共 5,531 条四分类语句。补齐后的序列长度会贯穿 Stage 1、encoder 预训练、fingerprint、Split Learning 和 naturally paired evaluation。`configs/iemocap.config` 按本次对照实验要求显式使用 `true_cluster`，属于 Oracle/debug 结果，不是无泄漏主结果。
 
@@ -153,12 +137,6 @@ PAMAP2：
 
 ```bash
 python scripts/stage2_discovery.py --config configs/pamap2.config
-```
-
-CMU-MOSEI：
-
-```bash
-python scripts/stage2_discovery.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP：
@@ -215,12 +193,6 @@ PAMAP2：
 python scripts/stage3_train.py --config configs/pamap2.config
 ```
 
-CMU-MOSEI：
-
-```bash
-python scripts/stage3_train.py --config configs/cmu_mosei.config
-```
-
 IEMOCAP true-cluster Oracle/debug 对照：
 
 ```bash
@@ -258,7 +230,7 @@ PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
 python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
-五个数据集各有独立实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds。当前配置固定 `true_cluster`，因此 Stage3 输出属于 Oracle/debug：
+四个数据集各有独立实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds。当前配置固定 `true_cluster`，因此 Stage3 输出属于 Oracle/debug：
 
 ```bash
 nohup bash local/tools/launch_uci_har_formal.sh \
@@ -270,14 +242,11 @@ nohup bash local/tools/launch_mhealth_formal.sh \
 nohup bash local/tools/launch_pamap2_formal.sh \
   > "local/tools/pamap2_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 
-nohup bash local/tools/launch_cmu_mosei_formal.sh \
-  > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-
 nohup bash local/tools/launch_iemocap_formal.sh \
   > "local/tools/iemocap_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-`launch_stage3_formal.sh` 是顺序启动上述五个数据集的聚合脚本：
+`launch_stage3_formal.sh` 是顺序启动上述四个数据集的聚合脚本：
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \

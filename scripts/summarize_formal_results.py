@@ -85,7 +85,7 @@ def build_summary(results_root: Path) -> dict:
         if record is not None:
             records.append(record)
     by_dataset = {}
-    for dataset in ["uci_har", "mhealth", "pamap2", "cmu_mosei"]:
+    for dataset in ["uci_har", "mhealth", "pamap2"]:
         matches = [record for record in records if record["dataset"] == dataset]
         by_dataset[dataset] = {
             "status": "complete" if matches else "missing",
@@ -132,7 +132,7 @@ def write_markdown(summary: dict, path: Path) -> None:
         "| 数据集 | 状态 | Accuracy | Balanced Acc/UA | Macro-F1 | Weighted-F1 | Binary-F1 |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
-    for dataset in ["uci_har", "mhealth", "pamap2", "cmu_mosei"]:
+    for dataset in ["uci_har", "mhealth", "pamap2"]:
         item = summary["datasets"][dataset]
         run = item["runs"][0] if item["runs"] else None
         metrics = {} if run is None else run["metrics"]

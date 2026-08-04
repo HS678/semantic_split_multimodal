@@ -34,12 +34,6 @@ DATASET_CASES = [
         ["accelerometer", "gyroscope", "magnetometer"],
         [[9, 128], [9, 128], [9, 128]],
     ),
-    (
-        "cmu_mosei",
-        "configs/cmu_mosei.config",
-        ["text", "audio", "visual"],
-        [[768], [74], [35]],
-    ),
 ]
 
 
@@ -220,21 +214,3 @@ def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
     assert remapped_test["labels"].tolist() == [mapping[17]]
 
 
-def test_cmu_mosei_uses_official_splits_binary_labels_and_train_only_standardization():
-    cfg = load_config(PROJECT_ROOT / "configs/cmu_mosei.config")
-    dataset = load_dataset(cfg, PROJECT_ROOT)
-
-    assert dataset["split_num_samples"] == {"train": 16327, "validation": 1871, "test": 4662}
-    assert dataset["label_mapping"] == {"negative": 0, "non_negative": 1}
-    assert torch.bincount(dataset["train"]["labels"], minlength=2).tolist() == [4739, 11588]
-    assert torch.bincount(dataset["validation"]["labels"], minlength=2).tolist() == [506, 1365]
-    assert torch.bincount(dataset["test"]["labels"], minlength=2).tolist() == [1350, 3312]
-
-    for tensor in dataset["train"]["modalities"]:
-        assert torch.isfinite(tensor).all()
-        assert torch.allclose(tensor.mean(dim=0), torch.zeros(tensor.shape[1]), atol=2e-5)
-        assert torch.allclose(
-            tensor.std(dim=0, unbiased=False),
-            torch.ones(tensor.shape[1]),
-            atol=2e-5,
-        )

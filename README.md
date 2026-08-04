@@ -44,22 +44,8 @@ Expected roots:
 local/datasets/uci_har/
 local/datasets/mhealth/
 local/datasets/pamap2/
-local/datasets/cmu_mosei/
 local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/
 ```
-
-CMU-MOSEI requires:
-
-```text
-features/BERT_MOSEI.pkl
-features/COAVAREP_aligned_MOSEI.pkl
-features/FACET_aligned_MOSEI.pkl
-splits/df_MOSEI.tsv
-splits/df_valid_MOSEI.tsv
-splits/df_test_MOSEI.tsv
-```
-
-The split TSV files come from the feature source repository [Ighina/MultiModalSA](https://github.com/Ighina/MultiModalSA/tree/master/data). Their original row order must be preserved for exact BERT feature/label verification.
 
 IEMOCAP uses the Full release and the four-class `angry / happy-or-excited / sad / neutral` protocol. Prepare its frozen MFCC, MobileViT-XS, and DistilBERT sequence features before Stage 1:
 
@@ -97,7 +83,6 @@ Default partition signatures with `clients_per_modality: 10`:
 UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
 PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
-CMU-MOSEI: local/results/partition/cmu_mosei/text_10clients_audio_10clients_visual_10clients__official_video_disjoint_tvt_v1
 IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
@@ -111,13 +96,12 @@ Run one dataset:
 python scripts/stage1_partition.py --config configs/uci_har.config
 ```
 
-Run all five datasets one by one:
+Run all four datasets one by one:
 
 ```bash
 python scripts/stage1_partition.py --config configs/uci_har.config
 python scripts/stage1_partition.py --config configs/mhealth.config
 python scripts/stage1_partition.py --config configs/pamap2.config
-python scripts/stage1_partition.py --config configs/cmu_mosei.config
 python scripts/stage1_partition.py --config configs/iemocap.config
 ```
 
@@ -131,7 +115,7 @@ test_multimodal.pt
 partition_config.json
 ```
 
-UCI-HAR, MHEALTH, and PAMAP2 use fixed, disjoint subject-level train/validation/test splits. CMU-MOSEI uses the source repository's official video-disjoint train/validation/test splits with 16,327/1,871/4,662 samples. Its task is binary `polarity < 0` versus `polarity >= 0`; audio/visual sequences are mean-pooled, and all three modalities are standardized from train statistics only. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired.
+UCI-HAR, MHEALTH, and PAMAP2 use fixed, disjoint subject-level train/validation/test splits. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired.
 
 IEMOCAP uses the fixed disjoint Session 1-3/4/5 split with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/iemocap.config` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
 
@@ -153,12 +137,6 @@ PAMAP2:
 
 ```bash
 python scripts/stage2_discovery.py --config configs/pamap2.config
-```
-
-CMU-MOSEI:
-
-```bash
-python scripts/stage2_discovery.py --config configs/cmu_mosei.config
 ```
 
 IEMOCAP:
@@ -215,12 +193,6 @@ PAMAP2:
 python scripts/stage3_train.py --config configs/pamap2.config
 ```
 
-CMU-MOSEI:
-
-```bash
-python scripts/stage3_train.py --config configs/cmu_mosei.config
-```
-
 IEMOCAP true-cluster Oracle/debug comparison:
 
 ```bash
@@ -258,7 +230,7 @@ The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Change 
 python scripts/stage3_train.py --config configs/uci_har.config
 ```
 
-All five datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds. With the current `true_cluster` configs, Stage 3 outputs are Oracle/debug results:
+All four datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds. With the current `true_cluster` configs, Stage 3 outputs are Oracle/debug results:
 
 ```bash
 nohup bash local/tools/launch_uci_har_formal.sh \
@@ -270,14 +242,11 @@ nohup bash local/tools/launch_mhealth_formal.sh \
 nohup bash local/tools/launch_pamap2_formal.sh \
   > "local/tools/pamap2_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 
-nohup bash local/tools/launch_cmu_mosei_formal.sh \
-  > "local/tools/cmu_mosei_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-
 nohup bash local/tools/launch_iemocap_formal.sh \
   > "local/tools/iemocap_formal_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-`launch_stage3_formal.sh` sequentially starts experiments for all five datasets:
+`launch_stage3_formal.sh` sequentially starts experiments for all four datasets:
 
 ```bash
 nohup bash local/tools/launch_stage3_formal.sh \

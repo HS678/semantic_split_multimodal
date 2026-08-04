@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_all_dataset_configs_are_ini_style_and_use_true_cluster_for_current_development():
-    for dataset in ["uci_har", "mhealth", "pamap2", "cmu_mosei", "iemocap"]:
+    for dataset in ["uci_har", "mhealth", "pamap2", "iemocap"]:
         path = PROJECT_ROOT / "configs" / f"{dataset}.config"
         cfg = load_config(path)
         assert cfg["dataset"]["type"] == dataset
@@ -71,7 +71,7 @@ def test_config_extends_deep_merges_relative_parent(tmp_path):
 
 def test_formal_configs_resolve_expected_protocols_and_objective():
     formal_dir = PROJECT_ROOT / "configs" / "formal"
-    for dataset in ["uci_har", "mhealth", "pamap2", "cmu_mosei"]:
+    for dataset in ["uci_har", "mhealth", "pamap2"]:
         cfg = load_config(formal_dir / f"{dataset}.config")
         assert cfg["dataset"]["type"] == dataset
         assert cfg["fusion"]["training_objective"] == "mmbind_weighted_contrastive"

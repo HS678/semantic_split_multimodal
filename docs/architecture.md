@@ -28,7 +28,7 @@ scripts/
 ## 文件职责
 
 - `data/client.py`：定义单模态 client payload 的内存对象和序列化字段。
-- `data/datasets.py`：加载 UCI-HAR、MHEALTH、PAMAP2、CMU-MOSEI，并输出统一 loader contract。CMU-MOSEI 在 loader 内完成官方 split ID 对齐、时间 mean pooling、train-only 标准化和负/非负二分类标签转换。
+- `data/datasets.py`：加载 UCI-HAR、MHEALTH、PAMAP2，并输出统一 loader contract。
 - `data/iemocap.py`：加载 IEMOCAP Full 的 MFCC、MobileViT-XS、DistilBERT 序列缓存，执行固定 Session 1-3/4/5 划分、四分类映射和 train-only 有效帧标准化。
 - `data/partitioner.py`：把 naturally paired train split 划成单模态客户端，并保存 naturally paired validation/test payload。
 - `data/registry.py`：按 config 中的数据集类型分发 loader。

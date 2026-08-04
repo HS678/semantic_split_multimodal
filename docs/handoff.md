@@ -8,7 +8,7 @@
 
 1. `configs/uci_har.config`：先理解一份完整配置；字段说明见 `configs/config.config`。
 2. `scripts/stage1_partition.py`：理解 Stage 1 partition 如何保存到 `local/results/partition/`。
-3. `src/semantic_split_multimodal/data/datasets.py`：理解四个数据集的统一 loader contract；CMU-MOSEI 使用官方 split、负/非负二分类、mean pooling 和 train-only 标准化。
+3. `src/semantic_split_multimodal/data/datasets.py`：理解数据集的统一 loader contract。
 4. `src/semantic_split_multimodal/data/partitioner.py`：理解 train-only 单模态 client 和 naturally paired validation/test payload。
 5. `scripts/stage2_discovery.py` 与 `learning/pretrain.py`：理解 encoder pretraining、fingerprint 和 clustering。
 6. `learning/scheduling.py`：理解 balanced per-cluster random round-robin scheduler。

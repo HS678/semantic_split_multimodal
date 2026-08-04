@@ -24,9 +24,9 @@
 - 输入：原始数据目录
 - 输出：统一 loader contract
 - 对应文件：`data/datasets.py`
-- 关键函数：`load_uci_har_dataset`、`load_mhealth_dataset`、`load_pamap2_dataset`、`load_cmu_mosei_dataset`
+- 关键函数：`load_uci_har_dataset`、`load_mhealth_dataset`、`load_pamap2_dataset`
 
-loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `modality_input_shapes`。传感器数据集的三个 split subject 必须互斥；CMU-MOSEI 必须严格使用官方 split ID。每个 modality tensor 的第 0 维必须与 labels 对齐，归一化只能用 train 统计量。
+loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `modality_input_shapes`。传感器数据集的三个 split subject 必须互斥。每个 modality tensor 的第 0 维必须与 labels 对齐，归一化只能用 train 统计量。
 
 ## 4. Client Payload
 

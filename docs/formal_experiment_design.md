@@ -1,8 +1,8 @@
-# 五数据集正式实验设计
+# 四数据集正式实验设计
 
 ## 不变的主线协议
 
-五个数据集均使用 `MMBind-style Fusion Split Learning`：Stage2 模态发现、簇覆盖调度、
+四个数据集均使用 `MMBind-style Fusion Split Learning`：Stage2 模态发现、簇覆盖调度、
 label-guided semantic pseudo binding、`ClusterAdapter + Concat Fusion`、Split Learning，
 最终使用自然配对的 `test_multimodal.pt`。当前开发实验按已确认方案固定
 `training.cluster_assignment_source=true_cluster`；Stage2 仍输出 PCA 图和预测簇审计结果。
@@ -19,7 +19,6 @@ D2D 仅保留配置入口，不进入本轮精度实验。
 | UCI-HAR | 3 层 Temporal CNN + 2 层 BiGRU + masked attention | 既有 subject-disjoint train/validation/test | weighted-F1 | accuracy、macro-F1、UA |
 | MHEALTH | 3 层 Temporal CNN + 2 层 BiGRU + masked attention | 既有 subject-disjoint train/validation/test | weighted-F1 | accuracy、macro-F1、UA、per-class F1 |
 | PAMAP2 | 3 层较宽 Temporal CNN + 2 层 BiGRU + masked attention | 既有 subject-disjoint train/validation/test | weighted-F1 | accuracy、macro-F1、UA、per-class F1 |
-| CMU-MOSEI | normalized MLP + GELU + dropout | 官方 video-disjoint train/validation/test | binary-F1 与 accuracy | weighted-F1、macro-F1、混淆矩阵 |
 | IEMOCAP | audio: Conv-GRU；video/text: 2 层 BiGRU；均使用 masked attention；视频输入为冻结 MobileViT-XS 帧特征 | 5-fold Session LOSO；每折一个完整 Session test；validation 从其余四个 Session 内按 dialog_id 分组产生 | 5 折 WA/accuracy、UA/macro-recall、macro-F1 的均值和标准差 | weighted-F1、per-class F1、聚合混淆矩阵 |
 
 ## 正式配置
@@ -27,7 +26,6 @@ D2D 仅保留配置入口，不进入本轮精度实验。
 - `configs/formal/uci_har.config`
 - `configs/formal/mhealth.config`
 - `configs/formal/pamap2.config`
-- `configs/formal/cmu_mosei.config`
 - `configs/formal/iemocap_fold1.config` 至 `iemocap_fold5.config`
 
 所有配置使用 `fusion.training_objective=mmbind_weighted_contrastive`，并保存源配置、解析后配置、
@@ -48,7 +46,6 @@ Stage2 指纹/PCA/聚类审计、checkpoint、validation 曲线和一次正式 t
 | UCI-HAR | `Q=2, ACC/NMI/ARI=1.0` | complete | 0.8751 | 0.8711 | 第 120 轮早停，best round 60 |
 | MHEALTH | `Q=4, ACC/NMI/ARI=1.0` | complete | 0.9492 | 0.9426 | signal fingerprint，best round 240 |
 | PAMAP2 | `Q=3, ACC/NMI/ARI=1.0` | complete | 0.4156 | 0.3737 | validation-test subject shift 明显，结果保留且不按 test 回调参数 |
-| CMU-MOSEI | `Q=2, ACC=0.6667`，discovery failure | complete | 0.8509 | 0.8478 | Stage3 按当前方案使用 true cluster；binary-F1=0.8977 |
 | IEMOCAP | fold1 Stage1 complete | incomplete | — | — | GPU 执行额度阻塞；fold1 Stage2 与全部五折 Stage3 尚未运行 |
 
 机器可读和 Markdown 汇总由以下命令从真实 `final_metrics.json` 生成：

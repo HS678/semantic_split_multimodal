@@ -18,7 +18,7 @@
 }
 ```
 
-现有 loader 包括 `uci_har`、`mhealth`、`pamap2`、`cmu_mosei` 和 `iemocap`。IEMOCAP 的 loader 独立位于 `data/iemocap.py`；可变长序列通过可选 `modality_lengths` 传递。CMU-MOSEI 与 IEMOCAP 的数据适配逻辑均不改变 Stage2/Stage3 核心算法。
+现有 loader 包括 `uci_har`、`mhealth`、`pamap2` 和 `iemocap`。IEMOCAP 的 loader 独立位于 `data/iemocap.py`；可变长序列通过可选 `modality_lengths` 传递。IEMOCAP 的数据适配逻辑不改变 Stage2/Stage3 核心算法。
 
 规则：
 
