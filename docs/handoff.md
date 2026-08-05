@@ -27,7 +27,7 @@
 - Stage 2 只保留 `kmeans` 和 `adaptive_isodata`。
 - Stage 3 技术门槛只包括合法 `pred_cluster.csv`、Stage 1 client IDs 和逐客户端 pretrained encoder；`true_cluster.csv`、`stage2_metadata.json`、`discovery_status` 仅用于可选 audit。
 - 正式 YAML 保持基础 `seed: 42`；Stage 3 `--seed` 仅覆盖本次运行的内存配置。
-- 正式配置每 10 rounds naturally paired validation，由 validation macro-F1 选择 `best_model.pt`；weighted-F1 仅报告，不参与选择。训练结束恢复 best 后 test 一次，正式指标使用 `final_metrics.json`，`last_model.pt` 仅用于诊断。
+- 正式配置每 10 rounds naturally paired validation，由 validation weighted-F1 选择 `best_model.pt`；macro-F1 同步输出供参考，不参与选择。训练结束恢复 best 后 test 一次，正式指标使用 `final_metrics.json`，`last_model.pt` 仅用于诊断。
 - D2D 尚未实现。
 
 ## 当前验证重点

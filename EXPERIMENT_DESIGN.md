@@ -1,0 +1,357 @@
+# 正式实验框架设计文档
+
+> 本文档记录 `msl` 分支正式实验框架的全部设计决策，按实验运行步骤（Stage 1 → Stage 2 → Stage 3 → Evaluation）组织。
+> 状态标记：✅ 已确定；⏳ 待讨论/待定；🔄 后续实现时细化。
+> 本文件是设计记录，不是可执行配置；正式配置落地见 `configs/formal/`。
+
+---
+
+## 1. 总体设计决策
+
+### 1.1 数据集范围
+
+✅ 正式实验只保留四个数据集，CMU-MOSEI 已从代码、配置、测试与文档中移除：
+
+- UCI-HAR（`uci_har`）
+- MHEALTH（`mhealth`）
+- PAMAP2（`pamap2`）
+- IEMOCAP（`iemocap`，四分类 `angry / happy-or-excited / sad / neutral`）
+
+### 1.2 评估协议：各数据集采用领域主流协议
+
+✅ 每个数据集采用其领域最常用的评估协议，便于与主流文献直接对比；不同数据集协议不同是论文常见做法：
+
+| 数据集 | 协议 | 报告口径 |
+| --- | --- | --- |
+| UCI-HAR | 官方 70/30 固定划分（train 21 / test 9 subject） | 单点精度（test 2,947 样本，统计可靠） |
+| MHEALTH | subject-level 5 折（每折 2 个 subject） | 均值 ± 标准差 |
+| PAMAP2 | subject-level 9 折 LOSO（每折 1 个 subject） | 均值 ± 标准差 |
+| IEMOCAP | 固定 Session 划分（train S1-3 / val S4 / test S5） | 单点精度 |
+
+理由：MHEALTH / PAMAP2 采用 subject 级交叉验证（subject 数少，单次划分偏差风险高）；UCI-HAR 官方划分样本量充足（test 9 个 subject / 2,947 样本），可直接与官方划分文献对比；IEMOCAP 采用固定 Session 划分（文献常见），论文说明即可。
+
+### 1.3 保留验证集：early stopping + best checkpoint 机制（方向 A）
+
+✅ 保留原框架的验证机制，只做最小修正：
+
+- 每折内部从 train 中切出验证集（subject/session 不相交），验证集只用于 best checkpoint 选择与 early stopping；
+- 训练结束后恢复 `best_model.pt`，对 test 只评估一次；
+- test 不参与任何训练期决策（无 test leakage）；
+- 验证集划分：UCI-HAR 沿用 train 17 / val 4（官方 test 9 不变）；MHEALTH / PAMAP2 每折从 train 侧按"数据量居中的 2 个 subject"切出；IEMOCAP 用 Session 4 做验证。
+
+说明：这是原框架的合法机制（validation 选择 + early stopping），不需要推翻；与交叉验证报告口径的差异在于使用验证集选 best，论文中说明即可。
+
+### 1.4 D2D 模块与正式实验的关系
+
+✅ D2D（device-to-device）尚未实现（`d2d.enabled=false` 仅保留配置入口）。
+
+- 正式精度主实验：四个数据集 × 5 折完整运行；
+- D2D 效率实验（未来实现后）：作为独立章节，可在 1~2 个代表性数据集或单折上做通信量/时延/收敛轮数对比，不必 5 折全跑；
+- 统一训练协议下，D2D 与其他方法的对比更公平（相同轮次与早停规则）。
+
+### 1.5 无泄漏红线（沿用并强化）
+
+- `hidden_modality_id` / 真实模态名 / 真实模态数只允许用于 Stage 2 审计与 evaluation-only oracle mapping；
+- 训练、调度、binding、fusion slot 一律只使用 `pred_cluster` 与 label；
+- test 只用于最终报告，任何训练期决策不得接触 test；
+- 5 折分组在 Stage 1 固定，不允许根据 test 结果调整分组。
+
+---
+
+## 2. 通用 Stage 1 参数
+
+✅ 已确定：
+
+| 参数 | 值 | 说明 |
+| --- | --- | --- |
+| `config.seed` | 42（基础）；多 seed 见下 | 基础随机种子 |
+| `partition.clients_per_modality` | 10 | 每个真实模态拆成 10 个单模态客户端 |
+| `dataset.normalize` | true | 只用 train split 统计量标准化 |
+| `results.base_dir` | `./local/results` | 结果根目录（旧结果保留在 `local/results_formal/`） |
+
+### 2.1 seed 策略
+
+✅ 已确定：
+
+- MHEALTH（5 折）/ PAMAP2（9 折 LOSO）：1 个 seed（42）——多折已提供方差；
+- UCI-HAR / IEMOCAP（单次固定划分）：5 个 seed（101, 202, 303, 404, 505），报告均值 ± 标准差；
+- Stage 3 通过 CLI `--seed` 覆盖内存配置，不修改源 `.config`。
+
+### 2.2 split_protocol 命名规范
+
+✅ 已确定：
+
+| 数据集 | split_protocol | 说明 |
+| --- | --- | --- |
+| uci_har | `subject_disjoint_tvt_v1` | 官方固定划分，保持不变 |
+| mhealth | `subject_5fold_foldN_v1`（N=1..5） | fold 编号进签名，目录天然隔离 |
+| pamap2 | `subject_9fold_loso_foldN_v1`（N=1..9） | 明确 9 折 LOSO |
+| iemocap | `session_disjoint_123_4_5_v1` | 固定 Session，保持不变 |
+
+原则：划分方式一变，签名必变；fold 编号进入签名，保证 5 折 / 9 折产物互不覆盖、全程可追溯。
+
+---
+
+## 3. Stage 1 数据划分设计（各数据集协议与分组）
+
+> 每折的 train = 该数据集其余全部 subject/session；无独立验证集。
+> 分组固定后写入正式配置，禁止根据结果调整。
+
+### 3.1 UCI-HAR：官方 70/30 固定划分
+
+✅ 已确定（与官方协议一致，单次固定划分）：
+
+- train（17 subject）：1, 3, 5, 6, 7, 8, 11, 15, 16, 17, 21, 22, 26, 27, 28, 29, 30
+- validation（4 subject）：14, 19, 23, 25（从官方 train 21 中切出，用于 best 选择与 early stopping）
+- test（9 subject）：2, 4, 9, 10, 12, 13, 18, 20, 24
+- 样本数：train 5,888 / validation 1,464 / test 2,947
+
+说明：test 与官方一致（可与官方划分文献直接对比数字）；validation 从官方 train 内切出，不影响 test 口径。
+
+### 3.2 MHEALTH（10 subject，5 折 × 2 subject）
+
+✅ 已确定：
+
+| 折 | test subjects | 原始行数 |
+| --- | --- | ---: |
+| fold1 | 1, 10 | 259,584 |
+| fold2 | 9, 6 | 233,472 |
+| fold3 | 2, 7 | 235,009 |
+| fold4 | 8, 4 | 245,760 |
+| fold5 | 3, 5 | 241,920 |
+
+✅ 验证集规则（已确定）：每折取其余 8 个 train subject 中**原始行数居中的 2 个**做 validation，剩余 6 个做 train；与 test 完全不相交。
+
+### 3.3 PAMAP2：9 折 subject-LOSO
+
+✅ 已确定（与原论文及多数论文一致）：
+
+| 折 | test subject | train subjects |
+| --- | --- | --- |
+| fold1 | 101 | 102, 103, 104, 105, 106, 107, 108, 109 |
+| fold2 | 102 | 101, 103, 104, 105, 106, 107, 108, 109 |
+| fold3 | 103 | 101, 102, 104, 105, 106, 107, 108, 109 |
+| fold4 | 104 | 101, 102, 103, 105, 106, 107, 108, 109 |
+| fold5 | 105 | 101, 102, 103, 104, 106, 107, 108, 109 |
+| fold6 | 106 | 101, 102, 103, 104, 105, 107, 108, 109 |
+| fold7 | 107 | 101, 102, 103, 104, 105, 106, 108, 109 |
+| fold8 | 108 | 101, 102, 103, 104, 105, 106, 107, 109 |
+| fold9 | 109 | 101, 102, 103, 104, 105, 106, 107, 108 |
+
+设计约束与论文说明：
+
+- subject 109 原始记录仅约 8,477 行（约 85 秒 @100Hz），该折 test 仅约 50 窗口（128/128）——这是数据集固有特性，主流 9 折 LOSO 均包含该折，报告 9 折均值 ± 标准差；
+- 不包含心率通道（`include_heart_rate=false`）；
+- 验证集规则（已确定）：每折从 8 个 train subject 中按**窗口数居中的 2 个**切出 validation，剩余 6 个做 train；subject 109 只出现在 test 折，不进任何 validation；
+- 论文需注明：采用 9 折 LOSO（原论文推荐协议），subject 109 折的波动属于数据集特性。
+
+### 3.4 IEMOCAP：固定 Session 划分
+
+✅ 已确定（固定 Session 划分，与主流文献常见做法一致）：
+
+- train：Session 1, 2, 3
+- validation：Session 4
+- test：Session 5
+
+说明：
+
+- 固定 Session 1-3/4/5 划分在 IEMOCAP 文献中常见，单点报告精度；
+- 不采用 5 折 session-LOSO（避免单次固定划分与多折混报的口径问题），论文说明划分方式即可。
+
+### 3.5 多折与"单模态客户端 / 多模态配对"结构的兼容性
+
+✅ 已确认无结构问题：
+
+- 交叉验证的"折"发生在 subject 级数据划分层，每个 fold 独立完整运行 Stage1 → Stage2 → Stage3；
+- 每折内部结构与非交叉验证一致：该折 train subjects 拆成单模态客户端，test subjects 保留自然配对多模态；
+- 客户端拆分只在 train 侧进行，test/validation subject 与 train 不相交，无泄漏；
+- 每折 Stage 2 独立聚类，`pred_cluster` 可能不同；若某折聚类质量差导致 evaluation mapping 失败，该折无指标，需记录原因而非静默跳过（实验阶段验证）。
+
+### 3.6 窗口与模态参数（mhealth / pamap2）
+
+✅ 已确定：
+
+| 参数 | mhealth | pamap2 |
+| --- | --- | --- |
+| `dataset.modality_scheme` | sensor_type | sensor_type |
+| `dataset.window_size` | 128（1.28s @50Hz） | 200（2s @100Hz） |
+| `dataset.stride` | 64（50% overlap） | 100（50% overlap） |
+| `dataset.min_label_purity` | 0.6 | 0.6 |
+| `dataset.drop_null` / `drop_other` | true | true |
+| `dataset.include_heart_rate` | — | false |
+| `dataset.normalize` | true | true |
+
+说明：
+
+- mhealth 128/64 与主流一致（2.56s @50Hz，50% overlap）；
+- pamap2 采用论文常见的 2s 窗口 + 50% overlap（200/100），替代原先 128/128 无重叠设置；
+- `min_label_purity=0.6` 用于过滤跨动作边界的混合标签窗口，仅使用 train 侧 label，无泄漏；
+- MMBind 参考源码（`local/references/mmbind/.../PAMAP2/preprocess/process_data.py`）采用 1000 帧无重叠块 + 7 类动作，属于其简化处理，不作为本项目参考。
+
+---
+
+## 4. Stage 2（模态发现）设计
+
+✅ 已确定：
+
+### 4.1 聚类输入源
+
+- 当前固定 `cluster_assignment_source=true_cluster`（oracle 调试），先保证全流程跑通；
+- 后续调优聚类参数、确认 `pred_cluster` 完全正确后，再切换为 `pred_cluster` 作为正式无泄漏主线；
+- 切换时机由聚类质量验证（discovery 指标）决定，不以 test 结果回调。
+
+### 4.2 fingerprint 类型
+
+| 数据集 | fingerprint.type | 说明 |
+| --- | --- | --- |
+| uci_har | hybrid | 保持现状（已 discovery_success） |
+| mhealth | signal | 保持现状（signal 指纹已成功区分 4 模态） |
+| pamap2 | signal | 保持现状（signal 指纹已成功区分 3 模态） |
+| iemocap | hybrid | 采用 hybrid |
+
+### 4.3 预训练目标与参数
+
+- 预训练目标：`classification`（任务语义初始化 encoder，有利于 Stage 3 精度）；
+- fingerprint 的模态区分由 `signal` / hybrid 中的 signal 部分承担（实证：mhealth/pamap2 signal 成功、encoder 指纹聚成 1 簇失败）；
+- 参数沿用当前运行成功的 formal 配置（uci_har 25 epochs / 0.0005；mhealth/pamap2 25~30 epochs / 0.0002~0.0003；iemocap 25 epochs / 0.0002；class_weighting 按数据集 inverse_sqrt 或 none）；
+- 未来切换 `pred_cluster` 时若 encoder 指纹区分不足，再比较 `reconstruction` vs `classification` 的影响。
+
+### 4.4 聚类参数
+
+- 保持当前 `adaptive_isodata` 参数（`q_max=8`、`min_cluster_size=2`、`min_split_silhouette=0.10~0.20`、`pca_variance=0.95`、`seeds=[11,23,37,53,71]`）；
+- 暂不调优（当前使用 `true_cluster`，聚类质量不影响训练）；后续统一调优后切换 `pred_cluster`。
+
+### 4.5 每折独立性
+
+- MHEALTH 5 折 / PAMAP2 9 折：每折独立预训练、提取 fingerprint、聚类，`pred_cluster` 每折可能不同；
+- 最终实验报告给出多折聚合结果（均值 ± 标准差）。
+
+### 4.6 沿用现状的细节
+
+- fingerprint 提取参数：`batch_size=64`、`max_batches=4`；
+- 指纹可视化：保留 `fingerprint_visualization.enabled=true`（PCA 双面板审计图继续输出）；
+- 每折目录隔离：Stage 2 输出目录自动带 fold（`<split_protocol>/adaptive_isodata/<run_name>`），由命名规范保证。
+
+---
+
+## 5. Stage 3（训练）与 Evaluation 设计
+
+✅ 已确定（全部沿用现有 formal 配置 + 方向 A 原机制）：
+
+### 5.1 训练机制（方法核心协议，不改）
+
+- 调度：`balanced_cluster_round_robin`（pred/true_cluster 均衡轮询）；
+- 绑定：`label_random`（exact same-label pseudo binding）；
+- 融合结构：`ClusterAdapter + Concat Fusion + Classifier`；
+- 训练目标：`mmbind_weighted_contrastive`（CE + 跨簇 contrastive + 异构 CE，论文主线）；
+- Split Learning：server backward → activation gradient 回传客户端。
+
+> 定位说明：`mmbind_weighted_contrastive` 为借用的 MMBind 模块，**不是本论文的贡献点**；保持现状、不调优、不做消融。论文贡献点集中在分布式 Split Learning 框架与未知模态环境下的模态发现/调度/伪绑定流程。
+
+### 5.2 训练规模与 early stopping
+
+- `global_rounds=300`（各数据集 formal 配置）；
+- early stopping：`patience=6~7`、`min_rounds=80~100`、`min_delta=0.0005`；
+- `local_steps=1`；batch_size 64（iemocap 32）；lr 0.0001~0.0002；weight_decay 0.0001；max_grad_norm 5.0；class_weighting none/inverse_sqrt 按数据集沿用。
+
+### 5.3 验证选择指标
+
+- best checkpoint 选择与 early stopping 使用 **validation weighted-F1**（与代码一致，修正 handoff.md 的 macro-F1 表述）；
+- **macro-F1 同步输出供参考**（validation_log.csv / best_metrics.json / final_metrics.json 均含 macro-F1），不参与选择；
+- 训练结束恢复 `best_model.pt`，test 只评估一次。
+
+### 5.4 seed 与聚合报告
+
+- MHEALTH（5 折）/ PAMAP2（9 折）：1 seed（42），报告 5/9 折 test 均值 ± 标准差；
+- UCI-HAR / IEMOCAP：5 seed（101, 202, 303, 404, 505），报告均值 ± 标准差；
+- 汇总脚本需支持多折 / 多 seed 聚合（实现时细化）。
+
+---
+
+## 6. 待定事项清单
+
+| # | 事项 | 状态 | 影响 |
+| --- | --- | --- | --- |
+| 1 | mhealth / pamap2 窗口参数（window_size、stride、min_label_purity） | ✅ 已定（128/64；200/100；0.6） | Stage 1 样本量与 encoder 输入长度 |
+| 2 | `split_protocol` 命名规范（含 fold 签名） | ✅ 已定 | 目录签名与可追溯性 |
+| 3 | 多 seed 数量 | ✅ 已定（交叉验证 1 seed；单次划分 5 seed） | 算力成本与方差报告 |
+| 4 | Stage 3 训练规模与 early stopping | ✅ 已定（300 轮、patience 6~7、min 80~100） | 训练成本与收敛 |
+| 5 | `pred_cluster` 切换验证（聚类调优后） | ⏳ | 无泄漏主线能否跑通（当前先用 true_cluster） |
+| 6 | 每折 train 内部验证集划分（MHEALTH / PAMAP2 subject 级） | ✅ 已定规则（数据量居中 2 个） | 实现时落地 |
+| 7 | 汇总脚本多折聚合 | 🔄 | 正式结果报告 |
+
+---
+
+## 7. 决策记录
+
+| 日期 | 决策 |
+| --- | --- |
+| 2026-08-04 | 移除 CMU-MOSEI，正式实验只保留四个数据集 |
+| 2026-08-04 | `seed=42`，`clients_per_modality=10`，pamap2 不包含心率 |
+| 2026-08-04 | 采用各数据集领域主流协议：UCI-HAR 官方 70/30、MHEALTH 5 折、PAMAP2 9 折 LOSO、IEMOCAP 5 折 session-LOSO |
+| 2026-08-04 | 选择方向 A：保留验证集 + early stopping + best checkpoint 机制，只做最小修正 |
+| 2026-08-04 | 确定 MHEALTH 5 折分组（fold1: 1,10；fold2: 9,6；fold3: 2,7；fold4: 8,4；fold5: 3,5） |
+| 2026-08-04 | 最终协议：MHEALTH 5 折、PAMAP2 9 折 LOSO、UCI-HAR 官方固定、IEMOCAP 固定 Session S1-3/S4/S5 |
+| 2026-08-04 | 窗口参数：MHEALTH 128/64（50% overlap）、PAMAP2 200/100（2s、50% overlap）、min_label_purity 均为 0.6 |
+| 2026-08-04 | seed 策略：MHEALTH/PAMAP2 用 1 seed（42）；UCI-HAR/IEMOCAP 用 5 seed（101,202,303,404,505） |
+| 2026-08-04 | split_protocol 命名：uci_har/iemocap 保持；mhealth `subject_5fold_foldN_v1`；pamap2 `subject_9fold_loso_foldN_v1` |
+| 2026-08-04 | 每折验证集规则：MHEALTH/PAMAP2 每折取 train 中数据量居中的 2 个 subject 做 validation |
+| 2026-08-04 | Stage 2：固定 true_cluster（后续调聚类后切 pred_cluster）；fingerprint 保持现状（uci_har hybrid、mhealth/pamap2 signal、iemocap hybrid）；预训练用 classification；聚类参数暂不调 |
+| 2026-08-04 | Stage 3：沿用 formal 配置（mmbind_weighted_contrastive、300 轮、early stopping 保留）；验证选择用 weighted-F1，macro-F1 同步输出供参考 |
+
+---
+
+## 8. 正式实验运行说明（test1）
+
+### 8.1 配置位置
+
+- `configs/test1/uci_har.config`、`configs/test1/iemocap.config`（单次划分）
+- `configs/test1/mhealth/fold1~5.config`（5 折）
+- `configs/test1/pamap2/fold1~9.config`（9 折 LOSO）
+- 全部为独立完整配置（无 extends），结果写入 `local/results_test1/`
+
+### 8.2 运行前提
+
+- Stage 1 已全部完成：16 个 partition 已生成于 `local/results_test1/partition/`（已验证样本数与设计一致）；
+- Stage 2 / Stage 3 需要 GPU 环境（当前开发环境无 NVIDIA 设备，不在此环境运行正式训练）。
+
+### 8.2.1 跨机器执行说明（在 GPU 机器上运行）
+
+若在另一台 GPU 机器上运行：
+
+1. 同步代码与配置：`configs/test1/`、`scripts/`、`src/`、`local/tools/launch_test1_formal.sh`；
+2. 同步 Stage 1 产物：`local/results_test1/partition/`（16 个 partition 目录）；
+3. GPU 机器需要 `mpsl` 环境（或等价 PyTorch CUDA 环境）与项目依赖；
+4. 执行 `bash local/tools/launch_test1_formal.sh`；
+5. 完成后在产物所在机器运行 `python scripts/summarize_test1_results.py` 生成聚合 JSON；
+6. 如需把结果带回本机，同步 `local/results_test1/cluster/`、`local/results_test1/experiments/`、`local/results_test1/summary/`。
+
+### 8.3 执行命令（GPU 环境）
+
+```bash
+# 每个数据集一个专属启动脚本，可单独选择执行（均含该数据集全部 seed/折 + 一键汇总）：
+nohup bash local/tools/launch_test1_uci_har.sh > "local/tools/uci_har_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test1_iemocap.sh > "local/tools/iemocap_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test1_mhealth.sh > "local/tools/mhealth_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test1_pamap2.sh > "local/tools/pamap2_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+每个脚本顶部注释中写有对应的启动命令；脚本顺序执行该数据集的 Stage 2（预训练 + 指纹 + 聚类，每分支独立）与 Stage 3（固定轮次 + early stopping + best checkpoint + test 一次），最后自动调用 `summarize_test1_results.py --dataset <name>` 一键生成该数据集的聚合 JSON；日志写入 `local/results_test1/logs/`。
+
+### 8.4 结果聚合
+
+```bash
+python scripts/summarize_test1_results.py
+```
+
+输出：
+
+- `local/results_test1/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
+- `local/results_test1/summary/summary.json`：四个数据集聚合总览。
+
+### 8.5 注意事项
+
+- 每个 Stage 2 / Stage 3 输出目录防覆盖，重跑需手动递增 `stage3.attempt` 或清理对应目录；
+- 当前阶段 `cluster_assignment_source=true_cluster`（oracle 调试）；训练内部不读取 `hidden_modality_id`，验证/测试使用真实模态映射到 cluster 做 evaluation-only oracle mapping；
+- 正式无泄漏主线（`pred_cluster`）待聚类参数调优后切换；
+- 本仓库修改不自动提交，commit/push 由维护者确认后执行。

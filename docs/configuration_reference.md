@@ -99,9 +99,9 @@ acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
 - `training.batch_size`：client local batch size。
 - `training.eval_batch_size`：naturally paired validation/test batch size。
 - `training.validation_every`：naturally paired validation 间隔，正式配置为 `10`。
-- `training.early_stopping.patience`：validation macro-F1 连续未改善次数，正式配置为 `3`。
+- `training.early_stopping.patience`：validation weighted-F1 连续未改善次数。
 - `training.early_stopping.min_rounds`：允许 early stop 前至少完成的 rounds，正式配置为 `50`。
-- `training.early_stopping.min_delta`：macro-F1 被视为改善所需的最小增量，正式配置为 `0.001`。
+- `training.early_stopping.min_delta`：weighted-F1 被视为改善所需的最小增量。
 - `training.clients_per_cluster_per_round`：每个预测簇每轮选中的客户端数量 `r`。每轮总客户端数为 `r * estimated_Q`，其中 `estimated_Q` 来自 Stage 2 的 `pred_cluster`，不是训练阶段读取的真实 Q。
 - `training.client_lr`：client encoder 学习率。
 - `training.server_lr`：fusion server 学习率。
