@@ -16,9 +16,16 @@ from MSL.utils.seed import set_seed
 def main():
     parser = argparse.ArgumentParser(description="Stage 1: data partition")
     parser.add_argument("--config", required=True, help="Path to INI-style .config file")
+    parser.add_argument(
+        "--clients",
+        type=int,
+        help="Override partition.clients_per_modality (changes the partition signature directory).",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.clients:
+        cfg["partition"] = {**cfg.get("partition", {}), "clients_per_modality": args.clients}
     cfg = configure_result_run(cfg, ROOT, stage="stage1_partition", create_new=True)
     set_seed(int(cfg.get("seed", 42)))
     info = run_stage1_partition(cfg, ROOT)

@@ -105,9 +105,12 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
     cfg = dict(cfg)
     result_cfg = dict(cfg.get("results", {}))
     base_dir = _resolve_project_path(project_root, result_cfg.get("base_dir", "./local/results"))
+    data_root_value = result_cfg.get("data_root")
+    data_root = _resolve_project_path(project_root, data_root_value) if data_root_value else None
     dataset_name = dataset_result_name(cfg)
     if stage == "stage1_partition":
-        dataset_dir = base_dir / "partition" / dataset_name
+        partition_root = (data_root / "partition") if data_root is not None else base_dir / "partition"
+        dataset_dir = partition_root / dataset_name
         dataset_dir.mkdir(parents=True, exist_ok=True)
         clients_per_modality = int(
             cfg.get("partition", {}).get("clients_per_modality", cfg.get("clients_per_modality", 10))
@@ -156,8 +159,12 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
         "dataset_dir": str(dataset_dir),
         "run_id": str(run_id),
         "run_dir": str(run_dir),
-        "data_partition": str(base_dir / "partition" / dataset_name),
-        "cluster": str(base_dir / "cluster" / dataset_name),
+        "data_partition": str(
+            ((data_root / "partition") if data_root is not None else base_dir / "partition") / dataset_name
+        ),
+        "cluster": str(
+            ((data_root / "cluster") if data_root is not None else base_dir / "cluster") / dataset_name
+        ),
         "logs": str(run_dir),
         "models": str(run_dir),
     }

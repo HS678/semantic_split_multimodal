@@ -321,10 +321,16 @@
 单数据集启动（每个脚本含该数据集全部 seed/折的 Stage1→Stage2→Stage3 + 一键汇总）：
 
 ```bash
-nohup bash local/tools/launch_msl_uci_har.sh > "local/tools/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_msl_iemocap.sh > "local/tools/iemocap_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_msl_mhealth.sh > "local/tools/mhealth_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_msl_pamap2.sh > "local/tools/pamap2_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/single/launch_msl_uci_har.sh > "local/tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/single/launch_msl_iemocap.sh > "local/tools/single/iemocap_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/single/launch_msl_mhealth.sh > "local/tools/single/mhealth_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/single/launch_msl_pamap2.sh > "local/tools/single/pamap2_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+四数据集串行（顺序执行各数据集脚本）：
+
+```bash
+nohup bash local/tools/serial/launch_msl_all.sh > "local/tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 四数据集并行（推荐，各数据集独立 Stage1→Stage2→Stage3）：
