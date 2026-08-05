@@ -48,7 +48,7 @@ scripts/
 - `scripts/stage1_partition.py`：Stage 1 CLI。
 - `scripts/stage2_discovery.py`：Stage 2 CLI，从冻结 Stage 1 partition 读取输入并写入独立 cluster 目录。
 - `scripts/stage3_train.py`：Stage 3 CLI，从冻结 Stage 1/Stage 2 输入训练 fusion Split Learning 模型并写入 experiment 目录。
-- `scripts/prepare_iemocap.py`：解析 Full 原始数据并生成冻结的音频、视频、文本序列特征缓存。
+- `data/prepare_iemocap.py`：解析 Full 原始数据并生成冻结的音频、视频、文本序列特征缓存（`python -m semantic_split_multimodal.data.prepare_iemocap`）。
 
 ## 结果边界
 

@@ -50,7 +50,7 @@ local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/
 IEMOCAP uses the Full release and the four-class `angry / happy-or-excited / sad / neutral` protocol. Prepare its frozen MFCC, MobileViT-XS, and DistilBERT sequence features before Stage 1:
 
 ```bash
-python scripts/prepare_iemocap.py --device cuda
+PYTHONPATH=src python -m semantic_split_multimodal.data.prepare_iemocap --device cuda
 ```
 
 The fixed split is Session 1-3 train, Session 4 validation, and Session 5 test. Audio uses three 1D convolution blocks followed by a GRU; video and text use GRUs over the frozen MobileViT-XS frame embeddings and DistilBERT token embeddings.

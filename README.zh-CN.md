@@ -50,7 +50,7 @@ local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/
 IEMOCAP 使用 Full 版本和 `angry / happy-or-excited / sad / neutral` 四分类协议。Stage 1 前先生成冻结的 MFCC、MobileViT-XS 和 DistilBERT 序列特征：
 
 ```bash
-python scripts/prepare_iemocap.py --device cuda
+PYTHONPATH=src python -m semantic_split_multimodal.data.prepare_iemocap --device cuda
 ```
 
 固定划分为 Session 1-3 train、Session 4 validation、Session 5 test。音频采用三层 1D Conv 后接 GRU；视频和文本分别对冻结的 MobileViT-XS 帧特征、DistilBERT token 特征使用 GRU。
