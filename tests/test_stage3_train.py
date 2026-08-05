@@ -314,6 +314,59 @@ def test_missing_validation_file_blocks_training_before_output_creation(monkeypa
     assert not list((tmp_path / "experiments").rglob("attempt-01"))
 
 
+def test_no_validation_stage1_audit_skips_validation_file_requirement(tmp_path):
+    script = _load_script()
+    stage1 = _stage1_dir(tmp_path)
+    stage2 = _stage2_dir(tmp_path)
+    (stage1 / "validation_multimodal.pt").unlink()
+    cfg = _cfg()
+    cfg["training"]["validation_enabled"] = False
+
+    audit = script.audit_stage3_inputs(cfg, stage1, stage2)
+
+    assert audit["stage1"]["num_clients"] == 2
+    assert audit["stage2"]["cluster_ids"] == [0, 1]
+
+
+def test_formal_completion_status_accepts_no_validation_fixed_rounds(tmp_path):
+    script = _load_script()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    metrics = {
+        "checkpoint": "last_model.pt",
+        "selected_by": "fixed_rounds_no_validation",
+        "test_eval_status": "success",
+        "test_eval_failure_reason": None,
+        "test_accuracy": 0.5,
+        "test_macro_f1": 0.4,
+        "test_weighted_f1": 0.45,
+        "test_loss": 1.0,
+        "test_evaluation_count": 1,
+        "configured_global_rounds": 2,
+        "executed_global_rounds": 2,
+        "best_round": 2,
+        "evaluation_mode": "formal_test",
+    }
+    for name in [
+        "source_config.config",
+        "resolved_config.config",
+        "train_log.csv",
+        "validation_log.csv",
+        "final_metrics.json",
+        "best_metrics.json",
+        "last_model.pt",
+        "training_curves.png",
+    ]:
+        (run_dir / name).write_text("x", encoding="utf-8")
+    (run_dir / "final_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+
+    status, failure_reason = script._formal_completion_status(metrics, {"run_dir": run_dir})
+
+    assert status == "success"
+    assert failure_reason is None
+    assert not (run_dir / "best_model.pt").exists()
+
+
 def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
     script = _load_script()
     config = _config_file(tmp_path)

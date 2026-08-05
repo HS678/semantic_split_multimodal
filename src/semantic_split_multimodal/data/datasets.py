@@ -105,7 +105,7 @@ def _validate_subject_splits(train_subjects, validation_subjects, test_subjects,
         "test": {int(v) for v in test_subjects},
     }
     for split_name, subjects in splits.items():
-        if not subjects:
+        if not subjects and split_name != "validation":
             raise ValueError(f"{dataset_name} {split_name}_subjects must not be empty.")
     overlaps = {
         "train_validation": sorted(splits["train"] & splits["validation"]),
@@ -245,6 +245,12 @@ def _mhealth_build_split(root: Path, subjects, dataset_cfg):
     drop_null = bool(dataset_cfg.get("drop_null", True))
     min_label_purity = float(dataset_cfg.get("min_label_purity", 0.6))
     modality_columns = _mhealth_resolve_modalities(dataset_cfg)
+
+    if not subjects:
+        return {
+            "modalities": [torch.zeros((0, 1, 1), dtype=torch.float32) for _ in modality_columns],
+            "labels": torch.zeros((0,), dtype=torch.long),
+        }
 
     split_modalities = [[] for _ in modality_columns]
     split_labels = []
@@ -443,6 +449,12 @@ def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg):
     min_label_purity = float(dataset_cfg.get("min_label_purity", 0.6))
     modality_columns = _pamap2_modality_columns(dataset_cfg)
 
+    if not subjects:
+        return {
+            "modalities": [torch.zeros((0, 1, 1), dtype=torch.float32) for _ in modality_columns],
+            "labels": torch.zeros((0,), dtype=torch.long),
+        }
+
     split_modalities = [[] for _ in modality_columns]
     split_labels = []
     for subject_id in subjects:
@@ -502,5 +514,4 @@ def load_pamap2_dataset(cfg, project_root: Path):
         "modality_pamap2_input_shapes": input_shapes,
         "label_mapping": {str(k): int(v) for k, v in label_mapping.items()},
     }
-
 

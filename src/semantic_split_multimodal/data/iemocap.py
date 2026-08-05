@@ -46,7 +46,7 @@ def _load_feature_payload(path: Path, modality_name: str) -> dict:
     if not path.exists():
         raise FileNotFoundError(
             f"Missing IEMOCAP {modality_name} feature cache: {path}. "
-            "Run scripts/prepare_iemocap.py first."
+            "Run 'python -m semantic_split_multimodal.data.prepare_iemocap' first."
         )
     payload = torch.load(path, map_location="cpu")
     required = {"sample_ids", "features", "lengths", "feature_extractor"}
@@ -74,7 +74,8 @@ def _load_manifest(processed_root: Path) -> list[dict]:
     path = processed_root / "manifest.json"
     if not path.exists():
         raise FileNotFoundError(
-            f"Missing IEMOCAP manifest: {path}. Run scripts/prepare_iemocap.py first."
+            f"Missing IEMOCAP manifest: {path}. "
+            "Run 'python -m semantic_split_multimodal.data.prepare_iemocap' first."
         )
     with path.open("r", encoding="utf-8") as f:
         payload = json.load(f)
@@ -314,7 +315,7 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
         raise ValueError(f"Unsupported IEMOCAP dataset.split_strategy: {split_strategy!r}.")
 
     def build_split(mask, split_name):
-        if not bool(mask.any()):
+        if not bool(mask.any()) and split_name != "validation":
             raise ValueError(f"IEMOCAP {split_name} split produced no samples.")
         return {
             "modalities": [payload["features"][mask].contiguous() for payload in payloads],

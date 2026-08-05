@@ -184,6 +184,8 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             client_id_num += 1
 
     for split_name, split in [("validation", validation), ("test", test)]:
+        if int(split["labels"].shape[0]) == 0:
+            continue
         split_modalities = {
             name: split["modalities"][idx].contiguous()
             for idx, name in enumerate(modality_names)

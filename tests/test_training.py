@@ -343,3 +343,129 @@ def test_validation_selects_best_early_stops_restores_best_and_tests_once(
         for key, value in best["server_state_dict"].items()
     )
     assert torch.equal(test_server_weight[0], next(iter(best["server_state_dict"].values())))
+
+
+def test_no_validation_runs_fixed_rounds_and_tests_last_model(
+    monkeypatch,
+    tmp_path,
+):
+    clients = [
+        TinyClient("c0", 0, torch.tensor([0, 1, 1])),
+        TinyClient("c1", 1, torch.tensor([1, 0, 1])),
+    ]
+    for client in clients:
+        client.device = torch.device("cpu")
+
+    class Scheduler:
+        def sample_round(self):
+            return clients
+
+        def metrics(self, _selected):
+            return {
+                "coverage": 1.0,
+                "participation_fairness": 1.0,
+                "clients_per_cluster_per_round": 1,
+                "per_cluster_selected": {"0": 1, "1": 1},
+            }
+
+    train_metrics = {
+        "loss": 1.0,
+        "mean_loss": 1.0,
+        "accuracy": 0.5,
+        "K_t": 2,
+        "pseudo_batch_size": 2,
+        "total_pseudo_samples": 2,
+        "mean_pseudo_batch_size": 2.0,
+        "common_labels": [0, 1],
+        "local_step_common_labels": [[0, 1]],
+        "binding_success": 1.0,
+        "empty_binding_round": 0,
+        "round_status": "effective",
+        "configured_local_steps": 1,
+        "attempted_local_steps": 1,
+        "effective_local_steps": 1,
+        "empty_binding_local_steps": 0,
+        "round_binding_success_rate": 1.0,
+        "cluster_slot_coverage": 1.0,
+        "server_update_l1": 0.0,
+        "client_update_l1": 0.0,
+    }
+    eval_paths = []
+
+    monkeypatch.setattr(fusion_sl, "_load_clients", lambda *_args: clients)
+    monkeypatch.setattr(fusion_sl, "build_scheduler", lambda *_args, **_kwargs: Scheduler())
+    monkeypatch.setattr(
+        fusion_sl,
+        "_train_round",
+        lambda server, *_args, **_kwargs: dict(train_metrics),
+    )
+    monkeypatch.setattr(fusion_sl, "build_oracle_eval_mapping", lambda *_args: {"status": "success"})
+
+    def fake_evaluate(server, _clients, path, *_args, **_kwargs):
+        eval_paths.append(path.name)
+        return {
+            "eval_status": "success",
+            "eval_failure_reason": None,
+            "loss": 1.0,
+            "accuracy": 0.5,
+            "macro_f1": 0.5,
+            "weighted_f1": 0.5,
+        }
+
+    monkeypatch.setattr(fusion_sl, "evaluate_naturally_paired_fusion", fake_evaluate)
+
+    cfg = {
+        "seed": 101,
+        "encoder_hidden_dim": 3,
+        "num_classes": 2,
+        "partition": {"output_dir": str(tmp_path / "stage1")},
+        "cluster": {"output_dir": str(tmp_path / "stage2")},
+        "result": {"output_dir": str(tmp_path / "run")},
+        "result_model": {"output_dir": str(tmp_path / "run")},
+        "training": {
+            "scheduler": "balanced_cluster_round_robin",
+            "global_rounds": 4,
+            "validation_enabled": False,
+            "local_steps": 1,
+            "clients_per_cluster_per_round": 1,
+            "server_lr": 0.001,
+        },
+        "binding": {"type": "label_random", "batch_size": 2},
+        "fusion": {
+            "type": "concat_mlp",
+            "adapter_dim": 3,
+            "hidden_dim": 4,
+            "num_layers": 1,
+            "dropout": 0.0,
+        },
+    }
+
+    result = fusion_sl.run_mmbind_fusion_stage3_split_training(
+        cfg,
+        tmp_path,
+        torch.device("cpu"),
+    )
+
+    assert result["stop_reason"] == "max_global_rounds"
+    assert result["stop_round"] == 4
+    assert result["executed_global_rounds"] == 4
+    assert result["best_round"] == 4
+    assert result["test_evaluation_count"] == 1
+    assert result["checkpoint"] == "last_model.pt"
+    assert result["selected_by"] == "fixed_rounds_no_validation"
+    assert result["official_result"] == {
+        "selection": "fixed_rounds_no_validation",
+        "metrics_file": "final_metrics.json",
+        "model_file": "last_model.pt",
+    }
+    assert eval_paths == ["test_multimodal.pt"]
+    assert not (tmp_path / "run" / "best_model.pt").exists()
+    assert (tmp_path / "run" / "last_model.pt").exists()
+
+    saved_metrics = json.loads((tmp_path / "run" / "final_metrics.json").read_text(encoding="utf-8"))
+    best_metrics = json.loads((tmp_path / "run" / "best_metrics.json").read_text(encoding="utf-8"))
+    assert saved_metrics["official_result"] == result["official_result"]
+    assert saved_metrics["checkpoint"] == "last_model.pt"
+    assert saved_metrics["selected_by"] == "fixed_rounds_no_validation"
+    assert best_metrics["checkpoint_role"] == "no_validation_fixed_rounds"
+    assert best_metrics["selected_by"] == "fixed_rounds_no_validation"

@@ -25,86 +25,97 @@ def write_training_curves(run_dir: Path):
     validation_rows = _read_numeric_rows(run_dir / "validation_log.csv")
     if not train_rows:
         raise ValueError("train_log.csv contains no training rows.")
-    if not validation_rows:
-        raise ValueError("validation_log.csv contains no validation rows.")
 
     train_rounds = [int(row["round"]) for row in train_rows]
     train_loss = [float(row["loss"]) for row in train_rows]
     validation_success = [row for row in validation_rows if row["eval_status"] == "success"]
-    if not validation_success:
-        raise ValueError("validation_log.csv contains no successful validation rows.")
-
-    validation_rounds = [int(row["round"]) for row in validation_success]
-    validation_loss = [float(row["loss"]) for row in validation_success]
-    validation_accuracy = [float(row["accuracy"]) for row in validation_success]
-    validation_macro_f1 = [float(row["macro_f1"]) for row in validation_success]
-    validation_weighted_f1 = [
-        float(row["weighted_f1"])
-        for row in validation_success
-        if row.get("weighted_f1") not in (None, "")
-    ]
-    best_rows = [row for row in validation_success if int(row["is_best"]) == 1]
-    best_round = int(best_rows[-1]["round"]) if best_rows else None
     stop_round = train_rounds[-1]
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-    axes[0].plot(train_rounds, train_loss, label="train loss", linewidth=1.5)
-    axes[0].plot(
-        validation_rounds,
-        validation_loss,
-        "o-",
-        label="validation loss",
-        linewidth=1.5,
-    )
-    axes[0].set_ylabel("Loss")
-    axes[0].grid(alpha=0.25)
-    axes[0].legend()
+    if validation_success:
+        validation_rounds = [int(row["round"]) for row in validation_success]
+        validation_loss = [float(row["loss"]) for row in validation_success]
+        validation_accuracy = [float(row["accuracy"]) for row in validation_success]
+        validation_macro_f1 = [float(row["macro_f1"]) for row in validation_success]
+        validation_weighted_f1 = [
+            float(row["weighted_f1"])
+            for row in validation_success
+            if row.get("weighted_f1") not in (None, "")
+        ]
+        best_rows = [row for row in validation_success if int(row["is_best"]) == 1]
+        best_round = int(best_rows[-1]["round"]) if best_rows else None
 
-    axes[1].plot(
-        validation_rounds,
-        validation_accuracy,
-        "o-",
-        label="validation accuracy",
-    )
-    axes[1].plot(
-        validation_rounds,
-        validation_macro_f1,
-        "o-",
-        label="validation macro-F1",
-    )
-    if len(validation_weighted_f1) == len(validation_rounds):
+        fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+        axes[0].plot(train_rounds, train_loss, label="train loss", linewidth=1.5)
+        axes[0].plot(
+            validation_rounds,
+            validation_loss,
+            "o-",
+            label="validation loss",
+            linewidth=1.5,
+        )
+        axes[0].set_ylabel("Loss")
+        axes[0].grid(alpha=0.25)
+        axes[0].legend()
+
         axes[1].plot(
             validation_rounds,
-            validation_weighted_f1,
-            marker="s",
-            label="validation weighted-F1",
+            validation_accuracy,
+            "o-",
+            label="validation accuracy",
         )
-    axes[1].set_xlabel("Global round")
-    axes[1].set_ylabel("Metric")
-    axes[1].set_ylim(0.0, 1.0)
-    axes[1].grid(alpha=0.25)
-    axes[1].legend()
-
-    for axis in axes:
-        if best_round is not None:
-            axis.axvline(
-                best_round,
-                color="green",
-                linestyle="--",
-                alpha=0.7,
-                label="_best",
+        axes[1].plot(
+            validation_rounds,
+            validation_macro_f1,
+            "o-",
+            label="validation macro-F1",
+        )
+        if len(validation_weighted_f1) == len(validation_rounds):
+            axes[1].plot(
+                validation_rounds,
+                validation_weighted_f1,
+                marker="s",
+                label="validation weighted-F1",
             )
-        axis.axvline(
+        axes[1].set_xlabel("Global round")
+        axes[1].set_ylabel("Metric")
+        axes[1].set_ylim(0.0, 1.0)
+        axes[1].grid(alpha=0.25)
+        axes[1].legend()
+
+        for axis in axes:
+            if best_round is not None:
+                axis.axvline(
+                    best_round,
+                    color="green",
+                    linestyle="--",
+                    alpha=0.7,
+                    label="_best",
+                )
+            axis.axvline(
+                stop_round,
+                color="red",
+                linestyle=":",
+                alpha=0.7,
+                label="_stop",
+            )
+        fig.suptitle(
+            f"Training curves (best round={best_round}, stop round={stop_round})"
+        )
+    else:
+        fig, axes = plt.subplots(1, 1, figsize=(10, 4))
+        axes.plot(train_rounds, train_loss, label="train loss", linewidth=1.5)
+        axes.set_xlabel("Global round")
+        axes.set_ylabel("Loss")
+        axes.grid(alpha=0.25)
+        axes.legend()
+        axes.axvline(
             stop_round,
             color="red",
             linestyle=":",
             alpha=0.7,
             label="_stop",
         )
-
-    fig.suptitle(
-        f"Training curves (best round={best_round}, stop round={stop_round})"
-    )
+        fig.suptitle(f"Training curves (no validation, fixed rounds={stop_round})")
     fig.tight_layout()
     output_path = run_dir / "training_curves.png"
     fig.savefig(output_path, dpi=160)

@@ -190,7 +190,9 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
     test_multimodal_path = stage1_dir / "test_multimodal.pt"
     partition_config_path = stage1_dir / "partition_config.json"
     _require_readable_file(client_meta_path, "Stage1 client_meta.csv")
-    _require_readable_file(validation_multimodal_path, "Stage1 validation_multimodal.pt")
+    validation_enabled = bool(cfg.get("training", {}).get("validation_enabled", True))
+    if validation_enabled:
+        _require_readable_file(validation_multimodal_path, "Stage1 validation_multimodal.pt")
     _require_readable_file(test_multimodal_path, "Stage1 test_multimodal.pt")
     partition_config = _load_json(partition_config_path, "Stage1 partition_config.json")
 
@@ -390,17 +392,20 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     if not isinstance(metrics, dict):
         return "failed", "training_function_returned_non_dict_metrics"
     run_dir = paths["run_dir"]
-    for name in [
+    validation_enabled = metrics.get("checkpoint") == "best_model.pt"
+    required_files = [
         "source_config.config",
         "resolved_config.config",
         "train_log.csv",
         "validation_log.csv",
         "final_metrics.json",
         "best_metrics.json",
-        "best_model.pt",
         "last_model.pt",
         "training_curves.png",
-    ]:
+    ]
+    if validation_enabled:
+        required_files.append("best_model.pt")
+    for name in required_files:
         if not (run_dir / name).exists():
             return "failed", f"missing_{name}"
     run_test = bool(metrics.get("evaluation_mode") != "validation_only_test_deferred")
@@ -419,10 +424,16 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     for key in ["test_accuracy", "test_macro_f1", "test_weighted_f1", "test_loss"]:
         if not _is_finite_number(metrics.get(key)):
             return "failed", f"invalid_{key}"
-    if metrics.get("checkpoint") != "best_model.pt":
-        return "failed", "official_checkpoint_must_be_best_model"
-    if metrics.get("selected_by") != "validation_weighted_f1":
-        return "failed", "official_checkpoint_selection_must_use_validation_weighted_f1"
+    if validation_enabled:
+        if metrics.get("checkpoint") != "best_model.pt":
+            return "failed", "official_checkpoint_must_be_best_model"
+        if metrics.get("selected_by") != "validation_weighted_f1":
+            return "failed", "official_checkpoint_selection_must_use_validation_weighted_f1"
+    else:
+        if metrics.get("checkpoint") != "last_model.pt":
+            return "failed", "official_checkpoint_must_be_last_model"
+        if metrics.get("selected_by") != "fixed_rounds_no_validation":
+            return "failed", "official_checkpoint_selection_must_be_fixed_rounds"
     if int(metrics.get("test_evaluation_count", -1)) != 1:
         return "failed", "test_evaluation_count_must_equal_one"
     executed_rounds = int(metrics.get("executed_global_rounds", -1))
@@ -492,7 +503,11 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "best_round": None if metrics is None else metrics.get("best_round"),
         "stop_round": None if metrics is None else metrics.get("stop_round"),
         "stop_reason": None if metrics is None else metrics.get("stop_reason"),
-        "checkpoint_selection": "best_validation_weighted_f1",
+        "checkpoint_selection": (
+            "best_validation_weighted_f1"
+            if bool(training_cfg.get("validation_enabled", True))
+            else "fixed_rounds_no_validation"
+        ),
         "test_evaluation_count": None if metrics is None else metrics.get("test_evaluation_count"),
         "device": None if metrics is None else metrics.get("device"),
         "estimated_Q": stage2_audit.get("estimated_Q"),

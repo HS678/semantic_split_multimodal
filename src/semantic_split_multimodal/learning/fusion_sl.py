@@ -488,6 +488,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         weight_decay=float(cfg.get("training", {}).get("server_weight_decay", 0.0)),
     )
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
+    validation_enabled = bool(training_cfg.get("validation_enabled", True))
     validation_every = int(training_cfg.get("validation_every", 10))
     early_stopping_cfg = training_cfg.get("early_stopping", {})
     patience = int(early_stopping_cfg.get("patience", 3))
@@ -495,14 +496,15 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     min_delta = float(early_stopping_cfg.get("min_delta", 0.001))
     if rounds <= 0:
         raise ValueError("training.global_rounds must be positive.")
-    if validation_every <= 0:
-        raise ValueError("training.validation_every must be positive.")
-    if patience <= 0:
-        raise ValueError("training.early_stopping.patience must be positive.")
-    if min_rounds <= 0 or min_rounds > rounds:
-        raise ValueError("training.early_stopping.min_rounds must be in [1, training.global_rounds].")
-    if min_delta < 0.0:
-        raise ValueError("training.early_stopping.min_delta must be non-negative.")
+    if validation_enabled:
+        if validation_every <= 0:
+            raise ValueError("training.validation_every must be positive.")
+        if patience <= 0:
+            raise ValueError("training.early_stopping.patience must be positive.")
+        if min_rounds <= 0 or min_rounds > rounds:
+            raise ValueError("training.early_stopping.min_rounds must be in [1, training.global_rounds].")
+        if min_delta < 0.0:
+            raise ValueError("training.early_stopping.min_delta must be non-negative.")
 
     train_fields = [
         "global_round",
@@ -636,7 +638,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "round_status": train_metrics["round_status"],
                 }
             )
-            if round_idx % validation_every == 0 or round_idx == rounds:
+            if validation_enabled and (round_idx % validation_every == 0 or round_idx == rounds):
                 if oracle_mapping is None:
                     oracle_mapping = build_oracle_eval_mapping(
                         partition_dir / "client_meta.csv",
@@ -718,7 +720,14 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
 
     run_test = bool(cfg.get("evaluation", {}).get("run_test", True))
     test_evaluation_count = 0
-    if best_metrics is not None:
+    if oracle_mapping is None:
+        oracle_mapping = build_oracle_eval_mapping(
+            partition_dir / "client_meta.csv",
+            cluster_assignment_path,
+            None,
+            cluster_assignment_column,
+        )
+    if validation_enabled and best_metrics is not None:
         _load_checkpoint(
             model_dir / "best_model.pt",
             server,
@@ -750,7 +759,7 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                 "binary_f1": None,
                 "confusion_matrix": None,
             }
-    else:
+    elif validation_enabled:
         test_eval = {
             "eval_status": "failed",
             "eval_failure_reason": "no_successful_validation_checkpoint",
@@ -763,11 +772,47 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             "binary_f1": None,
             "confusion_matrix": None,
         }
+    else:
+        _load_checkpoint(
+            model_dir / "last_model.pt",
+            server,
+            clients,
+            cluster_ids,
+            cluster_to_slot,
+            device,
+        )
+        if run_test:
+            test_eval = evaluate_naturally_paired_fusion(
+                server,
+                clients_by_id,
+                partition_dir / "test_multimodal.pt",
+                oracle_mapping,
+                cfg,
+                device,
+            )
+            test_evaluation_count = 1
+        else:
+            test_eval = {
+                "eval_status": "deferred",
+                "eval_failure_reason": None,
+                "loss": None,
+                "accuracy": None,
+                "balanced_accuracy": None,
+                "macro_recall": None,
+                "macro_f1": None,
+                "weighted_f1": None,
+                "binary_f1": None,
+                "confusion_matrix": None,
+            }
 
     final_metrics = {
-        "checkpoint": "best_model.pt",
-        "selected_by": "validation_weighted_f1",
-        "best_round": None if best_metrics is None else int(best_metrics["best_round"]),
+        "checkpoint": "best_model.pt" if validation_enabled else "last_model.pt",
+        "selected_by": "validation_weighted_f1" if validation_enabled else "fixed_rounds_no_validation",
+        "best_round": (
+            (None if best_metrics is None else int(best_metrics["best_round"]))
+            if validation_enabled
+            else int(executed_rounds)
+        ),
         "test_eval_status": test_eval["eval_status"],
         "test_eval_failure_reason": test_eval["eval_failure_reason"],
         "test_loss": test_eval["loss"],
@@ -822,9 +867,11 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "evaluation_mode": "formal_test" if run_test else "validation_only_test_deferred",
         "official_result": (
             {
-                "selection": "best_validation_weighted_f1",
+                "selection": (
+                    "best_validation_weighted_f1" if validation_enabled else "fixed_rounds_no_validation"
+                ),
                 "metrics_file": "final_metrics.json",
-                "model_file": "best_model.pt",
+                "model_file": "best_model.pt" if validation_enabled else "last_model.pt",
             }
             if run_test
             else None
@@ -833,7 +880,18 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     with (result_dir / "final_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(final_metrics, f, indent=2)
     with (result_dir / "best_metrics.json").open("w", encoding="utf-8") as f:
-        json.dump(best_metrics, f, indent=2)
+        if validation_enabled:
+            json.dump(best_metrics, f, indent=2)
+        else:
+            json.dump(
+                {
+                    "checkpoint_role": "no_validation_fixed_rounds",
+                    "selected_by": "fixed_rounds_no_validation",
+                    "stop_round": int(executed_rounds),
+                },
+                f,
+                indent=2,
+            )
     return final_metrics
 
 

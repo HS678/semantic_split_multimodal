@@ -92,7 +92,7 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
                 )
             actual_shape = [int(v) for v in x.shape[1:]]
             expected_shape = [int(v) for v in input_shapes[idx]]
-            if actual_shape != expected_shape:
+            if n > 0 and actual_shape != expected_shape:
                 raise ValueError(
                     f"Dataset '{dataset_type}' split '{split_name}' modality {idx} shape "
                     f"{actual_shape} does not match modality_input_shapes {expected_shape}."

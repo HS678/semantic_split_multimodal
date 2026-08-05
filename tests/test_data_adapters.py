@@ -164,8 +164,12 @@ def test_subject_splits_must_be_non_empty_and_disjoint():
 
     with pytest.raises(ValueError, match="must be disjoint"):
         _validate_subject_splits([1, 2], [2, 3], [4], "synthetic")
+    empty_validation = _validate_subject_splits([1], [], [2], "synthetic")
+    assert empty_validation == {"train": {1}, "validation": set(), "test": {2}}
     with pytest.raises(ValueError, match="must not be empty"):
-        _validate_subject_splits([1], [], [2], "synthetic")
+        _validate_subject_splits([], [3], [2], "synthetic")
+    with pytest.raises(ValueError, match="must not be empty"):
+        _validate_subject_splits([1], [3], [], "synthetic")
 
 
 def test_normalization_statistics_are_fitted_on_train_only():
@@ -212,5 +216,4 @@ def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
     assert remapped_train["labels"].tolist() == [mapping[1], mapping[24]]
     assert remapped_validation["labels"].tolist() == [mapping[12]]
     assert remapped_test["labels"].tolist() == [mapping[17]]
-
 
