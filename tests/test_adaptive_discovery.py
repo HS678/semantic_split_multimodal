@@ -6,15 +6,15 @@ import numpy as np
 import pytest
 from sklearn.metrics import adjusted_rand_score
 
-from semantic_split_multimodal.discovery.clustering import (
+from MSL.discovery.clustering import (
     AdaptiveISODATAEstimator,
     _best_merge_proposal,
     _best_split_proposal,
     _partition_bic,
     adaptive_isodata,
 )
-from semantic_split_multimodal.evaluation.metrics import discovery_metrics
-from semantic_split_multimodal.utils.config import load_config
+from MSL.evaluation.metrics import discovery_metrics
+from MSL.utils.config import load_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -231,10 +231,10 @@ def test_estimator_api_does_not_accept_hidden_modality_or_true_q():
 
 def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k():
     configs = [
-        PROJECT_ROOT / "configs" / "test2" / "uci_har.config",
-        PROJECT_ROOT / "configs" / "test2" / "mhealth" / "fold1.config",
-        PROJECT_ROOT / "configs" / "test2" / "pamap2" / "fold1.config",
-        PROJECT_ROOT / "configs" / "test2" / "iemocap" / "fold1.config",
+        PROJECT_ROOT / "configs" / "uci_har.config",
+        PROJECT_ROOT / "configs" / "mhealth" / "fold1.config",
+        PROJECT_ROOT / "configs" / "pamap2" / "fold1.config",
+        PROJECT_ROOT / "configs" / "iemocap" / "fold1.config",
     ]
     adaptive_blocks = []
     for path in configs:
@@ -253,17 +253,17 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
     assert all(block == adaptive_blocks[0] for block in adaptive_blocks[1:])
 
 
-def test_test2_configs_freeze_stage_boundaries_and_no_validation_selection():
+def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
     expected = {
-        "configs/test2/uci_har.config": {
+        "configs/uci_har.config": {
             "lr": 0.0002,
             "split_protocol": "subject_disjoint_70_30_no_val_v1",
         },
-        "configs/test2/mhealth/fold1.config": {
+        "configs/mhealth/fold1.config": {
             "lr": 0.0002,
             "split_protocol": "subject_5fold_no_val_fold1_v1",
         },
-        "configs/test2/pamap2/fold1.config": {
+        "configs/pamap2/fold1.config": {
             "lr": 0.0001,
             "split_protocol": "subject_9fold_loso_no_val_fold1_v1",
         },
@@ -580,9 +580,9 @@ def test_accepted_merge_strictly_improves_global_bic_like_score():
 
 def test_adaptive_discovery_code_does_not_read_hidden_modality_name():
     checked_files = [
-        PROJECT_ROOT / "src" / "semantic_split_multimodal" / "discovery" / "clustering.py",
-        PROJECT_ROOT / "src" / "semantic_split_multimodal" / "discovery" / "fingerprint.py",
-        PROJECT_ROOT / "src" / "semantic_split_multimodal" / "learning" / "pretrain.py",
+        PROJECT_ROOT / "src" / "MSL" / "discovery" / "clustering.py",
+        PROJECT_ROOT / "src" / "MSL" / "discovery" / "fingerprint.py",
+        PROJECT_ROOT / "src" / "MSL" / "learning" / "pretrain.py",
     ]
 
     for path in checked_files:

@@ -3,9 +3,9 @@ from pathlib import Path
 
 import torch
 
-from semantic_split_multimodal.data.partitioner import run_stage1_partition
-from semantic_split_multimodal.data.registry import load_dataset
-from semantic_split_multimodal.learning.models import create_client_encoder
+from MSL.data.partitioner import run_stage1_partition
+from MSL.data.registry import load_dataset
+from MSL.learning.models import create_client_encoder
 
 
 def _write_synthetic_iemocap_cache(tmp_path: Path):

@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from semantic_split_multimodal.utils.config import load_config
+from MSL.utils.config import load_config
 
 
 METRICS = [
@@ -115,8 +115,8 @@ def main():
     )
     parser.add_argument(
         "--results-root",
-        default=str(ROOT / "local" / "results_test2"),
-        help="Results root; defaults to local/results_test2.",
+        default=str(ROOT / "local" / "results_msl"),
+        help="Results root; defaults to local/results_msl.",
     )
     parser.add_argument(
         "--dataset",

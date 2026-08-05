@@ -10,11 +10,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from semantic_split_multimodal.learning.pretrain import run_stage2_discovery
-from semantic_split_multimodal.utils.config import load_config, save_config_artifacts
-from semantic_split_multimodal.utils.device import select_device
-from semantic_split_multimodal.utils.results import dataset_result_name, safe_result_component
-from semantic_split_multimodal.utils.seed import set_seed
+from MSL.learning.pretrain import run_stage2_discovery
+from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.device import select_device
+from MSL.utils.results import dataset_result_name, safe_result_component
+from MSL.utils.seed import set_seed
 
 
 def _resolve(path_value):

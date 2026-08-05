@@ -1,6 +1,6 @@
 # Configuration Reference
 
-四个数据集配置位于 `configs/test2/uci_har.config`、`configs/test2/mhealth/fold1.config`、`configs/test2/pamap2/fold1.config` 和 `configs/test2/iemocap/fold1.config`。完整字段、类型和取值说明位于 `configs/config.config`。当前四份开发配置统一使用 `true_cluster`，属于 Oracle/debug 实验。
+四个数据集配置位于 `configs/uci_har.config`、`configs/mhealth/fold1.config`、`configs/pamap2/fold1.config` 和 `configs/iemocap/fold1.config`。完整字段、类型和取值说明位于 `configs/config.config`。当前四份开发配置统一使用 `true_cluster`，属于 Oracle/debug 实验。
 
 ## 顶层字段
 
@@ -130,7 +130,7 @@ MMBind 式分支不修改 `ClusterAdapter + Concat Fusion + Classifier` 的推�
 Stage 3 CLI 在内存配置中注入输出路径，正式 YAML 不保存 `result` 或 `result_model` 字段。所有输出写入：
 
 ```text
-local/results_test2/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
+local/results_msl/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 解析后的配置、训练日志、验证日志、最佳验证指标、最终测试指标、`best_model.pt`、诊断用 `last_model.pt` 和训练曲线都直接保存在该目录下。正式模型使用 `best_model.pt`，正式 test 指标使用 `final_metrics.json`。

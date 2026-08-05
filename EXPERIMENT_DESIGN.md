@@ -2,7 +2,7 @@
 
 > 本文档记录 `msl` 分支正式实验框架的全部设计决策，按实验运行步骤（Stage 1 → Stage 2 → Stage 3 → Evaluation）组织。
 > 状态标记：✅ 已确定；⏳ 待讨论/待定；🔄 后续实现时细化。
-> 本文件是设计记录，不是可执行配置；正式配置见 `configs/test2/`（当前唯一正式方案）。
+> 本文件是设计记录，不是可执行配置；正式配置见 `configs/`（当前唯一正式方案）。
 
 ---
 
@@ -67,7 +67,7 @@
 | `config.seed` | 42（基础）；多 seed 见下 | 基础随机种子 |
 | `partition.clients_per_modality` | 10 | 每个真实模态拆成 10 个单模态客户端 |
 | `dataset.normalize` | true | 只用 train split 统计量标准化 |
-| `results.base_dir` | `./local/results_test2` | 正式结果根目录 |
+| `results.base_dir` | `./local/results_msl` | 正式结果根目录 |
 
 ### 2.1 seed 策略
 
@@ -301,19 +301,19 @@
 
 ---
 
-## 8. 正式实验运行说明（test2）
+## 8. 正式实验运行说明（MSL）
 
 ### 8.1 配置位置
 
-- `configs/test2/uci_har.config`（官方 70/30，单次划分 × 5 seed）
-- `configs/test2/iemocap/fold1~5.config`（5 折 session-LOSO）
-- `configs/test2/mhealth/fold1~5.config`（5 折）
-- `configs/test2/pamap2/fold1~9.config`（9 折 LOSO）
-- 全部为独立完整配置（无 extends）；无验证集，`training.validation_enabled=false`、固定 `global_rounds=200`；结果写入 `local/results_test2/`
+- `configs/uci_har.config`（官方 70/30，单次划分 × 5 seed）
+- `configs/iemocap/fold1~5.config`（5 折 session-LOSO）
+- `configs/mhealth/fold1~5.config`（5 折）
+- `configs/pamap2/fold1~9.config`（9 折 LOSO）
+- 全部为独立完整配置（无 extends）；无验证集，`training.validation_enabled=false`、固定 `global_rounds=200`；结果写入 `local/results_msl/`
 
 ### 8.2 运行前提
 
-- Stage 1 已全部完成：20 个 partition 已生成于 `local/results_test2/partition/`（已验证样本数与设计一致）；
+- Stage 1 已全部完成：20 个 partition 已生成于 `local/results_msl/partition/`（已验证样本数与设计一致）；
 - Stage 2 / Stage 3 需要 GPU 环境。
 
 ### 8.3 执行命令（GPU 环境）
@@ -321,30 +321,30 @@
 单数据集启动（每个脚本含该数据集全部 seed/折的 Stage1→Stage2→Stage3 + 一键汇总）：
 
 ```bash
-nohup bash local/tools/launch_test2_uci_har.sh > "local/tools/uci_har_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test2_iemocap.sh > "local/tools/iemocap_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test2_mhealth.sh > "local/tools/mhealth_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test2_pamap2.sh > "local/tools/pamap2_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_msl_uci_har.sh > "local/tools/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_msl_iemocap.sh > "local/tools/iemocap_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_msl_mhealth.sh > "local/tools/mhealth_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_msl_pamap2.sh > "local/tools/pamap2_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 四数据集并行（推荐，各数据集独立 Stage1→Stage2→Stage3）：
 
 ```bash
-nohup bash local/tools/parallel/launch_test2_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/parallel/launch_msl_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-脚本各阶段输出已存在时自动跳过（断点续跑）；日志写入 `local/results_test2/logs/`。
+脚本各阶段输出已存在时自动跳过（断点续跑）；日志写入 `local/results_msl/logs/`。
 
 ### 8.4 结果聚合
 
 ```bash
-python scripts/summarize_results.py --results-root local/results_test2
+python scripts/summarize_results.py --results-root local/results_msl
 ```
 
 输出：
 
-- `local/results_test2/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
-- `local/results_test2/summary/summary.json`：四个数据集聚合总览。
+- `local/results_msl/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
+- `local/results_msl/summary/summary.json`：四个数据集聚合总览。
 
 ### 8.5 注意事项
 

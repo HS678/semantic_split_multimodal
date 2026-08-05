@@ -1,7 +1,7 @@
 # 四数据集正式实验设计
 
-> ⚠️ 本文档记录早期 `formal` 方案的实验设计，该方案已被 `test2`（当前正式方案）取代。
-> 当前正式方案见 `configs/test2/` 与根目录 `EXPERIMENT_DESIGN.md`。
+> ⚠️ 本文档记录早期 `formal` 方案的实验设计，该方案已被 `MSL`（当前正式方案）取代。
+> 当前正式方案见 `configs/` 与根目录 `EXPERIMENT_DESIGN.md`。
 
 ## 不变的主线协议
 
@@ -57,5 +57,5 @@ Stage2 指纹/PCA/聚类审计、checkpoint、validation 曲线和一次正式 t
 python scripts/summarize_formal_results.py
 ```
 
-输出为 `local/results_test2/formal_summary.json` 与 `local/results_test2/formal_summary.md`。IEMOCAP 未完成时，
+输出为 `local/results_msl/formal_summary.json` 与 `local/results_msl/formal_summary.md`。IEMOCAP 未完成时，
 脚本只写 `missing_test_sessions`，不会生成占位精度。

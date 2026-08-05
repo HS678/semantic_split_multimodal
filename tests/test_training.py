@@ -3,8 +3,8 @@ import json
 import torch
 from torch import nn
 
-from semantic_split_multimodal.learning import fusion_sl
-from semantic_split_multimodal.learning.fusion_sl import _train_round
+from MSL.learning import fusion_sl
+from MSL.learning.fusion_sl import _train_round
 
 
 class TinyClient:

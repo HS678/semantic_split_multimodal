@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from semantic_split_multimodal.utils.config import write_config
+from MSL.utils.config import write_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -203,7 +203,7 @@ def test_stage3_cli_rejects_removed_run_type_option():
         script.parse_args(
             [
                 "--config",
-                "configs/test2/uci_har.config",
+                "configs/uci_har.config",
                 "--stage1-dir",
                 "stage1",
                 "--stage2-dir",

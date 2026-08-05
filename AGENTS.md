@@ -348,7 +348,7 @@ naturally paired multimodal evaluation
 例如：
 
 ```
-src/semantic_split_multimodal/learning/fusion_sl.py
+src/MSL/learning/fusion_sl.py
 ```
 
 2. 修改原因：
@@ -417,7 +417,7 @@ src/semantic_split_multimodal/learning/fusion_sl.py
 实验结果统一保存：
 
 ```
-local/results_test2/   # 当前正式方案
+local/results_msl/   # 当前正式方案
 ```
 
 正式实验至少保存：

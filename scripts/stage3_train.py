@@ -16,16 +16,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from semantic_split_multimodal.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
-from semantic_split_multimodal.evaluation.plot_training_curves import write_training_curves
-from semantic_split_multimodal.utils.config import load_config, save_config_artifacts
-from semantic_split_multimodal.utils.device import select_device
-from semantic_split_multimodal.utils.results import (
+from MSL.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
+from MSL.evaluation.plot_training_curves import write_training_curves
+from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.device import select_device
+from MSL.utils.results import (
     cluster_assignment_scope,
     dataset_result_name,
     experiment_config_signature,
 )
-from semantic_split_multimodal.utils.seed import set_seed
+from MSL.utils.seed import set_seed
 
 
 SAFE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

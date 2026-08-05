@@ -1,6 +1,6 @@
 import torch
 
-from semantic_split_multimodal.learning.models import (
+from MSL.learning.models import (
     ConcatMLPFusionServer,
     load_fusion_server_state_dict_compatible,
 )

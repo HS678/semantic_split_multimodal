@@ -1,10 +1,10 @@
 # Extension Guide
 
-本项目采用 `src` layout，内部 import 统一使用 `semantic_split_multimodal...`。
+本项目采用 `src` layout，内部 import 统一使用 `MSL...`。
 
 ## 新数据集适配器
 
-数据集 loader 位于 `src/semantic_split_multimodal/data/datasets.py`，注册入口位于 `src/semantic_split_multimodal/data/registry.py`。loader 返回结构保持：
+数据集 loader 位于 `src/MSL/data/datasets.py`，注册入口位于 `src/MSL/data/registry.py`。loader 返回结构保持：
 
 ```python
 {
@@ -31,7 +31,7 @@
 
 ## Encoder
 
-encoder 与 server 组件集中在 `src/semantic_split_multimodal/learning/models.py`。通过 registry 增加 encoder：
+encoder 与 server 组件集中在 `src/MSL/learning/models.py`。通过 registry 增加 encoder：
 
 ```ini
 model:
@@ -43,7 +43,7 @@ model:
 
 ## 聚类
 
-fingerprint 与 clustering 位于 `src/semantic_split_multimodal/discovery/`。当前只保留：
+fingerprint 与 clustering 位于 `src/MSL/discovery/`。当前只保留：
 
 - `kmeans`
 - `adaptive_isodata`

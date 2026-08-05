@@ -7,10 +7,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from semantic_split_multimodal.data.partitioner import run_stage1_partition
-from semantic_split_multimodal.utils.config import load_config, save_config_artifacts
-from semantic_split_multimodal.utils.results import configure_result_run
-from semantic_split_multimodal.utils.seed import set_seed
+from MSL.data.partitioner import run_stage1_partition
+from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.results import configure_result_run
+from MSL.utils.seed import set_seed
 
 
 def main():

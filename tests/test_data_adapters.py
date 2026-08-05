@@ -4,33 +4,33 @@ from pathlib import Path
 import pytest
 import torch
 
-import semantic_split_multimodal.data.partitioner as partitioner
-from semantic_split_multimodal.data.partitioner import run_stage1_partition
-from semantic_split_multimodal.data.registry import load_dataset
-from semantic_split_multimodal.data.datasets import (
+import MSL.data.partitioner as partitioner
+from MSL.data.partitioner import run_stage1_partition
+from MSL.data.registry import load_dataset
+from MSL.data.datasets import (
     PAMAP2_ACTIVITY_IDS,
     _normalize_from_train,
     _pamap2_remap_labels,
     _validate_subject_splits,
 )
-from semantic_split_multimodal.utils.config import load_config
-from semantic_split_multimodal.utils.results import configure_result_run
+from MSL.utils.config import load_config
+from MSL.utils.results import configure_result_run
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 DATASET_CASES = [
-    ("uci_har", "configs/test2/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
+    ("uci_har", "configs/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
     (
         "mhealth",
-        "configs/test2/mhealth/fold1.config",
+        "configs/mhealth/fold1.config",
         ["accelerometer", "gyroscope", "magnetometer", "ecg"],
         [[9, 128], [6, 128], [6, 128], [2, 128]],
     ),
     (
         "pamap2",
-        "configs/test2/pamap2/fold1.config",
+        "configs/pamap2/fold1.config",
         ["accelerometer", "gyroscope", "magnetometer"],
         [[9, 200], [9, 200], [9, 200]],
     ),

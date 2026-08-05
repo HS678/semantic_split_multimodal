@@ -6,10 +6,10 @@
 
 ## 代码阅读顺序
 
-1. `configs/test2/uci_har.config`：先理解一份完整配置；字段说明见 `configs/config.config`。
-2. `scripts/stage1_partition.py`：理解 Stage 1 partition 如何保存到 `local/results_test2/partition/`。
-3. `src/semantic_split_multimodal/data/datasets.py`：理解数据集的统一 loader contract。
-4. `src/semantic_split_multimodal/data/partitioner.py`：理解 train-only 单模态 client 和 naturally paired validation/test payload。
+1. `configs/uci_har.config`：先理解一份完整配置；字段说明见 `configs/config.config`。
+2. `scripts/stage1_partition.py`：理解 Stage 1 partition 如何保存到 `local/results_msl/partition/`。
+3. `src/MSL/data/datasets.py`：理解数据集的统一 loader contract。
+4. `src/MSL/data/partitioner.py`：理解 train-only 单模态 client 和 naturally paired validation/test payload。
 5. `scripts/stage2_discovery.py` 与 `learning/pretrain.py`：理解 encoder pretraining、fingerprint 和 clustering。
 6. `learning/scheduling.py`：理解 balanced per-cluster random round-robin scheduler。
 7. `learning/binding.py`：理解 same-label pseudo binding。
@@ -36,7 +36,7 @@
 
 ```bash
 python -m compileall src scripts tests
-python -c "import semantic_split_multimodal"
+python -c "import MSL"
 python -m pytest tests
 python scripts/stage1_partition.py --help
 python scripts/stage2_discovery.py --help

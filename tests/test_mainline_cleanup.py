@@ -5,9 +5,9 @@ import pytest
 import torch
 from torch import nn
 
-from semantic_split_multimodal.learning.fusion_sl import _save_checkpoint
-from semantic_split_multimodal.learning.models import ConcatMLPFusionServer
-from semantic_split_multimodal.learning.scheduling import build_scheduler
+from MSL.learning.fusion_sl import _save_checkpoint
+from MSL.learning.models import ConcatMLPFusionServer
+from MSL.learning.scheduling import build_scheduler
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

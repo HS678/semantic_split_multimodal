@@ -1,6 +1,6 @@
 import torch
 
-from semantic_split_multimodal.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch
+from MSL.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch
 
 
 def test_label_random_binding_requires_complete_cluster_coverage():

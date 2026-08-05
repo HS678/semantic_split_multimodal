@@ -6,13 +6,13 @@
 
 - 输入：`configs/<dataset>.config`
 - 对应文件：`scripts/stage1_partition.py`、`scripts/stage2_discovery.py`、`scripts/stage3_train.py`
-- 关键函数：`semantic_split_multimodal.utils.config.load_config`
+- 关键函数：`MSL.utils.config.load_config`
 - 协议限制：D2D 尚未实现，保持 `d2d.enabled: false`
 
 ## 2. Stage 1 Partition
 
 - 输入：raw naturally paired dataset、`dataset.*`、`partition.*`
-- 输出目录：`local/results_test2/partition/<dataset>/<partition_signature>/`
+- 输出目录：`local/results_msl/partition/<dataset>/<partition_signature>/`
 - 输出文件：`train_clients/client_*.pt`、`client_meta.csv`、`validation_multimodal.pt`、`test_multimodal.pt`、`partition_config.json`
 - 对应文件：`data/registry.py`、`data/datasets.py`、`data/partitioner.py`
 - 关键函数：`load_dataset`、`run_stage1_partition`
@@ -44,7 +44,7 @@ loader 必须返回 `train`、`validation`、`test`、`modality_names` 和 `moda
 ## 6. Stage 2 Discovery
 
 - 输入：Stage 1 `train_clients/`、`pretrain.*`、`fingerprint.*`、`cluster.*`
-- 输出目录：`local/results_test2/cluster/<dataset>/<partition_signature>/<cluster_method>/`
+- 输出目录：`local/results_msl/cluster/<dataset>/<partition_signature>/<cluster_method>/`
 - 输出文件：`true_cluster.csv`、`pred_cluster.csv`、`pretrained_encoders/`、`fingerprints.npz`、`fingerprint_pca.pdf`、`fingerprint_pca.png`、`fingerprint_pca_metadata.json`、`stage2_metadata.json`
 - 对应文件：`scripts/stage2_discovery.py`、`learning/pretrain.py`
 - 关键函数：`run_stage2_discovery`
@@ -64,7 +64,7 @@ Stage 3 只信任 `pred_cluster`，不读取真实模态 id 做训练。其技�
 ## 8. Stage 3 Training
 
 - 输入：Stage 1 partition、Stage 2 cluster、`training.*`、`binding.*`、`fusion.*`
-- 输出目录：`local/results_test2/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/`
+- 输出目录：`local/results_msl/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/`
 - 输出文件：`source_config.config`、`resolved_config.config`、`train_log.csv`、`validation_log.csv`、`best_metrics.json`、`final_metrics.json`、`best_model.pt`、`last_model.pt`、`training_curves.png`、`stage3_metadata.json`
 - 对应文件：`scripts/stage3_train.py`、`learning/fusion_sl.py`
 - 关键函数：`run_mmbind_fusion_stage3_split_training`

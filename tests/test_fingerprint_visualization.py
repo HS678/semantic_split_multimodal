@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from semantic_split_multimodal.evaluation.plot_fingerprint_embedding import (
+from MSL.evaluation.plot_fingerprint_embedding import (
     _prepare_pca,
     write_fingerprint_pca_figure,
 )

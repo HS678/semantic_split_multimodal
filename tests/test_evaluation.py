@@ -4,9 +4,9 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from semantic_split_multimodal.evaluation.fusion_eval import evaluate_naturally_paired_fusion
-from semantic_split_multimodal.evaluation.metrics import learning_metrics
-from semantic_split_multimodal.evaluation.oracle_mapping import (
+from MSL.evaluation.fusion_eval import evaluate_naturally_paired_fusion
+from MSL.evaluation.metrics import learning_metrics
+from MSL.evaluation.oracle_mapping import (
     MERGED_TRUE_MODALITY_FAILURE,
     SPLIT_TRUE_MODALITY_FAILURE,
     SUCCESS,
