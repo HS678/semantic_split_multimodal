@@ -2,7 +2,7 @@
 
 > 本文档记录 `msl` 分支正式实验框架的全部设计决策，按实验运行步骤（Stage 1 → Stage 2 → Stage 3 → Evaluation）组织。
 > 状态标记：✅ 已确定；⏳ 待讨论/待定；🔄 后续实现时细化。
-> 本文件是设计记录，不是可执行配置；正式配置落地见 `configs/formal/`。
+> 本文件是设计记录，不是可执行配置；正式配置见 `configs/test2/`（当前唯一正式方案）。
 
 ---
 
@@ -67,7 +67,7 @@
 | `config.seed` | 42（基础）；多 seed 见下 | 基础随机种子 |
 | `partition.clients_per_modality` | 10 | 每个真实模态拆成 10 个单模态客户端 |
 | `dataset.normalize` | true | 只用 train split 统计量标准化 |
-| `results.base_dir` | `./local/results` | 结果根目录（旧结果保留在 `local/results_formal/`） |
+| `results.base_dir` | `./local/results_test2` | 正式结果根目录 |
 
 ### 2.1 seed 策略
 
@@ -301,57 +301,54 @@
 
 ---
 
-## 8. 正式实验运行说明（test1）
+## 8. 正式实验运行说明（test2）
 
 ### 8.1 配置位置
 
-- `configs/test1/uci_har.config`、`configs/test1/iemocap.config`（单次划分）
-- `configs/test1/mhealth/fold1~5.config`（5 折）
-- `configs/test1/pamap2/fold1~9.config`（9 折 LOSO）
-- 全部为独立完整配置（无 extends），结果写入 `local/results_test1/`
+- `configs/test2/uci_har.config`（官方 70/30，单次划分 × 5 seed）
+- `configs/test2/iemocap/fold1~5.config`（5 折 session-LOSO）
+- `configs/test2/mhealth/fold1~5.config`（5 折）
+- `configs/test2/pamap2/fold1~9.config`（9 折 LOSO）
+- 全部为独立完整配置（无 extends）；无验证集，`training.validation_enabled=false`、固定 `global_rounds=200`；结果写入 `local/results_test2/`
 
 ### 8.2 运行前提
 
-- Stage 1 已全部完成：16 个 partition 已生成于 `local/results_test1/partition/`（已验证样本数与设计一致）；
-- Stage 2 / Stage 3 需要 GPU 环境（当前开发环境无 NVIDIA 设备，不在此环境运行正式训练）。
-
-### 8.2.1 跨机器执行说明（在 GPU 机器上运行）
-
-若在另一台 GPU 机器上运行：
-
-1. 同步代码与配置：`configs/test1/`、`scripts/`、`src/`、`local/tools/launch_test1_formal.sh`；
-2. 同步 Stage 1 产物：`local/results_test1/partition/`（16 个 partition 目录）；
-3. GPU 机器需要 `mpsl` 环境（或等价 PyTorch CUDA 环境）与项目依赖；
-4. 执行 `bash local/tools/launch_test1_formal.sh`；
-5. 完成后在产物所在机器运行 `python scripts/summarize_test1_results.py` 生成聚合 JSON；
-6. 如需把结果带回本机，同步 `local/results_test1/cluster/`、`local/results_test1/experiments/`、`local/results_test1/summary/`。
+- Stage 1 已全部完成：20 个 partition 已生成于 `local/results_test2/partition/`（已验证样本数与设计一致）；
+- Stage 2 / Stage 3 需要 GPU 环境。
 
 ### 8.3 执行命令（GPU 环境）
 
+单数据集启动（每个脚本含该数据集全部 seed/折的 Stage1→Stage2→Stage3 + 一键汇总）：
+
 ```bash
-# 每个数据集一个专属启动脚本，可单独选择执行（均含该数据集全部 seed/折 + 一键汇总）：
-nohup bash local/tools/launch_test1_uci_har.sh > "local/tools/uci_har_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test1_iemocap.sh > "local/tools/iemocap_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test1_mhealth.sh > "local/tools/mhealth_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/launch_test1_pamap2.sh > "local/tools/pamap2_test1_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test2_uci_har.sh > "local/tools/uci_har_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test2_iemocap.sh > "local/tools/iemocap_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test2_mhealth.sh > "local/tools/mhealth_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash local/tools/launch_test2_pamap2.sh > "local/tools/pamap2_test2_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
-每个脚本顶部注释中写有对应的启动命令；脚本顺序执行该数据集的 Stage 2（预训练 + 指纹 + 聚类，每分支独立）与 Stage 3（固定轮次 + early stopping + best checkpoint + test 一次），最后自动调用 `summarize_test1_results.py --dataset <name>` 一键生成该数据集的聚合 JSON；日志写入 `local/results_test1/logs/`。
+四数据集并行（推荐，各数据集独立 Stage1→Stage2→Stage3）：
+
+```bash
+nohup bash local/tools/parallel/launch_test2_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+```
+
+脚本各阶段输出已存在时自动跳过（断点续跑）；日志写入 `local/results_test2/logs/`。
 
 ### 8.4 结果聚合
 
 ```bash
-python scripts/summarize_test1_results.py
+python scripts/summarize_results.py --results-root local/results_test2
 ```
 
 输出：
 
-- `local/results_test1/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
-- `local/results_test1/summary/summary.json`：四个数据集聚合总览。
+- `local/results_test2/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
+- `local/results_test2/summary/summary.json`：四个数据集聚合总览。
 
 ### 8.5 注意事项
 
-- 每个 Stage 2 / Stage 3 输出目录防覆盖，重跑需手动递增 `stage3.attempt` 或清理对应目录；
-- 当前阶段 `cluster_assignment_source=true_cluster`（oracle 调试）；训练内部不读取 `hidden_modality_id`，验证/测试使用真实模态映射到 cluster 做 evaluation-only oracle mapping；
-- 正式无泄漏主线（`pred_cluster`）待聚类参数调优后切换；
+- 无验证集：无早停、无 best checkpoint 选择，固定 200 轮后使用 `last_model.pt` 在测试集评估一次；
+- 当前阶段 `cluster_assignment_source=true_cluster`（oracle 上限）；正式无泄漏主线（`pred_cluster`）待聚类参数调优后切换，届时 pred_cluster 结果为主表、true_cluster 作为 oracle 上限对比；
+- 每个 Stage 2 / Stage 3 输出目录防覆盖，重跑需清理对应目录或递增 `stage3.attempt`；
 - 本仓库修改不自动提交，commit/push 由维护者确认后执行。

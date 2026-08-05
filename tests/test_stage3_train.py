@@ -203,7 +203,7 @@ def test_stage3_cli_rejects_removed_run_type_option():
         script.parse_args(
             [
                 "--config",
-                "configs/uci_har.config",
+                "configs/test2/uci_har.config",
                 "--stage1-dir",
                 "stage1",
                 "--stage2-dir",

@@ -417,7 +417,7 @@ src/semantic_split_multimodal/learning/fusion_sl.py
 实验结果统一保存：
 
 ```
-local/results/
+local/results_test2/   # 当前正式方案
 ```
 
 正式实验至少保存：

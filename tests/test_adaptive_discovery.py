@@ -231,9 +231,10 @@ def test_estimator_api_does_not_accept_hidden_modality_or_true_q():
 
 def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k():
     configs = [
-        PROJECT_ROOT / "configs" / "uci_har.config",
-        PROJECT_ROOT / "configs" / "mhealth.config",
-        PROJECT_ROOT / "configs" / "pamap2.config",
+        PROJECT_ROOT / "configs" / "test2" / "uci_har.config",
+        PROJECT_ROOT / "configs" / "test2" / "mhealth" / "fold1.config",
+        PROJECT_ROOT / "configs" / "test2" / "pamap2" / "fold1.config",
+        PROJECT_ROOT / "configs" / "test2" / "iemocap" / "fold1.config",
     ]
     adaptive_blocks = []
     for path in configs:
@@ -252,11 +253,20 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
     assert all(block == adaptive_blocks[0] for block in adaptive_blocks[1:])
 
 
-def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
+def test_test2_configs_freeze_stage_boundaries_and_no_validation_selection():
     expected = {
-        "uci_har.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
-        "mhealth.config": {"lr": 0.001, "split_protocol": "subject_disjoint_tvt_v1"},
-        "pamap2.config": {"lr": 0.0005, "split_protocol": "subject_disjoint_tvt_v1"},
+        "configs/test2/uci_har.config": {
+            "lr": 0.0002,
+            "split_protocol": "subject_disjoint_70_30_no_val_v1",
+        },
+        "configs/test2/mhealth/fold1.config": {
+            "lr": 0.0002,
+            "split_protocol": "subject_5fold_no_val_fold1_v1",
+        },
+        "configs/test2/pamap2/fold1.config": {
+            "lr": 0.0001,
+            "split_protocol": "subject_9fold_loso_no_val_fold1_v1",
+        },
     }
     adaptive_blocks = []
     forbidden_top_level = {
@@ -265,10 +275,9 @@ def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
         "batch_size",
         "result",
         "result_model",
-        "evaluation",
     }
-    for filename, values in expected.items():
-        path = PROJECT_ROOT / "configs" / filename
+    for relative, values in expected.items():
+        path = PROJECT_ROOT / relative
         cfg = load_config(path)
         assert cfg["seed"] == 42
         assert not forbidden_top_level.intersection(cfg)
@@ -280,21 +289,10 @@ def test_formal_configs_freeze_stage_boundaries_and_validation_selection():
         assert cfg["cluster"]["known_k"] is None
         assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
         assert cfg["dataset"]["split_protocol"] == values["split_protocol"]
-        subject_sets = [
-            set(cfg["dataset"][f"{split_name}_subjects"])
-            for split_name in ("train", "validation", "test")
-        ]
-        assert all(subject_sets)
-        assert subject_sets[0].isdisjoint(subject_sets[1])
-        assert subject_sets[0].isdisjoint(subject_sets[2])
-        assert subject_sets[1].isdisjoint(subject_sets[2])
+        assert cfg["training"]["validation_enabled"] is False
+        assert cfg["dataset"]["validation_subjects"] == []
         assert cfg["training"]["global_rounds"] == 200
-        assert cfg["training"]["validation_every"] == 10
-        assert cfg["training"]["early_stopping"] == {
-            "patience": 3,
-            "min_rounds": 50,
-            "min_delta": 0.001,
-        }
+        assert "early_stopping" not in cfg["training"]
         assert cfg["training"]["local_steps"] == 1
         assert cfg["training"]["clients_per_cluster_per_round"] == 4
         assert cfg["training"]["client_lr"] == values["lr"]

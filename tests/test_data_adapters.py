@@ -21,18 +21,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 DATASET_CASES = [
-    ("uci_har", "configs/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
+    ("uci_har", "configs/test2/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
     (
         "mhealth",
-        "configs/mhealth.config",
+        "configs/test2/mhealth/fold1.config",
         ["accelerometer", "gyroscope", "magnetometer", "ecg"],
         [[9, 128], [6, 128], [6, 128], [2, 128]],
     ),
     (
         "pamap2",
-        "configs/pamap2.config",
+        "configs/test2/pamap2/fold1.config",
         ["accelerometer", "gyroscope", "magnetometer"],
-        [[9, 128], [9, 128], [9, 128]],
+        [[9, 200], [9, 200], [9, 200]],
     ),
 ]
 
@@ -52,10 +52,12 @@ def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expe
         modalities = split["modalities"]
         assert torch.is_tensor(labels)
         assert len(modalities) == len(expected_names)
+        n = int(labels.shape[0])
         for modality, expected_shape in zip(modalities, expected_shapes):
             assert torch.is_tensor(modality)
-            assert int(modality.shape[0]) == int(labels.shape[0])
-            assert [int(v) for v in modality.shape[1:]] == expected_shape
+            assert int(modality.shape[0]) == n
+            if n > 0:
+                assert [int(v) for v in modality.shape[1:]] == expected_shape
 
     test_n = int(dataset["test"]["labels"].shape[0])
     assert all(int(x.shape[0]) == test_n for x in dataset["test"]["modalities"])
@@ -84,7 +86,9 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     assert info["split_protocol"] == cfg["dataset"]["split_protocol"]
     assert info["dataset_config"] == cfg["dataset"]
     assert set(info["split_num_samples"]) == {"train", "validation", "test"}
-    assert all(info["split_num_samples"][name] > 0 for name in info["split_num_samples"])
+    assert info["split_num_samples"]["train"] > 0
+    assert info["split_num_samples"]["test"] > 0
+    assert info["split_num_samples"]["validation"] >= 0
 
     with (output_dir / "client_meta.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -93,7 +97,12 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     assert {row["encoder_type"] for row in rows} == {cfg["model"]["encoder"]["type"]}
 
     for split_name in ("validation", "test"):
-        payload = torch.load(output_dir / f"{split_name}_multimodal.pt", map_location="cpu")
+        path = output_dir / f"{split_name}_multimodal.pt"
+        if not path.exists():
+            assert split_name == "validation"
+            assert info["split_num_samples"]["validation"] == 0
+            continue
+        payload = torch.load(path, map_location="cpu")
         assert payload["split"] == split_name
         assert payload["modality_names"] == expected_names
         assert payload["modality_input_shapes"] == dict(zip(expected_names, expected_shapes))
@@ -216,4 +225,3 @@ def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
     assert remapped_train["labels"].tolist() == [mapping[1], mapping[24]]
     assert remapped_validation["labels"].tolist() == [mapping[12]]
     assert remapped_test["labels"].tolist() == [mapping[17]]
-

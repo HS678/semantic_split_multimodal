@@ -62,28 +62,28 @@ PYTHONPATH=src python -m semantic_split_multimodal.data.prepare_iemocap --device
 Stage 1 的数据划分是可复用资产：
 
 ```text
-local/results/partition/<dataset>/<partition_signature>/
+local/results_test2/partition/<dataset>/<partition_signature>/
 ```
 
 Stage 2 的聚类结果按数据集、partition signature 和聚类方法分开保存：
 
 ```text
-local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
+local/results_test2/cluster/<dataset>/<partition_signature>/<cluster_method>/
 ```
 
 Stage 3 的训练和测试结果是正式实验 run：
 
 ```text
-local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
+local/results_test2/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 当 `clients_per_modality: 10` 时，默认 partition signature 为：
 
 ```text
-UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
-MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
-PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
-IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
+UCI-HAR: local/results_test2/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
+MHEALTH: local/results_test2/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
+PAMAP2:  local/results_test2/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
+IEMOCAP: local/results_test2/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
 每个阶段都会拒绝覆盖已有的非空输出目录。同配置、同 seed 重跑 Stage 3 时，在 `.config` 中递增 `stage3.attempt`。
@@ -93,16 +93,16 @@ IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10
 运行单个数据集：
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
+python scripts/stage1_partition.py --config configs/test2/uci_har.config
 ```
 
 四个数据集依次运行：
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
-python scripts/stage1_partition.py --config configs/mhealth.config
-python scripts/stage1_partition.py --config configs/pamap2.config
-python scripts/stage1_partition.py --config configs/iemocap.config
+python scripts/stage1_partition.py --config configs/test2/uci_har.config
+python scripts/stage1_partition.py --config configs/test2/mhealth/fold1.config
+python scripts/stage1_partition.py --config configs/test2/pamap2/fold1.config
+python scripts/stage1_partition.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 1 直接在 partition 目录下写入：
@@ -117,32 +117,32 @@ partition_config.json
 
 UCI-HAR、MHEALTH、PAMAP2 使用固定、互斥的 subject-level train/validation/test 划分。只有 train 会进入单模态 client partition 和 Stage 2；validation/test 保持 naturally paired。
 
-IEMOCAP 采用固定且互斥的 Session 1-3/4/5 划分，共 5,531 条四分类语句。补齐后的序列长度会贯穿 Stage 1、encoder 预训练、fingerprint、Split Learning 和 naturally paired evaluation。`configs/iemocap.config` 按本次对照实验要求显式使用 `true_cluster`，属于 Oracle/debug 结果，不是无泄漏主结果。
+IEMOCAP 采用 5 折 session 级 leave-one-session-out 划分，共 5,531 条四分类语句。补齐后的序列长度会贯穿 Stage 1、encoder 预训练、fingerprint、Split Learning 和 naturally paired evaluation。`configs/test2/iemocap/fold1.config` 按本次对照实验要求显式使用 `true_cluster`，属于 Oracle/debug 结果，不是无泄漏主结果。
 
 ## Stage 2：未知 Q 模态发现
 
 UCI-HAR：
 
 ```bash
-python scripts/stage2_discovery.py --config configs/uci_har.config
+python scripts/stage2_discovery.py --config configs/test2/uci_har.config
 ```
 
 MHEALTH：
 
 ```bash
-python scripts/stage2_discovery.py --config configs/mhealth.config
+python scripts/stage2_discovery.py --config configs/test2/mhealth/fold1.config
 ```
 
 PAMAP2：
 
 ```bash
-python scripts/stage2_discovery.py --config configs/pamap2.config
+python scripts/stage2_discovery.py --config configs/test2/pamap2/fold1.config
 ```
 
 IEMOCAP：
 
 ```bash
-python scripts/stage2_discovery.py --config configs/iemocap.config
+python scripts/stage2_discovery.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 2 只保留：
@@ -178,25 +178,25 @@ cluster_assignment_source=true_cluster
 UCI-HAR：
 
 ```bash
-python scripts/stage3_train.py --config configs/uci_har.config
+python scripts/stage3_train.py --config configs/test2/uci_har.config
 ```
 
 MHEALTH：
 
 ```bash
-python scripts/stage3_train.py --config configs/mhealth.config
+python scripts/stage3_train.py --config configs/test2/mhealth/fold1.config
 ```
 
 PAMAP2：
 
 ```bash
-python scripts/stage3_train.py --config configs/pamap2.config
+python scripts/stage3_train.py --config configs/test2/pamap2/fold1.config
 ```
 
 IEMOCAP true-cluster Oracle/debug 对照：
 
 ```bash
-python scripts/stage3_train.py --config configs/iemocap.config
+python scripts/stage3_train.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 3 在上述 config-signature/seed/attempt 目录下写入：
@@ -221,13 +221,13 @@ stage3_metadata.json
 ```bash
 PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
   -m semantic_split_multimodal.evaluation.plot_training_curves \
-  --run-dir local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
+  --run-dir local/results_test2/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
 ```
 
 正式五种 Stage 3 随机种子为 `101`、`202`、`303`、`404`、`505`。修改 `.config` 的 `seed`；同一 seed 重跑时递增 `stage3.attempt`。
 
 ```bash
-python scripts/stage3_train.py --config configs/uci_har.config
+python scripts/stage3_train.py --config configs/test2/uci_har.config
 ```
 
 四个数据集各有独立实验脚本，分别完整执行 Stage1、Stage2 和五个 Stage3 seeds。当前配置固定 `true_cluster`，因此 Stage3 输出属于 Oracle/debug：

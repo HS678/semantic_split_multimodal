@@ -17,8 +17,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_all_dataset_configs_are_ini_style_and_use_true_cluster_for_current_development():
-    for dataset in ["uci_har", "mhealth", "pamap2", "iemocap"]:
-        path = PROJECT_ROOT / "configs" / f"{dataset}.config"
+    paths = {
+        "uci_har": "configs/test2/uci_har.config",
+        "mhealth": "configs/test2/mhealth/fold1.config",
+        "pamap2": "configs/test2/pamap2/fold1.config",
+        "iemocap": "configs/test2/iemocap/fold1.config",
+    }
+    for dataset, relative_path in paths.items():
+        path = PROJECT_ROOT / relative_path
         cfg = load_config(path)
         assert cfg["dataset"]["type"] == dataset
         assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
@@ -69,21 +75,28 @@ def test_config_extends_deep_merges_relative_parent(tmp_path):
     assert "extends" not in cfg
 
 
-def test_formal_configs_resolve_expected_protocols_and_objective():
-    formal_dir = PROJECT_ROOT / "configs" / "formal"
+def test_test2_configs_resolve_expected_protocols_and_objective():
+    test2_dir = PROJECT_ROOT / "configs" / "test2"
     for dataset in ["uci_har", "mhealth", "pamap2"]:
-        cfg = load_config(formal_dir / f"{dataset}.config")
+        relative = (
+            f"{dataset}.config"
+            if dataset == "uci_har"
+            else f"{dataset}/fold1.config"
+        )
+        cfg = load_config(test2_dir / relative)
         assert cfg["dataset"]["type"] == dataset
         assert cfg["fusion"]["training_objective"] == "mmbind_weighted_contrastive"
         assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
+        assert cfg["training"].get("validation_enabled") is False
         assert cfg["evaluation"]["run_test"] is True
 
     for fold in range(1, 6):
-        cfg = load_config(formal_dir / f"iemocap_fold{fold}.config")
+        cfg = load_config(test2_dir / "iemocap" / f"fold{fold}.config")
         assert cfg["dataset"]["test_sessions"] == [fold]
         assert set(cfg["dataset"]["train_sessions"]) == set(range(1, 6)) - {fold}
-        assert cfg["dataset"]["split_strategy"] == "session_loso_5fold_group_validation_v1"
-        assert cfg["dataset"]["split_protocol"] == f"iemocap_session_loso_fold{fold}_v1"
+        assert cfg["dataset"]["validation_sessions"] == []
+        assert cfg["dataset"]["split_strategy"] == "fixed_session_split_v1"
+        assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}_v1"
 
 
 def test_yaml_extension_is_rejected(tmp_path):
@@ -104,7 +117,7 @@ def test_config_artifacts_preserve_source_bytes_and_resolved_snapshot(tmp_path):
 
 
 def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes():
-    cfg = load_config(PROJECT_ROOT / "configs" / "uci_har.config")
+    cfg = load_config(PROJECT_ROOT / "configs" / "test2" / "uci_har.config")
     signature = experiment_config_signature(cfg)
     changed_runtime = {
         **cfg,
@@ -115,7 +128,7 @@ def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes()
 
     changed_objective = {
         **cfg,
-        "fusion": {**cfg["fusion"], "training_objective": "mmbind_weighted_contrastive"},
+        "fusion": {**cfg["fusion"], "training_objective": "label_random_ce"},
     }
     assert experiment_config_signature(changed_objective) != signature
     assert cluster_assignment_scope(cfg) == "oracle_true_cluster"

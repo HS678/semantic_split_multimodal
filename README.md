@@ -62,28 +62,28 @@ Local references may stay under `local/references/`. The whole `local/` tree is 
 Stage 1 partitions are reusable assets:
 
 ```text
-local/results/partition/<dataset>/<partition_signature>/
+local/results_test2/partition/<dataset>/<partition_signature>/
 ```
 
 Stage 2 cluster outputs are separated by dataset, partition signature, and clustering method:
 
 ```text
-local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
+local/results_test2/cluster/<dataset>/<partition_signature>/<cluster_method>/
 ```
 
 Stage 3 training and evaluation outputs are full experiment runs:
 
 ```text
-local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
+local/results_test2/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 Default partition signatures with `clients_per_modality: 10`:
 
 ```text
-UCI-HAR: local/results/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
-MHEALTH: local/results/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
-PAMAP2:  local/results/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
-IEMOCAP: local/results/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
+UCI-HAR: local/results_test2/partition/uci_har/acc_10clients_gyro_10clients__subject_disjoint_tvt_v1
+MHEALTH: local/results_test2/partition/mhealth/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients_ecg_10clients__subject_disjoint_tvt_v1
+PAMAP2:  local/results_test2/partition/pamap2/accelerometer_10clients_gyroscope_10clients_magnetometer_10clients__subject_disjoint_tvt_v1
+IEMOCAP: local/results_test2/partition/iemocap/audio_10clients_video_10clients_text_10clients__session_disjoint_123_4_5_v1
 ```
 
 No stage overwrites an existing non-empty output directory. Increment `stage3.attempt` in the `.config` when repeating the same config and seed.
@@ -93,16 +93,16 @@ No stage overwrites an existing non-empty output directory. Increment `stage3.at
 Run one dataset:
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
+python scripts/stage1_partition.py --config configs/test2/uci_har.config
 ```
 
 Run all four datasets one by one:
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
-python scripts/stage1_partition.py --config configs/mhealth.config
-python scripts/stage1_partition.py --config configs/pamap2.config
-python scripts/stage1_partition.py --config configs/iemocap.config
+python scripts/stage1_partition.py --config configs/test2/uci_har.config
+python scripts/stage1_partition.py --config configs/test2/mhealth/fold1.config
+python scripts/stage1_partition.py --config configs/test2/pamap2/fold1.config
+python scripts/stage1_partition.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 1 writes directly under the partition directory:
@@ -117,32 +117,32 @@ partition_config.json
 
 UCI-HAR, MHEALTH, and PAMAP2 use fixed, disjoint subject-level train/validation/test splits. Only train enters client partitioning and Stage 2. Validation/test remain naturally paired.
 
-IEMOCAP uses the fixed disjoint Session 1-3/4/5 split with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/iemocap.config` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
+IEMOCAP uses 5-fold session-level leave-one-session-out splits with 5,531 four-class utterances. Its padded sequence lengths are propagated through Stage 1, encoder pretraining, fingerprint extraction, Split Learning, and naturally paired evaluation. `configs/test2/iemocap/fold1.config` intentionally selects `true_cluster` for the requested oracle/debug comparison; it is not a no-leakage main result.
 
 ## Stage 2
 
 UCI-HAR:
 
 ```bash
-python scripts/stage2_discovery.py --config configs/uci_har.config
+python scripts/stage2_discovery.py --config configs/test2/uci_har.config
 ```
 
 MHEALTH:
 
 ```bash
-python scripts/stage2_discovery.py --config configs/mhealth.config
+python scripts/stage2_discovery.py --config configs/test2/mhealth/fold1.config
 ```
 
 PAMAP2:
 
 ```bash
-python scripts/stage2_discovery.py --config configs/pamap2.config
+python scripts/stage2_discovery.py --config configs/test2/pamap2/fold1.config
 ```
 
 IEMOCAP:
 
 ```bash
-python scripts/stage2_discovery.py --config configs/iemocap.config
+python scripts/stage2_discovery.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 2 keeps only:
@@ -178,25 +178,25 @@ For Stage 3 debugging, set it to `true_cluster` to bypass predicted clustering. 
 UCI-HAR:
 
 ```bash
-python scripts/stage3_train.py --config configs/uci_har.config
+python scripts/stage3_train.py --config configs/test2/uci_har.config
 ```
 
 MHEALTH:
 
 ```bash
-python scripts/stage3_train.py --config configs/mhealth.config
+python scripts/stage3_train.py --config configs/test2/mhealth/fold1.config
 ```
 
 PAMAP2:
 
 ```bash
-python scripts/stage3_train.py --config configs/pamap2.config
+python scripts/stage3_train.py --config configs/test2/pamap2/fold1.config
 ```
 
 IEMOCAP true-cluster Oracle/debug comparison:
 
 ```bash
-python scripts/stage3_train.py --config configs/iemocap.config
+python scripts/stage3_train.py --config configs/test2/iemocap/fold1.config
 ```
 
 Stage 3 writes under the config-signature/seed/attempt directory shown above:
@@ -221,13 +221,13 @@ Stage 3 generates `training_curves.png` automatically. To redraw it from existin
 ```bash
 PYTHONPATH=src /home/shuang/miniconda3/envs/mpsl/bin/python \
   -m semantic_split_multimodal.evaluation.plot_training_curves \
-  --run-dir local/results/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
+  --run-dir local/results_test2/experiments/<cluster_scope>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>
 ```
 
 The five formal Stage 3 seeds are `101`, `202`, `303`, `404`, and `505`. Change `seed` in `.config`; increment `stage3.attempt` only when repeating a seed.
 
 ```bash
-python scripts/stage3_train.py --config configs/uci_har.config
+python scripts/stage3_train.py --config configs/test2/uci_har.config
 ```
 
 All four datasets have independent launchers that run Stage 1, Stage 2, and all five Stage 3 seeds. With the current `true_cluster` configs, Stage 3 outputs are Oracle/debug results:

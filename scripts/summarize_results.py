@@ -115,8 +115,8 @@ def main():
     )
     parser.add_argument(
         "--results-root",
-        default=str(ROOT / "local" / "results_test1"),
-        help="Results root; defaults to local/results_test1.",
+        default=str(ROOT / "local" / "results_test2"),
+        help="Results root; defaults to local/results_test2.",
     )
     parser.add_argument(
         "--dataset",

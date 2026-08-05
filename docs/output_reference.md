@@ -5,7 +5,7 @@
 默认目录：
 
 ```text
-local/results/partition/<dataset>/<partition_signature>/
+local/results_test2/partition/<dataset>/<partition_signature>/
 ```
 
 文件：
@@ -21,7 +21,7 @@ local/results/partition/<dataset>/<partition_signature>/
 默认目录：
 
 ```text
-local/results/cluster/<dataset>/<partition_signature>/<cluster_method>/
+local/results_test2/cluster/<dataset>/<partition_signature>/<cluster_method>/
 ```
 
 文件：
@@ -44,7 +44,7 @@ Stage 3 按 `training.cluster_assignment_source` 检查所选 cluster CSV、与 
 默认目录：
 
 ```text
-local/results/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
+local/results_test2/experiments/<oracle_true_cluster|predicted_cluster>/<dataset>/<config_signature>/seed-<seed>/attempt-<nn>/
 ```
 
 文件：
