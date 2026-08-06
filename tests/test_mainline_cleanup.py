@@ -111,7 +111,7 @@ def test_fusion_checkpoint_saves_and_reloads_server_and_client_encoders(tmp_path
         CheckpointClient("client_000", 0, nn.Linear(2, 4)),
         CheckpointClient("client_010", 1, nn.Linear(2, 4)),
     ]
-    path = tmp_path / "best_model.pt"
+    path = tmp_path / "last_model.pt"
 
     _save_checkpoint(
         path,

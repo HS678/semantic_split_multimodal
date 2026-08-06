@@ -143,21 +143,15 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
     metrics.setdefault("executed_global_rounds", 2)
     metrics.setdefault("test_evaluation_count", 1)
     metrics.setdefault("best_round", 1)
-    metrics.setdefault("checkpoint", "best_model.pt")
-    metrics.setdefault("selected_by", "validation_weighted_f1")
+    metrics.setdefault("checkpoint", "last_model.pt")
+    metrics.setdefault("selected_by", "fixed_rounds_no_validation")
     metrics.setdefault("test_weighted_f1", metrics.get("test_macro_f1"))
     (result_dir / "train_log.csv").write_text("round,loss\n1,1.0\n", encoding="utf-8")
-    (result_dir / "validation_log.csv").write_text(
-        "round,eval_status,eval_failure_reason,loss,accuracy,macro_f1,weighted_f1,is_best,checks_without_improvement\n"
-        "1,success,,1.0,0.5,0.4,0.45,1,0\n",
-        encoding="utf-8",
-    )
     (result_dir / "final_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     (result_dir / "best_metrics.json").write_text(
         json.dumps({"best_round": metrics["best_round"], "macro_f1": 0.4}),
         encoding="utf-8",
     )
-    (result_dir / "best_model.pt").write_text("checkpoint", encoding="utf-8")
     (result_dir / "last_model.pt").write_text("checkpoint", encoding="utf-8")
 
 
@@ -285,47 +279,6 @@ def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch,
 
     assert not called["train"]
     assert not list((tmp_path / "experiments").rglob("attempt-01"))
-
-
-def test_missing_validation_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
-    script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
-    (stage1 / "validation_multimodal.pt").unlink()
-    called = {"train": False}
-
-    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.update(train=True))
-    with pytest.raises(FileNotFoundError, match="validation_multimodal"):
-        script.main(
-            [
-                "--config",
-                str(config),
-                "--stage1-dir",
-                str(stage1),
-                "--stage2-dir",
-                str(stage2),
-                "--output-root",
-                str(tmp_path / "experiments"),
-            ]
-        )
-
-    assert not called["train"]
-    assert not list((tmp_path / "experiments").rglob("attempt-01"))
-
-
-def test_no_validation_stage1_audit_skips_validation_file_requirement(tmp_path):
-    script = _load_script()
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
-    (stage1 / "validation_multimodal.pt").unlink()
-    cfg = _cfg()
-    cfg["training"]["validation_enabled"] = False
-
-    audit = script.audit_stage3_inputs(cfg, stage1, stage2)
-
-    assert audit["stage1"]["num_clients"] == 2
-    assert audit["stage2"]["cluster_ids"] == [0, 1]
 
 
 def test_formal_completion_status_accepts_no_validation_fixed_rounds(tmp_path):
@@ -596,10 +549,8 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         "source_config.config",
         "resolved_config.config",
         "train_log.csv",
-        "validation_log.csv",
         "final_metrics.json",
         "best_metrics.json",
-        "best_model.pt",
         "last_model.pt",
         "training_curves.png",
         "stage3_metadata.json",

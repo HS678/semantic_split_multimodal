@@ -26,20 +26,18 @@
 | UCI-HAR | 官方 70/30 固定划分（train 21 / test 9 subject） | 单点精度（test 2,947 样本，统计可靠） |
 | MHEALTH | subject-level 5 折（每折 2 个 subject） | 均值 ± 标准差 |
 | PAMAP2 | subject-level 9 折 LOSO（每折 1 个 subject） | 均值 ± 标准差 |
-| IEMOCAP | 固定 Session 划分（train S1-3 / val S4 / test S5） | 单点精度 |
+| IEMOCAP | 5 折 session-LOSO（每折 1 个 Session test） | 均值 ± 标准差 |
 
 理由：MHEALTH / PAMAP2 采用 subject 级交叉验证（subject 数少，单次划分偏差风险高）；UCI-HAR 官方划分样本量充足（test 9 个 subject / 2,947 样本），可直接与官方划分文献对比；IEMOCAP 采用固定 Session 划分（文献常见），论文说明即可。
 
-### 1.3 保留验证集：early stopping + best checkpoint 机制（方向 A）
+### 1.3 无验证集：固定轮数 + last_model（已确定）
 
-✅ 保留原框架的验证机制，只做最小修正：
+✅ 当前正式方案不使用验证集：
 
-- 每折内部从 train 中切出验证集（subject/session 不相交），验证集只用于 best checkpoint 选择与 early stopping；
-- 训练结束后恢复 `best_model.pt`，对 test 只评估一次；
-- test 不参与任何训练期决策（无 test leakage）；
-- 验证集划分：UCI-HAR 沿用 train 17 / val 4（官方 test 9 不变）；MHEALTH / PAMAP2 每折从 train 侧按"数据量居中的 2 个 subject"切出；IEMOCAP 用 Session 4 做验证。
-
-说明：这是原框架的合法机制（validation 选择 + early stopping），不需要推翻；与交叉验证报告口径的差异在于使用验证集选 best，论文中说明即可。
+- 数据划分只有 train / test 两段，`validation_subjects/sessions` 全部为空；
+- Stage3 固定 `global_rounds` 训练，无 early stopping、无 best checkpoint 选择；
+- 训练结束后直接使用 `last_model.pt` 对 naturally paired `test_multimodal.pt` 评估一次；
+- 与主流 LOSO/固定划分论文一致，论文无需说明验证集口径。
 
 ### 1.4 D2D 模块与正式实验的关系
 
@@ -99,14 +97,13 @@
 
 ### 3.1 UCI-HAR：官方 70/30 固定划分
 
-✅ 已确定（与官方协议一致，单次固定划分）：
+✅ 已确定（与官方协议一致，单次固定划分，无验证集）：
 
-- train（17 subject）：1, 3, 5, 6, 7, 8, 11, 15, 16, 17, 21, 22, 26, 27, 28, 29, 30
-- validation（4 subject）：14, 19, 23, 25（从官方 train 21 中切出，用于 best 选择与 early stopping）
+- train（21 subject）：官方 70% 训练集（含 14, 19, 23, 25）
 - test（9 subject）：2, 4, 9, 10, 12, 13, 18, 20, 24
-- 样本数：train 5,888 / validation 1,464 / test 2,947
+- 样本数：train 7,352 / test 2,947
 
-说明：test 与官方一致（可与官方划分文献直接对比数字）；validation 从官方 train 内切出，不影响 test 口径。
+说明：train/test 与官方 70/30 划分完全一致，可与官方划分文献直接对比数字。
 
 ### 3.2 MHEALTH（10 subject，5 折 × 2 subject）
 
@@ -120,7 +117,7 @@
 | fold4 | 8, 4 | 245,760 |
 | fold5 | 3, 5 | 241,920 |
 
-✅ 验证集规则（已确定）：每折取其余 8 个 train subject 中**原始行数居中的 2 个**做 validation，剩余 6 个做 train；与 test 完全不相交。
+✅ 无验证集：每折 train 8 个 subject / test 2 个 subject，划分内置在数据集代码中。
 
 ### 3.3 PAMAP2：9 折 subject-LOSO
 
@@ -141,22 +138,16 @@
 设计约束与论文说明：
 
 - subject 109 原始记录仅约 8,477 行（约 85 秒 @100Hz），该折 test 仅约 50 窗口（128/128）——这是数据集固有特性，主流 9 折 LOSO 均包含该折，报告 9 折均值 ± 标准差；
-- 不包含心率通道（`include_heart_rate=false`）；
-- 验证集规则（已确定）：每折从 8 个 train subject 中按**窗口数居中的 2 个**切出 validation，剩余 6 个做 train；subject 109 只出现在 test 折，不进任何 validation；
+- 不包含心率通道（代码内置，模态固定 acc/gyro/mag）；
+- 无验证集：每折 train 8 个 subject / test 1 个 subject，划分内置在数据集代码中；
 - 论文需注明：采用 9 折 LOSO（原论文推荐协议），subject 109 折的波动属于数据集特性。
 
-### 3.4 IEMOCAP：固定 Session 划分
+### 3.4 IEMOCAP：5 折 session-LOSO
 
-✅ 已确定（固定 Session 划分，与主流文献常见做法一致）：
+✅ 已确定（5 折 session-LOSO，无验证集）：
 
-- train：Session 1, 2, 3
-- validation：Session 4
-- test：Session 5
-
-说明：
-
-- 固定 Session 1-3/4/5 划分在 IEMOCAP 文献中常见，单点报告精度；
-- 不采用 5 折 session-LOSO（避免单次固定划分与多折混报的口径问题），论文说明划分方式即可。
+- 每折 test 1 个 Session，train 其余 4 个 Session，划分内置在数据集代码中；
+- 报告 5 折均值 ± 标准差。
 
 ### 3.5 多折与"单模态客户端 / 多模态配对"结构的兼容性
 
@@ -164,7 +155,7 @@
 
 - 交叉验证的"折"发生在 subject 级数据划分层，每个 fold 独立完整运行 Stage1 → Stage2 → Stage3；
 - 每折内部结构与非交叉验证一致：该折 train subjects 拆成单模态客户端，test subjects 保留自然配对多模态；
-- 客户端拆分只在 train 侧进行，test/validation subject 与 train 不相交，无泄漏；
+- 客户端拆分只在 train 侧进行，test subject 与 train 不相交，无泄漏；
 - 每折 Stage 2 独立聚类，`pred_cluster` 可能不同；若某折聚类质量差导致 evaluation mapping 失败，该折无指标，需记录原因而非静默跳过（实验阶段验证）。
 
 ### 3.6 窗口与模态参数（mhealth / pamap2）

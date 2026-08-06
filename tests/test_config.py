@@ -87,7 +87,7 @@ def test_MSL_configs_resolve_expected_protocols_and_objective():
         assert cfg["dataset"]["type"] == dataset
         assert cfg["fusion"]["training_objective"] == "mmbind_weighted_contrastive"
         assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
-        assert cfg["training"].get("validation_enabled") is False
+        assert "validation_enabled" not in cfg["training"]
         assert cfg["evaluation"]["run_test"] is True
 
     for fold in range(1, 6):

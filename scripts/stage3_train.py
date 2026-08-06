@@ -186,13 +186,9 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
     if not train_dir.exists() or not train_dir.is_dir():
         raise FileNotFoundError(f"Missing Stage1 train_clients directory: {train_dir}")
     client_meta_path = stage1_dir / "client_meta.csv"
-    validation_multimodal_path = stage1_dir / "validation_multimodal.pt"
     test_multimodal_path = stage1_dir / "test_multimodal.pt"
     partition_config_path = stage1_dir / "partition_config.json"
     _require_readable_file(client_meta_path, "Stage1 client_meta.csv")
-    validation_enabled = bool(cfg.get("training", {}).get("validation_enabled", True))
-    if validation_enabled:
-        _require_readable_file(validation_multimodal_path, "Stage1 validation_multimodal.pt")
     _require_readable_file(test_multimodal_path, "Stage1 test_multimodal.pt")
     partition_config = _load_json(partition_config_path, "Stage1 partition_config.json")
 
@@ -240,7 +236,6 @@ def _audit_stage1_inputs(cfg: dict, stage1_dir: Path):
         "client_ids": sorted(payload_ids),
         "num_clients": len(payload_ids),
         "client_meta_path": str(client_meta_path),
-        "validation_multimodal_path": str(validation_multimodal_path),
         "test_multimodal_path": str(test_multimodal_path),
         "train_clients_dir": str(train_dir),
     }
@@ -392,30 +387,26 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     if not isinstance(metrics, dict):
         return "failed", "training_function_returned_non_dict_metrics"
     run_dir = paths["run_dir"]
-    validation_enabled = metrics.get("checkpoint") == "best_model.pt"
     required_files = [
         "source_config.config",
         "resolved_config.config",
         "train_log.csv",
-        "validation_log.csv",
         "final_metrics.json",
         "best_metrics.json",
         "last_model.pt",
         "training_curves.png",
     ]
-    if validation_enabled:
-        required_files.append("best_model.pt")
     for name in required_files:
         if not (run_dir / name).exists():
             return "failed", f"missing_{name}"
-    run_test = bool(metrics.get("evaluation_mode") != "validation_only_test_deferred")
+    run_test = bool(metrics.get("evaluation_mode") != "test_deferred")
     if not run_test:
         if metrics.get("test_eval_status") != "deferred":
-            return "failed", "validation_only_run_must_defer_test"
+            return "failed", "deferred_run_must_defer_test"
         if int(metrics.get("test_evaluation_count", -1)) != 0:
-            return "failed", "validation_only_test_evaluation_count_must_equal_zero"
+            return "failed", "deferred_test_evaluation_count_must_equal_zero"
         if metrics.get("official_result") is not None:
-            return "failed", "validation_only_run_must_not_claim_official_result"
+            return "failed", "deferred_run_must_not_claim_official_result"
         if not _is_finite_number(metrics.get("best_round")):
             return "failed", "missing_best_round"
         return "success", None
@@ -424,16 +415,10 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
     for key in ["test_accuracy", "test_macro_f1", "test_weighted_f1", "test_loss"]:
         if not _is_finite_number(metrics.get(key)):
             return "failed", f"invalid_{key}"
-    if validation_enabled:
-        if metrics.get("checkpoint") != "best_model.pt":
-            return "failed", "official_checkpoint_must_be_best_model"
-        if metrics.get("selected_by") != "validation_weighted_f1":
-            return "failed", "official_checkpoint_selection_must_use_validation_weighted_f1"
-    else:
-        if metrics.get("checkpoint") != "last_model.pt":
-            return "failed", "official_checkpoint_must_be_last_model"
-        if metrics.get("selected_by") != "fixed_rounds_no_validation":
-            return "failed", "official_checkpoint_selection_must_be_fixed_rounds"
+    if metrics.get("checkpoint") != "last_model.pt":
+        return "failed", "official_checkpoint_must_be_last_model"
+    if metrics.get("selected_by") != "fixed_rounds_no_validation":
+        return "failed", "official_checkpoint_selection_must_be_fixed_rounds"
     if int(metrics.get("test_evaluation_count", -1)) != 1:
         return "failed", "test_evaluation_count_must_equal_one"
     executed_rounds = int(metrics.get("executed_global_rounds", -1))
@@ -449,7 +434,6 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
     stage2_audit = audit.get("stage2", {}) if audit else {}
     stage2_metadata = stage2_audit.get("stage2_metadata")
     training_cfg = cfg.get("training", {})
-    early_stopping_cfg = training_cfg.get("early_stopping", {})
     metrics = metrics if isinstance(metrics, dict) else None
     return {
         "stage": "stage3_train",
@@ -486,28 +470,19 @@ def _metadata(args, cfg, paths, audit, status, failure_reason, start_time, end_t
         "split_protocol": cfg.get("dataset", {}).get("split_protocol"),
         "split_subjects": {
             split_name: cfg.get("dataset", {}).get(f"{split_name}_subjects")
-            for split_name in ("train", "validation", "test")
+            for split_name in ("train", "test")
         },
-        "validation_protocol": "naturally_paired_evaluation_only_oracle_mapping",
         "evaluation_mode": (
             "formal_test"
             if bool(cfg.get("evaluation", {}).get("run_test", True))
-            else "validation_only_test_deferred"
+            else "test_deferred"
         ),
         "configured_global_rounds": int(training_cfg.get("global_rounds", 0)),
-        "validation_interval": int(training_cfg.get("validation_every", 0)),
-        "early_stopping_patience": int(early_stopping_cfg.get("patience", 0)),
-        "early_stopping_min_rounds": int(early_stopping_cfg.get("min_rounds", 0)),
-        "early_stopping_min_delta": float(early_stopping_cfg.get("min_delta", 0.0)),
         "executed_global_rounds": None if metrics is None else metrics.get("executed_global_rounds"),
         "best_round": None if metrics is None else metrics.get("best_round"),
         "stop_round": None if metrics is None else metrics.get("stop_round"),
         "stop_reason": None if metrics is None else metrics.get("stop_reason"),
-        "checkpoint_selection": (
-            "best_validation_weighted_f1"
-            if bool(training_cfg.get("validation_enabled", True))
-            else "fixed_rounds_no_validation"
-        ),
+        "checkpoint_selection": "fixed_rounds_no_validation",
         "test_evaluation_count": None if metrics is None else metrics.get("test_evaluation_count"),
         "device": None if metrics is None else metrics.get("device"),
         "estimated_Q": stage2_audit.get("estimated_Q"),

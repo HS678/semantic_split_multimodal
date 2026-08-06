@@ -15,15 +15,15 @@ if str(SRC) not in sys.path:
 from MSL.utils.config import load_config
 
 
-METRICS = [
-    "test_accuracy",
-    "test_balanced_accuracy",
-    "test_macro_f1",
-    "test_weighted_f1",
-    "test_binary_f1",
-]
+# 论文指标：acc=Accuracy, ua=Balanced Accuracy(UA), macro_f1, weighted_f1。
+METRIC_KEYS = {
+    "acc": "test_accuracy",
+    "ua": "test_balanced_accuracy",
+    "macro_f1": "test_macro_f1",
+    "weighted_f1": "test_weighted_f1",
+}
 
-FOLD_PATTERN = re.compile(r"fold(\d+)_v1$")
+FOLD_PATTERN = re.compile(r"fold(\d+)")
 
 
 def _load_record(run_dir: Path) -> dict | None:
@@ -52,7 +52,7 @@ def _load_record(run_dir: Path) -> dict | None:
         "fold": int(fold_match.group(1)) if fold_match else None,
         "split_protocol": split_protocol,
         "run_dir": str(run_dir.resolve()),
-        "metrics": {name: metrics.get(name) for name in METRICS},
+        "metrics": {key: metrics.get(field) for key, field in METRIC_KEYS.items()},
     }
 
 
@@ -68,9 +68,9 @@ def _mean_std(values: list[float]) -> dict:
 
 def _aggregate(records: list[dict]) -> dict:
     aggregates = {}
-    for metric in METRICS:
-        values = [record["metrics"][metric] for record in records]
-        aggregates[metric] = _mean_std([float(v) for v in values if v is not None])
+    for key in METRIC_KEYS:
+        values = [record["metrics"][key] for record in records]
+        aggregates[key] = _mean_std([float(v) for v in values if v is not None])
     return aggregates
 
 
@@ -84,12 +84,14 @@ def build_dataset_summary(records: list[dict]) -> dict:
     )
     has_folds = any(record["fold"] is not None for record in records)
     dimension = "fold" if has_folds else "seed"
-    return {
-        "dimension": dimension,
-        "runs": records,
-        "aggregate": _aggregate(records),
-        "num_runs": len(records),
-    }
+    summary = {"dimension": dimension, "average": _aggregate(records), "num_runs": len(records)}
+    for record in records:
+        key = f"fold{record['fold']}" if record["fold"] is not None else f"seed{record['seed']}"
+        summary[key] = {
+            metric_key: record["metrics"][metric_key]
+            for metric_key in METRIC_KEYS
+        }
+    return summary
 
 
 def build_summary(results_root: Path) -> dict:
@@ -132,7 +134,7 @@ def main():
         selected = {
             dataset_key: summary["datasets"].get(
                 dataset_key,
-                {"dimension": "seed", "runs": [], "aggregate": {}, "num_runs": 0},
+                {"dimension": "seed", "average": {}, "num_runs": 0},
             )
         }
     else:
@@ -142,9 +144,9 @@ def main():
     for dataset, dataset_summary in selected.items():
         path = summary_dir / f"{dataset}.json"
         path.write_text(json.dumps(dataset_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        agg = dataset_summary["aggregate"]
-        acc_mean = agg.get("test_accuracy", {}).get("mean")
-        wf1_mean = agg.get("test_weighted_f1", {}).get("mean")
+        agg = dataset_summary["average"]
+        acc_mean = agg.get("acc", {}).get("mean")
+        wf1_mean = agg.get("weighted_f1", {}).get("mean")
         print(
             f"{dataset:10s} {dataset_summary['dimension']:6s} "
             f"runs={dataset_summary['num_runs']:2d} "

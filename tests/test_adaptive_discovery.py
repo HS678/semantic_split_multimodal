@@ -289,7 +289,7 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
         assert cfg["cluster"]["known_k"] is None
         assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
         assert cfg["dataset"]["split_protocol"] == values["split_protocol"]
-        assert cfg["training"]["validation_enabled"] is False
+        assert "validation_enabled" not in cfg["training"]
         assert "validation_subjects" not in cfg["dataset"]
         assert cfg["training"]["global_rounds"] == 200
         assert "early_stopping" not in cfg["training"]

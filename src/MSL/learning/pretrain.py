@@ -231,12 +231,14 @@ def run_stage2_discovery(cfg: dict, project_root: Path, device: torch.device):
         writer.writerows(pred_rows)
     visualization_cfg = cfg.get("fingerprint_visualization", {})
     if bool(visualization_cfg.get("enabled", True)):
+        visualization_dir = cluster_dir / "visualization"
+        visualization_dir.mkdir(parents=True, exist_ok=True)
         write_fingerprint_pca_figure(
             fingerprints,
             [client.client_id for client in clients],
             true,
             pred,
-            cluster_dir,
+            visualization_dir,
             cfg.get("dataset", {}).get("name", cfg.get("dataset", {}).get("type", "dataset")),
             visualization_cfg=visualization_cfg,
         )

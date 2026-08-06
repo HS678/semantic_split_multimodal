@@ -88,17 +88,7 @@ def experiment_config_signature(cfg: dict) -> str:
     encoder_cfg = cfg.get("model", {}).get("encoder", {})
     dataset_cfg = cfg.get("dataset", {})
     encoder_parts = [encoder_cfg.get("type"), dataset_cfg.get("feature_recipe")]
-    encoder = "-".join(str(part) for part in encoder_parts if part) or "encoder"
-    binding = cfg.get("binding", {}).get("type", "binding")
-    objective = cfg.get("fusion", {}).get("training_objective", "objective")
-    scheduler = cfg.get("training", {}).get("scheduler", "scheduler")
-    readable = (
-        f"enc-{safe_result_component(encoder)}"
-        f"__bind-{safe_result_component(binding)}"
-        f"__loss-{safe_result_component(objective)}"
-        f"__sched-{safe_result_component(scheduler)}"
-    )
-    return f"{readable}__h-{digest}"
+    return f"h-{digest}"
 
 
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
