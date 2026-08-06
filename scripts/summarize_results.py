@@ -45,6 +45,12 @@ def _load_record(run_dir: Path) -> dict | None:
     fold_match = FOLD_PATTERN.search(split_protocol)
     return {
         "dataset": str(dataset_cfg.get("type", "unknown")),
+        "loss": str(
+            cfg.get("fusion", {}).get(
+                "training_objective",
+                cfg.get("stage3", {}).get("loss", "unknown"),
+            )
+        ),
         "seed": int(cfg.get("seed", 0)),
         "attempt": int(cfg.get("stage3", {}).get("attempt", 0)),
         "fold": int(fold_match.group(1)) if fold_match else None,
@@ -89,8 +95,8 @@ def build_summary(results_root: Path) -> dict:
         if record is not None:
             records.append(record)
 
-    # run 级聚合：结果目录为 <loss>/attempt-NN-seed-XX/，
-    # summary.json 写在 loss 目录下，汇总该 loss 的所有 attempt-NN-seed-XX（所有 seed 与折）。
+    # run 级聚合：结果目录为 <loss>/attempt-NN/<fold-N|seed-N>/，
+    # summary.json 写在 attempt-NN 下，汇总该 attempt 的所有 seed 或 fold。
     run_summaries = {}
     for record in records:
         run_dir = Path(record["run_dir"]).parents[0]
@@ -102,12 +108,19 @@ def build_summary(results_root: Path) -> dict:
             encoding="utf-8",
         )
 
-    by_dataset = {}
-    for dataset in sorted({record["dataset"] for record in records}):
-        matches = [record for record in records if record["dataset"] == dataset]
-        by_dataset[dataset] = build_dataset_summary(matches)
+    # dataset 级聚合按 loss 分组，避免不同 loss 的 run 混合统计。
+    by_loss_dataset: dict[str, dict[str, dict]] = {}
+    for record in records:
+        by_loss_dataset.setdefault(record["loss"], {})
+        by_loss_dataset[record["loss"]].setdefault(record["dataset"], []).append(record)
     return {
-        "datasets": by_dataset,
+        "losses": {
+            loss: {
+                dataset: build_dataset_summary(matches)
+                for dataset, matches in sorted(datasets.items())
+            }
+            for loss, datasets in sorted(by_loss_dataset.items())
+        },
     }
 
 
@@ -127,34 +140,32 @@ def main():
     args = parser.parse_args()
     results_root = Path(args.results_root).resolve()
     summary = build_summary(results_root)
-    if args.dataset:
-        dataset_key = str(args.dataset).strip().lower()
-        if dataset_key not in summary["datasets"]:
-            print(f"WARNING: no completed runs found for dataset={dataset_key}")
-        selected = {
-            dataset_key: summary["datasets"].get(
-                dataset_key,
-                {"average": {}},
-            )
-        }
-    else:
-        selected = summary["datasets"]
     summary_dir = results_root / "summary"
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    for dataset, dataset_summary in selected.items():
-        path = summary_dir / f"{dataset}.json"
-        path.write_text(json.dumps(dataset_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        average = dataset_summary.get("average", {})
-        acc_mean = average.get("acc")
-        wf1_mean = average.get("weighted_f1")
-        runs = len([key for key in dataset_summary if key != "average"])
-        print(
-            f"{dataset:10s} runs={runs:2d} "
-            f"acc={acc_mean} wf1={wf1_mean}"
+    dataset_filter = str(args.dataset).strip().lower() if args.dataset else None
+    for loss, datasets in summary["losses"].items():
+        loss_dir = summary_dir / loss
+        loss_dir.mkdir(parents=True, exist_ok=True)
+        for dataset, dataset_summary in sorted(datasets.items()):
+            if dataset_filter and dataset != dataset_filter:
+                continue
+            path = loss_dir / f"{dataset}.json"
+            path.write_text(json.dumps(dataset_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            average = dataset_summary.get("average", {})
+            acc_mean = average.get("acc")
+            wf1_mean = average.get("weighted_f1")
+            runs = len([key for key in dataset_summary if key != "average"])
+            print(
+                f"{loss:28s} {dataset:10s} runs={runs:2d} "
+                f"acc={acc_mean} wf1={wf1_mean}"
+            )
+        (loss_dir / "summary.json").write_text(
+            json.dumps({"datasets": datasets}, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
-    summary_path = summary_dir / "summary.json"
-    full_summary = build_summary(results_root)
-    summary_path.write_text(json.dumps(full_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if dataset_filter and not any(
+        dataset_filter in datasets for datasets in summary["losses"].values()
+    ):
+        print(f"WARNING: no completed runs found for dataset={dataset_filter}")
     print(f"summary_dir={summary_dir}")
 
 

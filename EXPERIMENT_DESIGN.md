@@ -211,6 +211,7 @@
 
 - 保持当前 `adaptive_isodata` 参数（`q_max=8`、`min_cluster_size=2`、`min_split_silhouette=0.10~0.20`、`pca_variance=0.95`、`seeds=[11,23,37,53,71]`）；
 - 暂不调优（当前使用 `true_cluster`，聚类质量不影响训练）；后续统一调优后切换 `pred_cluster`。
+- 算法说明（PCA 预处理、BIC-like 目标、split/merge 规则）见 `src/MSL/discovery/clustering.py` 的模块 docstring。
 
 ### 4.5 每折独立性
 
@@ -298,7 +299,7 @@
 - `configs/iemocap/fold1~5.config`（5 折 session-LOSO）
 - `configs/mhealth/fold1~5.config`（5 折）
 - `configs/pamap2/fold1~9.config`（9 折 LOSO）
-- 全部为独立完整配置（无 extends）；无验证集，`training.validation_enabled=false`、固定 `global_rounds=200`；结果写入 `local/results_msl/`
+- 全部为独立完整配置（无 extends）；无验证集（代码中无 validation 相关内容）、固定 `global_rounds=200`；结果写入 `local/results_msl/`
 
 ### 8.2 运行前提
 
@@ -338,12 +339,14 @@ python scripts/summarize_results.py --results-root local/results_msl
 
 输出：
 
-- `local/results_msl/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标（acc/macro_f1/weighted_f1）+ average；
-- `local/results_msl/summary/summary.json`：四个数据集聚合总览。
+- `local/results_msl/summary/<loss>/<dataset>.json`：每个数据集每折/每 seed 的 test 指标（acc/macro_f1/weighted_f1）+ average（按 loss 分组，如 `mmbind_weighted_contrastive`、`label_random_ce`）；
+- `local/results_msl/summary/<loss>/summary.json`：该 loss 下各数据集聚合总览。
+- `experiments/<scope>/<dataset>/<loss>/attempt-<nn>/summary.json`：该 attempt 下所有 seed（固定划分数据集）或所有 fold（多折数据集）的汇总；
+- Stage 3 结果目录：固定划分数据集为 `attempt-<nn>/seed-<ss>/`，多折数据集为 `attempt-<nn>/fold-<n>/`。
 
 ### 8.5 注意事项
 
 - 无验证集：无早停、无 best checkpoint 选择，固定 200 轮后使用 `last_model.pt` 在测试集评估一次；
 - 当前阶段 `cluster_assignment_source=true_cluster`（oracle 上限）；正式无泄漏主线（`pred_cluster`）待聚类参数调优后切换，届时 pred_cluster 结果为主表、true_cluster 作为 oracle 上限对比；
-- 每个 Stage 2 / Stage 3 输出目录防覆盖，重跑需清理对应目录或递增 `stage3.attempt`；
+- 每个 Stage 2 / Stage 3 输出目录防覆盖；同一 fold/seed 重跑时 attempt 自动递增（`attempt-01` → `attempt-02`），不覆盖旧结果；
 - 本仓库修改不自动提交，commit/push 由维护者确认后执行。

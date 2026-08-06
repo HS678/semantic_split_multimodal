@@ -100,12 +100,14 @@ nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '
 local/results_msl/
 ├── partition/<dataset>/<partition_signature>/   # Stage 1（train_clients/、test_multimodal.pt 等）
 ├── cluster/<dataset>/<partition_signature>/adaptive_isodata/   # Stage 2（含 visualization/）
-├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/seed-<ss>/   # Stage 3 运行
-│   └── summary.json
-└── summary/<dataset>.json                      # 数据集级汇总
+├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/   # Stage 3 运行
+│   ├── seed-<ss>/          # 固定划分数据集（如 UCI-HAR，每个 seed 一个目录）
+│   ├── fold-<n>/           # 多折数据集（每折一个目录）
+│   └── summary.json        # 汇总该 attempt 下所有 seed/fold
+└── summary/<loss>/<dataset>.json  # 数据集级汇总（按 loss 分组）
 ```
 
-Stage 输出不覆盖已有非空目录；重复同一配置/seed 需要递增 `stage3.attempt`。
+Stage 输出不覆盖已有非空目录；重复同一 fold/seed 会自动生成下一个 `attempt-<nn>`。
 
 ## 汇总格式
 

@@ -100,12 +100,14 @@ Launchers skip steps whose output directories already exist (resume-friendly) an
 local/results_msl/
 ├── partition/<dataset>/<partition_signature>/   # Stage 1 (train_clients/, test_multimodal.pt, ...)
 ├── cluster/<dataset>/<partition_signature>/adaptive_isodata/   # Stage 2 (+ visualization/)
-├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/seed-<ss>/   # Stage 3 runs
-│   └── summary.json
-└── summary/<dataset>.json                      # per-dataset aggregate
+├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/   # Stage 3 runs
+│   ├── seed-<ss>/          # fixed-split datasets (e.g. UCI-HAR, one dir per seed)
+│   ├── fold-<n>/           # multi-fold datasets (one dir per fold)
+│   └── summary.json        # aggregates every seed/fold under this attempt
+└── summary/<loss>/<dataset>.json  # per-dataset aggregate, grouped by loss
 ```
 
-Stage outputs never overwrite an existing non-empty directory. Re-running the same config/seed requires incrementing `stage3.attempt`.
+Stage outputs never overwrite an existing non-empty directory. Re-running the same fold/seed creates the next `attempt-<nn>` automatically.
 
 ## Summary format
 
