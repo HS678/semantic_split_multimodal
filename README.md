@@ -14,6 +14,19 @@ Three-stage reproducible experiment framework:
 
 This is not Federated Learning and does not use FedAvg. Clients upload detached activations; the server computes the loss, backpropagates through the fusion model, and routes activation gradients back to the client encoders.
 
+## Installation
+
+Python 3.10+ with PyTorch. Create an environment and install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+For CUDA, install the matching `torch` / `torchvision` / `torchaudio` build first, then install the remaining requirements.
+
 ## Protocol
 
 - Training, scheduling, binding, and fusion-slot construction use only `pred_cluster` and labels. `hidden_modality_id` / true modality names are used only for Stage 2 discovery audit and evaluation-only oracle mapping.
@@ -34,6 +47,13 @@ Four datasets are supported; splits are hardcoded in `src/MSL/data/datasets.py` 
 | IEMOCAP | `session_5fold_loso_foldN` | 5-fold session-LOSO, audio/video/text; 1 seed |
 
 Per-dataset fixed parameters (num_classes, roots, encoders, pretrain/train lr, mmbind weights, clustering defaults) live in `src/MSL/data/dataset_defaults.py` and are not duplicated in config files.
+
+Download the public datasets and place them under `local/datasets/`:
+
+- **UCI-HAR**: the official `UCI HAR Dataset` (put the `train/` and `test/` folders under `local/datasets/uci_har/`).
+- **MHEALTH**: `MHEALTHDATASET.zip` from UCI, extracted as `local/datasets/mhealth/` with `MHEALTHDATASET/` inside.
+- **PAMAP2**: `PAMAP2_Dataset.zip` from UCI, extracted as `local/datasets/pamap2/` with `PAMAP2_Dataset/Protocol/subject10*.dat`.
+- **IEMOCAP**: the full release under `local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/` (requires the CMU IEMOCAP license).
 
 IEMOCAP frozen features must be prepared once before Stage 1:
 
@@ -67,9 +87,9 @@ python scripts/stage3_train.py --config configs/uci_har.config --seed 101
 One-command launchers (each dataset runs its full Stage1 → Stage2 → Stage3 → summarize flow):
 
 ```bash
-nohup bash local/tools/single/launch_msl_uci_har.sh > "local/tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/serial/launch_msl_all.sh > "local/tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/parallel/launch_msl_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_uci_har.sh > "tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/serial/launch_msl_all.sh > "tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 Launchers skip steps whose output directories already exist (resume-friendly) and write logs under `local/results_msl/logs/`.

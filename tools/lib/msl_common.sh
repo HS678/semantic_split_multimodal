@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# MSL 实验公共运行库：封装 Stage1/2/3 执行与断点续跑，供 single/serial/parallel 脚本复用。
+# 用法：先 cd 到项目根，再 source 本文件，然后调用 run_msl_dataset <dataset>。
+
+set -euo pipefail
+
+PYTHON="${PYTHON:-python3}"
+export PYTHONPATH="${PWD}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
+# 执行命令；若因输出目录已存在而失败（防覆盖）则视为跳过，实现断点续跑。
+run_or_skip() {
+  local label="$1" log="$2"
+  shift 2
+  echo "[$(date '+%F %T')] ${label} start"
+  if "$@" > "$log" 2>&1; then
+    return 0
+  fi
+  if rg -q "Refusing to overwrite existing" "$log"; then
+    echo "[$(date '+%F %T')] ${label} output already exists, skipping."
+    return 0
+  fi
+  echo "${label} FAILED"
+  tail -20 "$log"
+  return 1
+}
+
+stage1() {
+  local name="$1" config="$2" clients="${3:-10}"
+  local log_dir="local/results_msl/logs/${name}"
+  mkdir -p "$log_dir"
+  local log_file="${log_dir}/stage1_${name}_$(date '+%Y%m%d_%H%M%S').log"
+  run_or_skip "$name Stage1" "$log_file" "$PYTHON" \
+    scripts/stage1_partition.py --config "$config" --clients "$clients"
+}
+stage2() {
+  local name="$1" config="$2"
+  local log_dir="local/results_msl/logs/${name}"
+  mkdir -p "$log_dir"
+  local log_file="${log_dir}/stage2_${name}_$(date '+%Y%m%d_%H%M%S').log"
+  run_or_skip "$name Stage2" "$log_file" "$PYTHON" scripts/stage2_discovery.py --config "$config"
+}
+stage3() {
+  local name="$1" config="$2" seed="$3"
+  local log_dir="local/results_msl/logs/${name}"
+  mkdir -p "$log_dir"
+  local log_file="${log_dir}/stage3_${name}_seed${seed}_$(date '+%Y%m%d_%H%M%S').log"
+  run_or_skip "$name Stage3" "$log_file" "$PYTHON" scripts/stage3_train.py --config "$config" --seed "$seed"
+}
+
+summarize() {
+  "$PYTHON" scripts/summarize_results.py --results-root local/results_msl --dataset "$1"
+}
+
+# 固定划分数据集：Stage1/2 一次 + 多个 seed 的 Stage3，最后汇总。
+run_fixed_dataset() {
+  local name="$1" config="$2" clients="$3"
+  shift 3
+  stage1 "$name" "$config" "$clients"
+  stage2 "$name" "$config"
+  local seed
+  for seed in "$@"; do
+    stage3 "$name" "$config" "$seed"
+  done
+  summarize "$name"
+}
+
+# 多折数据集：每折 Stage1/2/3（seed 固定），最后汇总。
+run_folds_dataset() {
+  local name="$1" folds="$2" seed="$3" clients="$4"
+  local fold
+  for fold in $(seq 1 "$folds"); do
+    local config="configs/${name}/fold${fold}.config"
+    stage1 "$name" "$config" "$clients"
+    stage2 "$name" "$config"
+    stage3 "$name" "$config" "$seed"
+  done
+  summarize "$name"
+}
+
+# 数据集入口：运行该数据集的完整实验。
+run_msl_dataset() {
+  local dataset="$1" clients="${2:-10}"
+  case "$dataset" in
+    uci_har) run_fixed_dataset uci_har configs/uci_har.config "$clients" 101 202 303 404 505 ;;
+    iemocap) run_folds_dataset iemocap 5 42 "$clients" ;;
+    mhealth) run_folds_dataset mhealth 5 42 "$clients" ;;
+    pamap2)  run_folds_dataset pamap2 9 42 "$clients" ;;
+    *) echo "unknown dataset: $dataset" >&2; return 1 ;;
+  esac
+}

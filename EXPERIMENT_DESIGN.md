@@ -204,7 +204,7 @@
 
 - 预训练目标：`classification`（任务语义初始化 encoder，有利于 Stage 3 精度）；
 - fingerprint 的模态区分由 `signal` / hybrid 中的 signal 部分承担（实证：mhealth/pamap2 signal 成功、encoder 指纹聚成 1 簇失败）；
-- 参数沿用当前运行成功的 formal 配置（uci_har 25 epochs / 0.0005；mhealth/pamap2 25~30 epochs / 0.0002~0.0003；iemocap 25 epochs / 0.0002；class_weighting 按数据集 inverse_sqrt 或 none）；
+- 参数沿用当前运行成功的配置（uci_har 25 epochs / 0.0005；mhealth/pamap2 25~30 epochs / 0.0002~0.0003；iemocap 25 epochs / 0.0002；class_weighting 按数据集 inverse_sqrt 或 none）；
 - 未来切换 `pred_cluster` 时若 encoder 指纹区分不足，再比较 `reconstruction` vs `classification` 的影响。
 
 ### 4.4 聚类参数
@@ -227,7 +227,7 @@
 
 ## 5. Stage 3（训练）与 Evaluation 设计
 
-✅ 已确定（全部沿用现有 formal 配置 + 方向 A 原机制）：
+✅ 已确定（沿用当前运行成功的参数）：
 
 ### 5.1 训练机制（方法核心协议，不改）
 
@@ -286,7 +286,7 @@
 | 2026-08-06 | 确定无验证集：删除 validation 相关代码与产物，固定 `global_rounds=200`，训练结束用 `last_model.pt` 测试一次 |
 | 2026-08-06 | 论文指标只保留 acc / macro_f1 / weighted_f1；汇总格式 `{foldN/seedN, average}` |
 | 2026-08-04 | Stage 2：固定 true_cluster（后续调聚类后切 pred_cluster）；fingerprint 保持现状（uci_har hybrid、mhealth/pamap2 signal、iemocap hybrid）；预训练用 classification；聚类参数暂不调 |
-| 2026-08-04 | Stage 3：沿用 formal 配置（mmbind_weighted_contrastive、200 轮、无验证集） |
+| 2026-08-04 | Stage 3：沿用当前配置（mmbind_weighted_contrastive、200 轮、无验证集） |
 
 ---
 
@@ -310,22 +310,22 @@
 单数据集启动（每个脚本含该数据集全部 seed/折的 Stage1→Stage2→Stage3 + 一键汇总）：
 
 ```bash
-nohup bash local/tools/single/launch_msl_uci_har.sh > "local/tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/single/launch_msl_iemocap.sh > "local/tools/single/iemocap_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/single/launch_msl_mhealth.sh > "local/tools/single/mhealth_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/single/launch_msl_pamap2.sh > "local/tools/single/pamap2_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_uci_har.sh > "tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_iemocap.sh > "tools/single/iemocap_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_mhealth.sh > "tools/single/mhealth_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_pamap2.sh > "tools/single/pamap2_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 四数据集串行（顺序执行各数据集脚本）：
 
 ```bash
-nohup bash local/tools/serial/launch_msl_all.sh > "local/tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/serial/launch_msl_all.sh > "tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 四数据集并行（推荐，各数据集独立 Stage1→Stage2→Stage3）：
 
 ```bash
-nohup bash local/tools/parallel/launch_msl_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 脚本各阶段输出已存在时自动跳过（断点续跑）；日志写入 `local/results_msl/logs/`。

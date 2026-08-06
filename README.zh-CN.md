@@ -14,6 +14,19 @@
 
 本项目不是联邦学习，不使用 FedAvg。客户端上传 detached 激活；服务器计算 loss、反向传播融合模型，并把激活梯度路由回客户端 encoder。
 
+## 环境安装
+
+需要 Python 3.10+ 与 PyTorch。创建环境并安装依赖：
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+使用 CUDA 时先安装与显卡匹配的 `torch` / `torchvision` / `torchaudio`，再安装其余依赖。
+
 ## 协议
 
 - 训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 Stage 2 审计和 evaluation-only oracle mapping。
@@ -34,6 +47,13 @@
 | IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；1 个 seed |
 
 每个数据集的固定参数（num_classes、root、encoder、预训练/训练 lr、mmbind 权重、聚类默认参数）内置在 `src/MSL/data/dataset_defaults.py`，不重复写入配置文件。
+
+下载公开数据集并放到 `local/datasets/`：
+
+- **UCI-HAR**：官方 `UCI HAR Dataset`（把 `train/`、`test/` 目录放到 `local/datasets/uci_har/`）。
+- **MHEALTH**：UCI 的 `MHEALTHDATASET.zip`，解压为 `local/datasets/mhealth/`（内含 `MHEALTHDATASET/`）。
+- **PAMAP2**：UCI 的 `PAMAP2_Dataset.zip`，解压为 `local/datasets/pamap2/`（`PAMAP2_Dataset/Protocol/subject10*.dat`）。
+- **IEMOCAP**：完整版放在 `local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/`（需 CMU IEMOCAP 许可）。
 
 IEMOCAP 冻结特征需要在 Stage 1 前准备一次：
 
@@ -67,9 +87,9 @@ python scripts/stage3_train.py --config configs/uci_har.config --seed 101
 一键启动脚本（每个数据集完整执行 Stage1 → Stage2 → Stage3 → 汇总）：
 
 ```bash
-nohup bash local/tools/single/launch_msl_uci_har.sh > "local/tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/serial/launch_msl_all.sh > "local/tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash local/tools/parallel/launch_msl_parallel.sh > "local/tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/single/launch_msl_uci_har.sh > "tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/serial/launch_msl_all.sh > "tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
 ```
 
 启动脚本对已存在的输出目录自动跳过（可断点续跑），日志写入 `local/results_msl/logs/`。
