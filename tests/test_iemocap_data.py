@@ -82,7 +82,7 @@ def test_iemocap_loader_returns_three_sequence_modalities(tmp_path):
     assert dataset["modality_names"] == ["audio", "video", "text"]
     assert dataset["modality_encoder_types"] == ["conv_gru", "gru", "gru"]
     assert dataset["modality_input_shapes"] == [[12, 4], [5, 6], [7, 8]]
-    assert dataset["split_num_samples"] == {"train": 8, "validation": 0, "test": 2}
+    assert dataset["split_num_samples"] == {"train": 8, "test": 2}
     assert dataset["label_mapping"] == {
         "angry": 0,
         "happy_or_excited": 1,

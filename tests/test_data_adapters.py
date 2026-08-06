@@ -13,7 +13,7 @@ from MSL.data.datasets import (
     _pamap2_remap_labels,
     _validate_subject_splits,
 )
-from MSL.utils.config import load_config
+from MSL.utils.config import load_config, normalize_experiment_config
 from MSL.utils.results import configure_result_run
 
 
@@ -39,7 +39,7 @@ DATASET_CASES = [
 
 @pytest.mark.parametrize("dataset_name,config_path,expected_names,expected_shapes", DATASET_CASES)
 def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expected_names, expected_shapes):
-    cfg = load_config(PROJECT_ROOT / config_path)
+    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / config_path))
     dataset = load_dataset(cfg, PROJECT_ROOT)
 
     assert set(dataset) >= {"modality_input_shapes", "modality_names", "root", "train", "validation", "test"}
@@ -71,7 +71,7 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     expected_names,
     expected_shapes,
 ):
-    cfg = load_config(PROJECT_ROOT / config_path)
+    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / config_path))
     cfg["partition"] = {
         **cfg.get("partition", {}),
         "output_dir": str(tmp_path / dataset_name / "01_dataset_partition"),
@@ -85,10 +85,9 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     assert [item["input_shape"] for item in info["modalities"]] == expected_shapes
     assert info["split_protocol"] == cfg["dataset"]["split_protocol"]
     assert info["dataset_config"] == cfg["dataset"]
-    assert set(info["split_num_samples"]) == {"train", "validation", "test"}
+    assert set(info["split_num_samples"]) == {"train", "test"}
     assert info["split_num_samples"]["train"] > 0
     assert info["split_num_samples"]["test"] > 0
-    assert info["split_num_samples"]["validation"] >= 0
 
     with (output_dir / "client_meta.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -96,12 +95,8 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
     assert all(int(row["num_samples"]) > 0 for row in rows)
     assert {row["encoder_type"] for row in rows} == {cfg["model"]["encoder"]["type"]}
 
-    for split_name in ("validation", "test"):
+    for split_name in ("test",):
         path = output_dir / f"{split_name}_multimodal.pt"
-        if not path.exists():
-            assert split_name == "validation"
-            assert info["split_num_samples"]["validation"] == 0
-            continue
         payload = torch.load(path, map_location="cpu")
         assert payload["split"] == split_name
         assert payload["modality_names"] == expected_names

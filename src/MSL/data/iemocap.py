@@ -219,6 +219,7 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
         "modality_names": list(IEMOCAP_MODALITY_NAMES),
         "modality_input_shapes": input_shapes,
         "modality_encoder_types": list(IEMOCAP_ENCODER_TYPES),
+        "split_subjects": {"train": list(train_sessions), "test": list(test_sessions)},
         "label_mapping": {
             "angry": 0,
             "happy_or_excited": 1,
@@ -227,7 +228,6 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
         },
         "split_num_samples": {
             "train": int(train["labels"].shape[0]),
-            "validation": int(validation["labels"].shape[0]),
             "test": int(test["labels"].shape[0]),
         },
         "split_metadata": split_metadata,

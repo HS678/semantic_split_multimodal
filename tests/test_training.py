@@ -313,9 +313,6 @@ def test_no_validation_runs_fixed_rounds_and_tests_last_model(
     assert (tmp_path / "run" / "last_model.pt").exists()
 
     saved_metrics = json.loads((tmp_path / "run" / "final_metrics.json").read_text(encoding="utf-8"))
-    best_metrics = json.loads((tmp_path / "run" / "best_metrics.json").read_text(encoding="utf-8"))
     assert saved_metrics["official_result"] == result["official_result"]
     assert saved_metrics["checkpoint"] == "last_model.pt"
     assert saved_metrics["selected_by"] == "fixed_rounds_no_validation"
-    assert best_metrics["checkpoint_role"] == "no_validation_fixed_rounds"
-    assert best_metrics["selected_by"] == "fixed_rounds_no_validation"

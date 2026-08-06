@@ -14,7 +14,7 @@ from MSL.discovery.clustering import (
     adaptive_isodata,
 )
 from MSL.evaluation.metrics import discovery_metrics
-from MSL.utils.config import load_config
+from MSL.utils.config import load_config, normalize_experiment_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -238,7 +238,7 @@ def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k()
     ]
     adaptive_blocks = []
     for path in configs:
-        cfg = load_config(path)
+        cfg = normalize_experiment_config(load_config(path))
         cluster = cfg["cluster"]
         assert cluster["method"] == "adaptive_isodata"
         assert cluster["known_k"] is None
@@ -278,7 +278,7 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
     }
     for relative, values in expected.items():
         path = PROJECT_ROOT / relative
-        cfg = load_config(path)
+        cfg = normalize_experiment_config(load_config(path))
         assert cfg["seed"] == 42
         assert not forbidden_top_level.intersection(cfg)
         assert "server" not in cfg["model"]

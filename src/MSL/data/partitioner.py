@@ -183,9 +183,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             )
             client_id_num += 1
 
-    for split_name, split in [("validation", validation), ("test", test)]:
-        if int(split["labels"].shape[0]) == 0:
-            continue
+    for split_name, split in [("test", test)]:
         split_modalities = {
             name: split["modalities"][idx].contiguous()
             for idx, name in enumerate(modality_names)
@@ -226,13 +224,9 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "clients_per_modality": clients_per_modality,
         "num_clients": len(client_rows),
         "split_protocol": split_protocol,
-        "split_subjects": {
-            split_name: [int(v) for v in cfg.get("dataset", {}).get(f"{split_name}_subjects", [])]
-            for split_name in ("train", "validation", "test")
-        },
+        "split_subjects": dataset.get("split_subjects", {}),
         "split_num_samples": {
             "train": int(train["labels"].shape[0]),
-            "validation": int(validation["labels"].shape[0]),
             "test": int(test["labels"].shape[0]),
         },
         "modalities": [

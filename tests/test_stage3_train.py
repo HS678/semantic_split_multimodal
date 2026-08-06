@@ -148,17 +148,14 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
     metrics.setdefault("test_weighted_f1", metrics.get("test_macro_f1"))
     (result_dir / "train_log.csv").write_text("round,loss\n1,1.0\n", encoding="utf-8")
     (result_dir / "final_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
-    (result_dir / "best_metrics.json").write_text(
-        json.dumps({"best_round": metrics["best_round"], "macro_f1": 0.4}),
-        encoding="utf-8",
-    )
     (result_dir / "last_model.pt").write_text("checkpoint", encoding="utf-8")
 
 
 def _only_attempt_dir(output_root: Path) -> Path:
-    candidates = list(Path(output_root).rglob("attempt-01"))
-    assert len(candidates) == 1
-    return candidates[0]
+    # 新结构：.../<loss>/attempt-<nn>/seed-<seed>/ 为结果目录，返回包含 stage3_metadata.json 的那一层。
+    metadata = list(Path(output_root).rglob("stage3_metadata.json"))
+    assert len(metadata) == 1
+    return metadata[0].parent
 
 
 def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
@@ -179,9 +176,9 @@ def test_build_stage3_run_injects_separate_stage1_stage2_and_outputs(tmp_path):
         / "experiments"
         / "predicted_cluster"
         / "synthetic_stage3"
-        / paths["config_signature"]
-        / "seed-7"
+        / "objective"
         / "attempt-01"
+        / "seed-7"
     ).resolve()
     assert Path(cfg["partition"]["output_dir"]) == stage1.resolve()
     assert Path(cfg["cluster"]["output_dir"]) == stage2.resolve()
@@ -304,9 +301,7 @@ def test_formal_completion_status_accepts_no_validation_fixed_rounds(tmp_path):
         "source_config.config",
         "resolved_config.config",
         "train_log.csv",
-        "validation_log.csv",
         "final_metrics.json",
-        "best_metrics.json",
         "last_model.pt",
         "training_curves.png",
     ]:
@@ -550,7 +545,6 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         "resolved_config.config",
         "train_log.csv",
         "final_metrics.json",
-        "best_metrics.json",
         "last_model.pt",
         "training_curves.png",
         "stage3_metadata.json",

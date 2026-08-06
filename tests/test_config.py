@@ -4,6 +4,7 @@ import pytest
 
 from MSL.utils.config import (
     load_config,
+    normalize_experiment_config,
     save_config_artifacts,
     write_config,
 )
@@ -25,13 +26,12 @@ def test_all_dataset_configs_are_ini_style_and_use_true_cluster_for_current_deve
     }
     for dataset, relative_path in paths.items():
         path = PROJECT_ROOT / relative_path
-        cfg = load_config(path)
+        cfg = normalize_experiment_config(load_config(path))
         assert cfg["dataset"]["type"] == dataset
         assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
-        assert cfg["stage2"]["stage1_dir"]
-        assert cfg["stage3"]["stage1_dir"]
-        assert cfg["stage3"]["stage2_dir"]
-        assert cfg["stage3"]["attempt"] == 1
+        assert cfg["partition"]["clients_per_modality"] == 10
+        assert cfg["cluster"]["method"] == "adaptive_isodata"
+        assert cfg["evaluation"]["run_test"] is True
 
 
 def test_config_round_trip_preserves_nested_types(tmp_path):
@@ -83,15 +83,18 @@ def test_MSL_configs_resolve_expected_protocols_and_objective():
             if dataset == "uci_har"
             else f"{dataset}/fold1.config"
         )
-        cfg = load_config(config_dir / relative)
+        cfg = normalize_experiment_config(load_config(config_dir / relative))
         assert cfg["dataset"]["type"] == dataset
-        assert cfg["fusion"]["training_objective"] == "mmbind_weighted_contrastive"
+        assert cfg["fusion"]["training_objective"] in {
+            "label_random_ce",
+            "mmbind_weighted_contrastive",
+        }
         assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
         assert "validation_enabled" not in cfg["training"]
         assert cfg["evaluation"]["run_test"] is True
 
     for fold in range(1, 6):
-        cfg = load_config(config_dir / "iemocap" / f"fold{fold}.config")
+        cfg = normalize_experiment_config(load_config(config_dir / "iemocap" / f"fold{fold}.config"))
         assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}"
         assert "train_sessions" not in cfg["dataset"]
         assert "test_sessions" not in cfg["dataset"]
@@ -116,13 +119,9 @@ def test_config_artifacts_preserve_source_bytes_and_resolved_snapshot(tmp_path):
 
 
 def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes():
-    cfg = load_config(PROJECT_ROOT / "configs" / "uci_har.config")
+    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "uci_har.config"))
     signature = experiment_config_signature(cfg)
-    changed_runtime = {
-        **cfg,
-        "seed": 505,
-        "stage3": {**cfg["stage3"], "attempt": 9, "output_root": "/tmp/elsewhere"},
-    }
+    changed_runtime = {**cfg, "seed": 505, "base_dir": "/tmp/elsewhere"}
     assert experiment_config_signature(changed_runtime) == signature
 
     changed_objective = {

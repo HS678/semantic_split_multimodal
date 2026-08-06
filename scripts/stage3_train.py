@@ -18,12 +18,13 @@ if str(SRC) not in sys.path:
 
 from MSL.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
 from MSL.evaluation.plot_training_curves import write_training_curves
-from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.device import select_device
 from MSL.utils.results import (
     cluster_assignment_scope,
     dataset_result_name,
     experiment_config_signature,
+    resolve_stage_paths,
 )
 from MSL.utils.seed import set_seed
 
@@ -113,9 +114,9 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
 
     dataset_name = _validate_path_component(dataset_result_name(cfg), "dataset")
     scope = _validate_path_component(cluster_assignment_scope(cfg), "cluster assignment scope")
-    config_signature = _validate_path_component(
-        experiment_config_signature(cfg), "config signature"
-    )
+    objective = str(cfg.get("fusion", {}).get("training_objective", "objective"))
+    loss_component = _validate_path_component(objective, "fusion training objective")
+    config_signature = experiment_config_signature(cfg)
     seed = int(cfg.get("seed", 42))
     attempt = int(attempt)
     if attempt <= 0:
@@ -130,9 +131,9 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
         output_root_path
         / scope
         / dataset_name
-        / config_signature
-        / seed_component
+        / loss_component
         / attempt_component
+        / seed_component
     ).resolve()
     if not _is_relative_to(run_dir, output_root_path):
         raise ValueError(f"Stage3 run directory escaped output_root: {run_dir}")
@@ -154,6 +155,7 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
         "run_dir": str(run_dir),
         "cluster_assignment_scope": scope,
         "config_signature": config_signature,
+        "loss": objective,
         "seed": seed,
         "attempt": attempt,
     }
@@ -167,6 +169,7 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
         "dataset": dataset_name,
         "cluster_assignment_scope": scope,
         "config_signature": config_signature,
+        "loss": objective,
         "seed": seed,
         "attempt": attempt,
     }
@@ -392,7 +395,6 @@ def _formal_completion_status(metrics: dict | None, paths: dict):
         "resolved_config.config",
         "train_log.csv",
         "final_metrics.json",
-        "best_metrics.json",
         "last_model.pt",
         "training_curves.png",
     ]
@@ -524,19 +526,22 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    cfg = load_config(args.config)
+    cfg = normalize_experiment_config(load_config(args.config))
     stage3_cfg = cfg.get("stage3", {})
     stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
     stage2_dir = args.stage2_dir or stage3_cfg.get("stage2_dir")
     if not stage1_dir or not stage2_dir:
+        # 新格式 config 不写路径：自动从 base_dir + 数据集 + 协议生成。
+        resolved = resolve_stage_paths(cfg, ROOT)
+        stage1_dir = stage1_dir or resolved["stage1_dir"]
+        stage2_dir = stage2_dir or resolved["stage2_dir"]
+    output_root = args.output_root or stage3_cfg.get("output_root")
+    if not output_root:
+        output_root = resolve_stage_paths(cfg, ROOT)["output_dir"]
+    if not stage1_dir or not stage2_dir:
         raise ValueError(
             "Set stage3.stage1_dir and stage3.stage2_dir in the .config file or pass CLI overrides."
         )
-    output_root = (
-        args.output_root
-        or stage3_cfg.get("output_root")
-        or ROOT / "local" / "results" / "experiments"
-    )
     attempt = args.attempt if args.attempt is not None else int(stage3_cfg.get("attempt", 1))
     resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
     cfg = {**cfg, "seed": resolved_seed}
@@ -545,13 +550,24 @@ def main(argv=None):
             **cfg.get("fusion", {}),
             "training_objective": args.fusion_training_objective,
         }
-    run_cfg, paths = build_stage3_run(
-        cfg,
-        stage1_dir=stage1_dir,
-        stage2_dir=stage2_dir,
-        output_root=output_root,
-        attempt=attempt,
-    )
+    # attempt 自动递增：同 loss 目录已存在时自动尝试下一个 attempt，避免覆盖旧结果。
+    run_cfg = None
+    paths = None
+    for candidate_attempt in range(attempt, attempt + 100):
+        try:
+            run_cfg, paths = build_stage3_run(
+                cfg,
+                stage1_dir=stage1_dir,
+                stage2_dir=stage2_dir,
+                output_root=output_root,
+                attempt=candidate_attempt,
+            )
+            attempt = candidate_attempt
+            break
+        except FileExistsError:
+            continue
+    if run_cfg is None or paths is None:
+        raise FileExistsError(f"Too many existing Stage3 attempt directories under {output_root}.")
     audit = audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)

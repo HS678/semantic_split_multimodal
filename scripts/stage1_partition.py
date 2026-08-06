@@ -8,7 +8,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.data.partitioner import run_stage1_partition
-from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.results import configure_result_run
 from MSL.utils.seed import set_seed
 
@@ -23,7 +23,7 @@ def main():
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = normalize_experiment_config(load_config(args.config))
     if args.clients:
         cfg["partition"] = {**cfg.get("partition", {}), "clients_per_modality": args.clients}
     cfg = configure_result_run(cfg, ROOT, stage="stage1_partition", create_new=True)

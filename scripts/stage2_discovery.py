@@ -11,9 +11,9 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.learning.pretrain import run_stage2_discovery
-from MSL.utils.config import load_config, save_config_artifacts
+from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.device import select_device
-from MSL.utils.results import dataset_result_name, safe_result_component
+from MSL.utils.results import dataset_result_name, resolve_stage_paths, safe_result_component
 from MSL.utils.seed import set_seed
 
 
@@ -120,16 +120,15 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    cfg = load_config(args.config)
+    cfg = normalize_experiment_config(load_config(args.config))
     stage2_cfg = cfg.get("stage2", {})
     stage1_dir = args.stage1_dir or stage2_cfg.get("stage1_dir")
-    if not stage1_dir:
-        raise ValueError("Set stage2.stage1_dir in the .config file or pass --stage1-dir.")
-    output_root = (
-        args.output_root
-        or stage2_cfg.get("output_root")
-        or ROOT / "local" / "results" / "cluster"
-    )
+    output_root = args.output_root or stage2_cfg.get("output_root")
+    if not stage1_dir or not output_root:
+        # 新格式 config 不写路径：自动从 base_dir + 数据集 + 协议生成。
+        resolved = resolve_stage_paths(cfg, ROOT)
+        stage1_dir = stage1_dir or resolved["stage1_dir"]
+        output_root = output_root or resolved["stage2_dir"].parents[2]
     cfg, paths = build_stage2_run(
         cfg,
         stage1_dir=stage1_dir,

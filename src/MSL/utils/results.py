@@ -88,13 +88,16 @@ def experiment_config_signature(cfg: dict) -> str:
     encoder_cfg = cfg.get("model", {}).get("encoder", {})
     dataset_cfg = cfg.get("dataset", {})
     encoder_parts = [encoder_cfg.get("type"), dataset_cfg.get("feature_recipe")]
-    return f"h-{digest}"
+    objective = cfg.get("fusion", {}).get("training_objective", "objective")
+    # 目录名保留 loss 方式 + 配置哈希，便于快速识别训练目标。
+    return f"{safe_result_component(objective)}-h-{digest}"
 
 
 def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
     cfg = dict(cfg)
     result_cfg = dict(cfg.get("results", {}))
-    base_dir = _resolve_project_path(project_root, result_cfg.get("base_dir", "./local/results"))
+    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./local/results")
+    base_dir = _resolve_project_path(project_root, base_dir_value)
     data_root_value = result_cfg.get("data_root")
     data_root = _resolve_project_path(project_root, data_root_value) if data_root_value else None
     dataset_name = dataset_result_name(cfg)
@@ -175,3 +178,24 @@ def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: 
     with (run_dir / "run_meta.json").open("w", encoding="utf-8") as f:
         json.dump(run_meta, f, indent=2, ensure_ascii=False, sort_keys=True)
     return cfg
+
+
+def resolve_stage_paths(cfg: dict, project_root: Path) -> dict:
+    """从 base_dir + 数据集 + 划分协议自动生成 Stage1/2/3 路径（config 无需手写路径）。"""
+    from MSL.data.registry import load_dataset
+
+    result_cfg = dict(cfg.get("results", {}))
+    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./local/results")
+    base_dir = _resolve_project_path(project_root, base_dir_value)
+    dataset_name = dataset_result_name(cfg)
+    dataset = load_dataset(cfg, project_root)
+    signature = partition_signature(
+        dataset["modality_names"],
+        int(cfg.get("partition", {}).get("clients_per_modality", 10)),
+        cfg.get("dataset", {}).get("split_protocol"),
+    )
+    return {
+        "stage1_dir": base_dir / "partition" / dataset_name / signature,
+        "stage2_dir": base_dir / "cluster" / dataset_name / signature / "adaptive_isodata",
+        "output_dir": base_dir / "experiments",
+    }

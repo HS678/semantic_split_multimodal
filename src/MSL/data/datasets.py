@@ -180,6 +180,10 @@ def load_uci_har_dataset(cfg, project_root: Path):
         "validation": validation,
         "test": test,
         "root": str(root),
+        "split_subjects": {
+            "train": list(UCI_HAR_TRAIN_SUBJECTS),
+            "test": list(UCI_HAR_TEST_SUBJECTS),
+        },
         "modality_input_shapes": official_train["modality_input_shapes"],
         "modality_names": official_train["modality_names"],
     }
@@ -332,6 +336,7 @@ def load_mhealth_dataset(cfg, project_root: Path):
         "validation": validation,
         "test": test,
         "root": str(root),
+        "split_subjects": {"train": list(train_subjects), "test": list(test_subjects)},
         "modality_names": modality_names,
         "modality_input_shapes": input_shapes,
         "modality_mhealth_input_shapes": input_shapes,
@@ -510,6 +515,7 @@ def load_pamap2_dataset(cfg, project_root: Path):
         "validation": validation,
         "test": test,
         "root": str(root),
+        "split_subjects": {"train": list(train_subjects), "test": list(test_subjects)},
         "modality_names": modality_names,
         "modality_input_shapes": input_shapes,
         "modality_pamap2_input_shapes": input_shapes,

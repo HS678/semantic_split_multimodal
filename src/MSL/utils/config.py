@@ -104,6 +104,139 @@ def load_config(path: str | Path, _seen: set[Path] | None = None) -> dict:
     return _deep_merge(parent, cfg)
 
 
+def _class_weighting_mode(value) -> str:
+    """新格式 class_weighting 用 true/false：true=inverse_sqrt，false=none。"""
+    if value is None or value is False:
+        return "none"
+    if value is True:
+        return "inverse_sqrt"
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "inverse_sqrt"}:
+            return "inverse_sqrt"
+        if lowered in {"false", "none", "null", ""}:
+            return "none"
+    raise ValueError(f"class_weighting must be true/false, got {value!r}.")
+
+
+def normalize_experiment_config(cfg: dict) -> dict:
+    """把 6 段实验配置（config/partition/cluster/train/d2d/other）归一化为内部结构。
+
+    内部结构沿用既有代码读取的字段：dataset/partition/pretrain/fingerprint/
+    cluster/cluster.adaptive/training/model.encoder/model.encoders/binding/
+    fusion/fusion.mmbind/evaluation/d2d/fingerprint_visualization。
+    [config] 段由解析器提升到顶层（experiment_name/seed/device/num_classes/base_dir）。
+    """
+    cfg = dict(cfg)
+    if "training" in cfg and "dataset" in cfg:
+        # 已是内部结构（或旧格式合并结果），直接返回。
+        return cfg
+    partition = dict(cfg.pop("partition", {}))
+    cluster = dict(cfg.pop("cluster", {}))
+    train = dict(cfg.pop("train", {}))
+    d2d = dict(cfg.pop("d2d", {}))
+    other = dict(cfg.pop("other", {}))
+
+    # ---- dataset / partition ----
+    dataset = {
+        "type": partition.get("type"),
+        "root": partition.get("root"),
+        "split_protocol": partition.get("split_protocol"),
+        "normalize": True,  # 内置：只用 train 统计量标准化
+    }
+    for key in ("name", "variant", "processed_root", "feature_recipe", "task", "label_protocol"):
+        if key in partition:
+            dataset[key] = partition[key]
+    cfg["dataset"] = dataset
+    cfg["partition"] = {"clients_per_modality": int(partition.get("clients_per_modality", 10))}
+
+    # ---- pretrain / fingerprint / cluster ----
+    cfg["pretrain"] = {
+        "objective": cluster.get("pretrain_objective", "classification"),
+        "epochs": int(cluster.get("pretrain_epochs", 25)),
+        "batch_size": int(cluster.get("pretrain_batch_size", 64)),
+        "lr": float(cluster.get("pretrain_lr", 0.001)),
+        "weight_decay": float(cluster.get("pretrain_weight_decay", 0.0001)),
+        "class_weighting": _class_weighting_mode(cluster.get("pretrain_class_weighting")),
+        "max_grad_norm": cluster.get("pretrain_max_grad_norm", 5.0),
+    }
+    cfg["fingerprint"] = {
+        "type": cluster.get("fingerprint_type", "hybrid"),
+        "batch_size": int(cluster.get("fingerprint_batch_size", 64)),
+        "max_batches": cluster.get("fingerprint_max_batches", 4),
+    }
+    adaptive = {
+        key[len("adaptive_"):]: value
+        for key, value in cluster.items()
+        if key.startswith("adaptive_")
+    }
+    cfg["cluster"] = {
+        "method": cluster.get("method", "adaptive_isodata"),
+        "known_k": cluster.get("known_k"),
+        "adaptive": adaptive,
+    }
+
+    # ---- training / encoder / binding / fusion / evaluation ----
+    cfg["training"] = {
+        "cluster_assignment_source": train.get("cluster_assignment_source", "pred_cluster"),
+        "scheduler": train.get("scheduler", "balanced_cluster_round_robin"),
+        "global_rounds": int(train.get("global_rounds", 200)),
+        "local_steps": int(train.get("local_steps", 1)),
+        "batch_size": int(train.get("batch_size", 64)),
+        "eval_batch_size": int(train.get("eval_batch_size", 128)),
+        "clients_per_cluster_per_round": int(train.get("clients_per_cluster_per_round", 4)),
+        "client_lr": float(train.get("client_lr", 0.001)),
+        "server_lr": float(train.get("server_lr", 0.001)),
+        "client_weight_decay": float(train.get("client_weight_decay", 0.0001)),
+        "server_weight_decay": float(train.get("server_weight_decay", 0.0001)),
+        "max_grad_norm": train.get("max_grad_norm", 5.0),
+        "class_weighting": _class_weighting_mode(train.get("class_weighting")),
+    }
+    encoders = dict(train.pop("encoders", {}))
+    encoder = {
+        key[len("encoder_"):]: value
+        for key, value in train.items()
+        if key.startswith("encoder_")
+    }
+    cfg["model"] = {"encoder": encoder, "encoders": encoders}
+    cfg["binding"] = {
+        "type": train.get("binding_type", "label_random"),
+        "batch_size": int(train.get("binding_batch_size", 64)),
+    }
+    cfg["fusion"] = {
+        "type": train.get("fusion_type", "concat_mlp"),
+        "training_objective": train.get("fusion_training_objective", "label_random_ce"),
+        "adapter_dim": int(train.get("fusion_adapter_dim", 128)),
+        "hidden_dim": int(train.get("fusion_hidden_dim", 128)),
+        "num_layers": int(train.get("fusion_num_layers", 1)),
+        "dropout": float(train.get("fusion_dropout", 0.0)),
+        "mmbind": {
+            "temperature": float(train.get("mmbind_temperature", 0.1)),
+            "contrastive_weight": float(train.get("mmbind_contrastive_weight", 0.1)),
+            "heterogeneous_ce_weight": float(train.get("mmbind_heterogeneous_ce_weight", 0.5)),
+        },
+    }
+    cfg["evaluation"] = {"run_test": bool(train.get("run_test", True))}
+
+    # ---- d2d ----
+    cfg["d2d"] = {"enabled": bool(d2d.get("enabled", False))}
+
+    # ---- other -> fingerprint_visualization ----
+    visualization = {
+        "enabled": bool(other.get("fingerprint_visualization", True)),
+        "method": other.get("method", "pca"),
+        "standardize": bool(other.get("standardize", True)),
+        "show_client_ids": bool(other.get("show_client_ids", False)),
+        "show_ellipses": bool(other.get("show_ellipses", True)),
+        "ellipse_confidence": float(other.get("ellipse_confidence", 0.95)),
+        "png_dpi": int(other.get("png_dpi", 600)),
+    }
+    cfg["fingerprint_visualization"] = visualization
+
+    cfg.setdefault("encoder_hidden_dim", 128)
+    return cfg
+
+
 def _format_value(value) -> str:
     if value is None:
         return "null"

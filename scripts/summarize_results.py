@@ -101,6 +101,18 @@ def build_summary(results_root: Path) -> dict:
         if record is not None:
             records.append(record)
 
+    # run 级聚合：每个 run（seed/fold 文件夹的父级 = attempt 目录）一个 summary.json，与 seed 同级。
+    run_summaries = {}
+    for record in records:
+        run_dir = Path(record["run_dir"]).parents[0]
+        run_summaries.setdefault(run_dir, []).append(record)
+    for run_dir, run_records in run_summaries.items():
+        run_summary = build_dataset_summary(run_records)
+        (run_dir / "summary.json").write_text(
+            json.dumps(run_summary, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
     by_dataset = {}
     for dataset in sorted({record["dataset"] for record in records}):
         matches = [record for record in records if record["dataset"] == dataset]
@@ -108,6 +120,7 @@ def build_summary(results_root: Path) -> dict:
     return {
         "results_root": str(results_root.resolve()),
         "datasets": by_dataset,
+        "num_runs": len(run_summaries),
     }
 
 

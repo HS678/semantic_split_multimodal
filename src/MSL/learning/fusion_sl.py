@@ -725,16 +725,6 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     }
     with (result_dir / "final_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(final_metrics, f, indent=2)
-    with (result_dir / "best_metrics.json").open("w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "checkpoint_role": "no_validation_fixed_rounds",
-                "selected_by": "fixed_rounds_no_validation",
-                "stop_round": int(executed_rounds),
-            },
-            f,
-            indent=2,
-        )
     return final_metrics
 
 
