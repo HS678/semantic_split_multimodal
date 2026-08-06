@@ -149,7 +149,7 @@ def _write_success_outputs(result_dir: Path, metrics: dict):
 
 
 def _only_attempt_dir(output_root: Path) -> Path:
-    # 新结构：.../<loss>/attempt-<nn>/seed-<seed>/ 为结果目录，返回包含 stage3_metadata.json 的那一层。
+    # 当前结构：.../<loss>/attempt-<nn>-seed-<ss>/ 为结果目录，返回包含 stage3_metadata.json 的那一层。
     metadata = list(Path(output_root).rglob("stage3_metadata.json"))
     assert len(metadata) == 1
     return metadata[0].parent
@@ -528,7 +528,7 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert metadata["runtime_seconds"] >= 0
     assert metadata["stage1_dir"] == str(stage1.resolve())
     assert metadata["stage2_dir"] == str(stage2.resolve())
-    assert metadata["run_id"] == "attempt-01"
+    assert metadata["run_id"] == "attempt-01/seed-101"
     assert metadata["attempt"] == 1
     assert metadata["seed"] == 101
     assert metadata["config_snapshot"]["seed"] == 101

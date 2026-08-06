@@ -121,7 +121,17 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
     attempt = int(attempt)
     if attempt <= 0:
         raise ValueError(f"attempt must be a positive integer, got {attempt}.")
-    seed_component = _validate_path_component(f"seed-{seed}", "seed")
+    # 结果子目录：多折数据集（split_protocol 含 foldN）用 fold-N，其余用 seed-N。
+    # 目录结构保持 <loss>/attempt-NN/<fold-N|seed-N>/，summary 与子目录同级（attempt-NN 下）。
+    fold_match = re.search(
+        r"fold(\d+)", str(cfg.get("dataset", {}).get("split_protocol", ""))
+    )
+    if fold_match:
+        run_component = _validate_path_component(
+            f"fold-{int(fold_match.group(1))}", "run component"
+        )
+    else:
+        run_component = _validate_path_component(f"seed-{seed}", "run component")
     attempt_component = _validate_path_component(f"attempt-{attempt:02d}", "attempt")
     for input_label, input_path in [("Stage1", stage1_path), ("Stage2", stage2_path)]:
         if _paths_overlap(output_root_path, input_path):
@@ -133,7 +143,7 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
         / dataset_name
         / loss_component
         / attempt_component
-        / seed_component
+        / run_component
     ).resolve()
     if not _is_relative_to(run_dir, output_root_path):
         raise ValueError(f"Stage3 run directory escaped output_root: {run_dir}")
@@ -165,7 +175,7 @@ def build_stage3_run(cfg: dict, stage1_dir, stage2_dir, output_root, attempt=1):
         "output_root": output_root_path,
         "run_dir": run_dir,
         "metadata": run_dir / "stage3_metadata.json",
-        "run_id": attempt_component,
+        "run_id": f"{attempt_component}/{run_component}",
         "dataset": dataset_name,
         "cluster_assignment_scope": scope,
         "config_signature": config_signature,

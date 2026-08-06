@@ -89,7 +89,8 @@ def build_summary(results_root: Path) -> dict:
         if record is not None:
             records.append(record)
 
-    # run 级聚合：每个 run（seed/fold 文件夹的父级 = attempt 目录）一个 summary.json，与 seed 同级。
+    # run 级聚合：结果目录为 <loss>/attempt-NN-seed-XX/，
+    # summary.json 写在 loss 目录下，汇总该 loss 的所有 attempt-NN-seed-XX（所有 seed 与折）。
     run_summaries = {}
     for record in records:
         run_dir = Path(record["run_dir"]).parents[0]
