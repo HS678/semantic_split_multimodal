@@ -257,15 +257,15 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
     expected = {
         "configs/uci_har.config": {
             "lr": 0.0002,
-            "split_protocol": "subject_disjoint_70_30_no_val_v1",
+            "split_protocol": "subject_disjoint_70_30",
         },
         "configs/mhealth/fold1.config": {
             "lr": 0.0002,
-            "split_protocol": "subject_5fold_no_val_fold1_v1",
+            "split_protocol": "subject_5fold_fold1",
         },
         "configs/pamap2/fold1.config": {
             "lr": 0.0001,
-            "split_protocol": "subject_9fold_loso_no_val_fold1_v1",
+            "split_protocol": "subject_9fold_loso_fold1",
         },
     }
     adaptive_blocks = []
@@ -290,7 +290,7 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
         assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
         assert cfg["dataset"]["split_protocol"] == values["split_protocol"]
         assert cfg["training"]["validation_enabled"] is False
-        assert cfg["dataset"]["validation_subjects"] == []
+        assert "validation_subjects" not in cfg["dataset"]
         assert cfg["training"]["global_rounds"] == 200
         assert "early_stopping" not in cfg["training"]
         assert cfg["training"]["local_steps"] == 1

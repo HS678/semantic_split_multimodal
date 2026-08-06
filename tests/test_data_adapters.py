@@ -25,13 +25,13 @@ DATASET_CASES = [
     (
         "mhealth",
         "configs/mhealth/fold1.config",
-        ["accelerometer", "gyroscope", "magnetometer", "ecg"],
+        ["acc", "gyro", "mag", "ecg"],
         [[9, 128], [6, 128], [6, 128], [2, 128]],
     ),
     (
         "pamap2",
         "configs/pamap2/fold1.config",
-        ["accelerometer", "gyroscope", "magnetometer"],
+        ["acc", "gyro", "mag"],
         [[9, 200], [9, 200], [9, 200]],
     ),
 ]

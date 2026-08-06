@@ -92,11 +92,10 @@ def test_MSL_configs_resolve_expected_protocols_and_objective():
 
     for fold in range(1, 6):
         cfg = load_config(config_dir / "iemocap" / f"fold{fold}.config")
-        assert cfg["dataset"]["test_sessions"] == [fold]
-        assert set(cfg["dataset"]["train_sessions"]) == set(range(1, 6)) - {fold}
-        assert cfg["dataset"]["validation_sessions"] == []
-        assert cfg["dataset"]["split_strategy"] == "fixed_session_split_v1"
-        assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}_v1"
+        assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}"
+        assert "train_sessions" not in cfg["dataset"]
+        assert "test_sessions" not in cfg["dataset"]
+        assert "validation_sessions" not in cfg["dataset"]
 
 
 def test_yaml_extension_is_rejected(tmp_path):

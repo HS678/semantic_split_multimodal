@@ -118,6 +118,31 @@ def _validate_subject_splits(train_subjects, validation_subjects, test_subjects,
     return splits
 
 
+def _fold_number(split_protocol: str) -> int:
+    """从 split_protocol（如 subject_5fold_fold1 / session_5fold_loso_fold3）提取折号。"""
+    import re
+    match = re.search(r"fold(\d+)", str(split_protocol or ""))
+    if not match:
+        raise ValueError(f"split_protocol must contain fold<N>: {split_protocol!r}")
+    return int(match.group(1))
+
+
+UCI_HAR_TRAIN_SUBJECTS = [1, 3, 5, 6, 7, 8, 11, 14, 15, 16, 17, 19, 21, 22, 23, 25, 26, 27, 28, 29, 30]
+UCI_HAR_TEST_SUBJECTS = [2, 4, 9, 10, 12, 13, 18, 20, 24]
+
+# MHEALTH 5 折：每折 train 8 人 / test 2 人（与正式方案一致）。
+MHEALTH_FOLD_SUBJECTS = {
+    1: ([2, 3, 4, 5, 6, 7, 8, 9], [1, 10]),
+    2: ([1, 2, 3, 4, 5, 7, 8, 10], [6, 9]),
+    3: ([1, 3, 4, 5, 6, 8, 9, 10], [2, 7]),
+    4: ([1, 2, 3, 5, 6, 7, 9, 10], [4, 8]),
+    5: ([1, 2, 4, 6, 7, 8, 9, 10], [3, 5]),
+}
+
+# PAMAP2 9 折 LOSO：每折 test 1 人（101~109），train 为其余 8 人。
+PAMAP2_ALL_SUBJECTS = [101, 102, 103, 104, 105, 106, 107, 108, 109]
+
+
 def _select_subjects(split, subjects, split_name):
     requested = {int(v) for v in subjects}
     available = {int(v) for v in split["subjects"].tolist()}
@@ -140,9 +165,9 @@ def load_uci_har_dataset(cfg, project_root: Path):
     root = root.resolve()
 
     validate_uci_har_root(root)
-    train_subjects = list(dataset_cfg.get("train_subjects", [1, 3, 5, 6, 7, 8, 11, 15, 16, 17, 21, 22, 26, 27, 28, 29, 30]))
-    validation_subjects = list(dataset_cfg.get("validation_subjects", [14, 19, 23, 25]))
-    test_subjects = list(dataset_cfg.get("test_subjects", [2, 4, 9, 10, 12, 13, 18, 20, 24]))
+    train_subjects = list(UCI_HAR_TRAIN_SUBJECTS)
+    validation_subjects = []
+    test_subjects = list(UCI_HAR_TEST_SUBJECTS)
     _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "UCI-HAR")
 
     official_train = _build_modality_vectors(root, "train")
@@ -160,27 +185,17 @@ def load_uci_har_dataset(cfg, project_root: Path):
     }
 
 
-MHEALTH_POSITION_MODALITIES = {
-    "chest": list(range(0, 5)),
-    "left_ankle": list(range(5, 14)),
-    "right_lower_arm": list(range(14, 23)),
-}
-
 MHEALTH_SENSOR_TYPE_MODALITIES = {
-    "accelerometer": [0, 1, 2, 5, 6, 7, 14, 15, 16],
-    "gyroscope": [8, 9, 10, 17, 18, 19],
-    "magnetometer": [11, 12, 13, 20, 21, 22],
+    "acc": [0, 1, 2, 5, 6, 7, 14, 15, 16],
+    "gyro": [8, 9, 10, 17, 18, 19],
+    "mag": [11, 12, 13, 20, 21, 22],
     "ecg": [3, 4],
 }
 
 
-def _mhealth_resolve_modalities(dataset_cfg):
-    scheme = str(dataset_cfg.get("modality_scheme", "sensor_type")).lower()
-    if scheme == "sensor_type":
-        return MHEALTH_SENSOR_TYPE_MODALITIES
-    if scheme == "position":
-        return MHEALTH_POSITION_MODALITIES
-    raise ValueError("dataset.modality_scheme must be 'sensor_type' or 'position'.")
+def _mhealth_resolve_modalities(_dataset_cfg=None):
+    # 固定按传感器类型划分模态（acc / gyro / mag / ecg）。
+    return MHEALTH_SENSOR_TYPE_MODALITIES
 
 
 def _mhealth_resolve_project_path(project_root: Path, value: str) -> Path:
@@ -240,10 +255,11 @@ def _mhealth_window_subject(features, labels, window_size, stride, drop_null, mi
 
 
 def _mhealth_build_split(root: Path, subjects, dataset_cfg):
-    window_size = int(dataset_cfg.get("window_size", 128))
-    stride = int(dataset_cfg.get("stride", 64))
-    drop_null = bool(dataset_cfg.get("drop_null", True))
-    min_label_purity = float(dataset_cfg.get("min_label_purity", 0.6))
+    # 滑窗与预处理参数固定内置：window=128, stride=64, 丢弃空标签, 标签纯度>=0.6。
+    window_size = 128
+    stride = 64
+    drop_null = True
+    min_label_purity = 0.6
     modality_columns = _mhealth_resolve_modalities(dataset_cfg)
 
     if not subjects:
@@ -296,9 +312,9 @@ def _mhealth_input_shapes(modalities):
 def load_mhealth_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _mhealth_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/mhealth"))
-    train_subjects = list(dataset_cfg.get("train_subjects", [2, 3, 4, 6, 7, 8]))
-    validation_subjects = list(dataset_cfg.get("validation_subjects", [1, 5]))
-    test_subjects = list(dataset_cfg.get("test_subjects", [9, 10]))
+    fold = _fold_number(dataset_cfg.get("split_protocol", ""))
+    train_subjects, test_subjects = MHEALTH_FOLD_SUBJECTS[fold]
+    validation_subjects = []
     _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "MHEALTH")
     all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
 
@@ -324,36 +340,19 @@ def load_mhealth_dataset(cfg, project_root: Path):
 
 PAMAP2_ACTIVITY_IDS = [1, 2, 3, 4, 5, 6, 7, 12, 13, 16, 17, 24]
 
-PAMAP2_POSITION_MODALITIES = {
-    "heart_rate": [2],
-    "hand_imu": [3, 4, 5, 6, 10, 11, 12, 13, 14, 15],
-    "chest_imu": [20, 21, 22, 23, 27, 28, 29, 30, 31, 32],
-    "ankle_imu": [37, 38, 39, 40, 44, 45, 46, 47, 48, 49],
-}
-
 # Columns are zero-based. The readme marks orientation as invalid and
 # recommends the 16g accelerometer over the 6g accelerometer.
+# 固定不含心率模态（heart_rate 列不使用）。
 PAMAP2_SENSOR_TYPE_MODALITIES = {
-    "heart_rate": [2],
-    "accelerometer": [4, 5, 6, 21, 22, 23, 38, 39, 40],
-    "gyroscope": [10, 11, 12, 27, 28, 29, 44, 45, 46],
-    "magnetometer": [13, 14, 15, 30, 31, 32, 47, 48, 49],
+    "acc": [4, 5, 6, 21, 22, 23, 38, 39, 40],
+    "gyro": [10, 11, 12, 27, 28, 29, 44, 45, 46],
+    "mag": [13, 14, 15, 30, 31, 32, 47, 48, 49],
 }
 
 
-def _pamap2_modality_columns(dataset_cfg):
-    scheme = str(dataset_cfg.get("modality_scheme", "sensor_type")).lower()
-    if scheme in {"sensor_type", "sensor", "type"}:
-        modalities = dict(PAMAP2_SENSOR_TYPE_MODALITIES)
-        if not bool(dataset_cfg.get("include_heart_rate", False)):
-            modalities.pop("heart_rate", None)
-        return modalities
-    if scheme in {"position", "device_position", "body_position"}:
-        modalities = dict(PAMAP2_POSITION_MODALITIES)
-        if not bool(dataset_cfg.get("include_heart_rate", True)):
-            modalities.pop("heart_rate", None)
-        return modalities
-    raise ValueError("dataset.modality_scheme must be 'sensor_type' or 'position'.")
+def _pamap2_modality_columns(_dataset_cfg=None):
+    # 固定按传感器类型划分模态（acc / gyro / mag），不含心率。
+    return dict(PAMAP2_SENSOR_TYPE_MODALITIES)
 
 
 def _pamap2_resolve_project_path(project_root: Path, value: str) -> Path:
@@ -443,10 +442,11 @@ def _pamap2_window_subject(data, window_size, stride, drop_other, min_label_puri
 
 
 def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg):
-    window_size = int(dataset_cfg.get("window_size", 128))
-    stride = int(dataset_cfg.get("stride", 128))
-    drop_other = bool(dataset_cfg.get("drop_other", True))
-    min_label_purity = float(dataset_cfg.get("min_label_purity", 0.6))
+    # 滑窗与预处理参数固定内置：window=200, stride=100, 丢弃"其他"标签, 标签纯度>=0.6。
+    window_size = 200
+    stride = 100
+    drop_other = True
+    min_label_purity = 0.6
     modality_columns = _pamap2_modality_columns(dataset_cfg)
 
     if not subjects:
@@ -488,9 +488,10 @@ def _pamap2_input_shapes(modalities):
 def load_pamap2_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/pamap2"))
-    train_subjects = list(dataset_cfg.get("train_subjects", [101, 102, 103, 104, 105, 106]))
-    validation_subjects = list(dataset_cfg.get("validation_subjects", [107, 108]))
-    test_subjects = list(dataset_cfg.get("test_subjects", [109]))
+    fold = _fold_number(dataset_cfg.get("split_protocol", ""))
+    test_subjects = [PAMAP2_ALL_SUBJECTS[fold - 1]]
+    train_subjects = [s for s in PAMAP2_ALL_SUBJECTS if s != test_subjects[0]]
+    validation_subjects = []
     _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "PAMAP2")
     all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
 
@@ -514,4 +515,3 @@ def load_pamap2_dataset(cfg, project_root: Path):
         "modality_pamap2_input_shapes": input_shapes,
         "label_mapping": {str(k): int(v) for k, v in label_mapping.items()},
     }
-
