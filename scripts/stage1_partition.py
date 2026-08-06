@@ -26,7 +26,7 @@ def main():
     cfg = normalize_experiment_config(load_config(args.config))
     if args.clients:
         cfg["partition"] = {**cfg.get("partition", {}), "clients_per_modality": args.clients}
-    cfg = configure_result_run(cfg, ROOT, stage="stage1_partition", create_new=True)
+    cfg = configure_result_run(cfg, ROOT)
     set_seed(int(cfg.get("seed", 42)))
     info = run_stage1_partition(cfg, ROOT)
     save_config_artifacts(args.config, cfg, info["output_dir"])

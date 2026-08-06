@@ -28,8 +28,6 @@ def _cfg():
         "training": {
             "scheduler": "balanced_cluster_round_robin",
             "global_rounds": 2,
-            "validation_every": 1,
-            "early_stopping": {"patience": 2, "min_rounds": 1, "min_delta": 0.001},
             "local_steps": 1,
             "batch_size": 4,
             "clients_per_cluster_per_round": 1,
@@ -73,17 +71,16 @@ def _stage1_dir(tmp_path, client_ids=("client_000", "client_001"), dataset="synt
         json.dumps({"dataset_type": dataset, "num_clients": len(client_ids)}),
         encoding="utf-8",
     )
-    for split_name in ("validation", "test"):
-        torch.save(
-            {
-                "modalities": {"m0": torch.zeros(2, 1), "m1": torch.ones(2, 1)},
-                "modality_names": ["m0", "m1"],
-                "modality_input_shapes": [[1], [1]],
-                "label": torch.tensor([0, 1]),
-                "split": split_name,
-            },
-            stage1 / f"{split_name}_multimodal.pt",
-        )
+    torch.save(
+        {
+            "modalities": {"m0": torch.zeros(2, 1), "m1": torch.ones(2, 1)},
+            "modality_names": ["m0", "m1"],
+            "modality_input_shapes": [[1], [1]],
+            "label": torch.tensor([0, 1]),
+            "split": "test",
+        },
+        stage1 / "test_multimodal.pt",
+    )
     for idx, client_id in enumerate(client_ids):
         torch.save(
             {
@@ -714,49 +711,6 @@ def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkey
     metadata = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "failed"
     assert metadata["failure_reason"] == "mapping_failed"
-
-
-def test_latest_run_marker_is_ignored_by_stage3(monkeypatch, tmp_path):
-    script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
-    output_root = tmp_path / "experiments"
-    (output_root / "synthetic_stage3").mkdir(parents=True)
-    (output_root / "synthetic_stage3" / "latest_run.txt").write_text("old_run", encoding="utf-8")
-
-    def fake_train(cfg, *_args):
-        metrics = {
-            "test_eval_status": "success",
-            "test_eval_failure_reason": None,
-            "test_accuracy": 0.5,
-            "test_macro_f1": 0.4,
-            "test_loss": 1.0,
-            "effective_global_rounds": 2,
-            "configured_global_rounds": 2,
-            "executed_global_rounds": 2,
-        }
-        _write_success_outputs(Path(cfg["result"]["output_dir"]), metrics)
-        return metrics
-
-    monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
-    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
-    script.main(
-        [
-            "--config",
-            str(config),
-            "--stage1-dir",
-            str(stage1),
-            "--stage2-dir",
-            str(stage2),
-            "--output-root",
-            str(output_root),
-        ]
-    )
-
-    assert (output_root / "synthetic_stage3" / "latest_run.txt").read_text(encoding="utf-8") == "old_run"
-    assert _only_attempt_dir(output_root).exists()
-    assert not (output_root / "synthetic_stage3" / "old_run").exists()
 
 
 def test_stage3_source_does_not_use_pipeline_or_training_leakage_tokens():

@@ -98,23 +98,19 @@ def _build_modality_vectors(root: Path, split: str):
     }
 
 
-def _validate_subject_splits(train_subjects, validation_subjects, test_subjects, dataset_name):
+def _validate_subject_splits(train_subjects, test_subjects, dataset_name):
     splits = {
         "train": {int(v) for v in train_subjects},
-        "validation": {int(v) for v in validation_subjects},
         "test": {int(v) for v in test_subjects},
     }
     for split_name, subjects in splits.items():
-        if not subjects and split_name != "validation":
+        if not subjects:
             raise ValueError(f"{dataset_name} {split_name}_subjects must not be empty.")
-    overlaps = {
-        "train_validation": sorted(splits["train"] & splits["validation"]),
-        "train_test": sorted(splits["train"] & splits["test"]),
-        "validation_test": sorted(splits["validation"] & splits["test"]),
-    }
-    non_empty = {name: values for name, values in overlaps.items() if values}
-    if non_empty:
-        raise ValueError(f"{dataset_name} subject splits must be disjoint, overlaps={non_empty}.")
+    overlap = sorted(splits["train"] & splits["test"])
+    if overlap:
+        raise ValueError(
+            f"{dataset_name} subject splits must be disjoint, train/test overlap={overlap}."
+        )
     return splits
 
 
@@ -166,18 +162,15 @@ def load_uci_har_dataset(cfg, project_root: Path):
 
     validate_uci_har_root(root)
     train_subjects = list(UCI_HAR_TRAIN_SUBJECTS)
-    validation_subjects = []
     test_subjects = list(UCI_HAR_TEST_SUBJECTS)
-    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "UCI-HAR")
+    _validate_subject_splits(train_subjects, test_subjects, "UCI-HAR")
 
     official_train = _build_modality_vectors(root, "train")
     official_test = _build_modality_vectors(root, "test")
     train = _select_subjects(official_train, train_subjects, "train")
-    validation = _select_subjects(official_train, validation_subjects, "validation")
     test = _select_subjects(official_test, test_subjects, "test")
     return {
         "train": train,
-        "validation": validation,
         "test": test,
         "root": str(root),
         "split_subjects": {
@@ -318,22 +311,19 @@ def load_mhealth_dataset(cfg, project_root: Path):
     root = _mhealth_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/mhealth"))
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
     train_subjects, test_subjects = MHEALTH_FOLD_SUBJECTS[fold]
-    validation_subjects = []
-    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "MHEALTH")
-    all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
+    _validate_subject_splits(train_subjects, test_subjects, "MHEALTH")
+    all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
 
     validate_mhealth_root(root, all_subjects)
     train = _mhealth_build_split(root, train_subjects, dataset_cfg)
-    validation = _mhealth_build_split(root, validation_subjects, dataset_cfg)
     test = _mhealth_build_split(root, test_subjects, dataset_cfg)
     if bool(dataset_cfg.get("normalize", True)):
-        train, validation, test = _normalize_from_train(train, validation, test)
+        train, test = _normalize_from_train(train, test)
 
     modality_names = list(_mhealth_resolve_modalities(dataset_cfg).keys())
     input_shapes = _mhealth_input_shapes(train["modalities"])
     return {
         "train": train,
-        "validation": validation,
         "test": test,
         "root": str(root),
         "split_subjects": {"train": list(train_subjects), "test": list(test_subjects)},
@@ -496,23 +486,20 @@ def load_pamap2_dataset(cfg, project_root: Path):
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
     test_subjects = [PAMAP2_ALL_SUBJECTS[fold - 1]]
     train_subjects = [s for s in PAMAP2_ALL_SUBJECTS if s != test_subjects[0]]
-    validation_subjects = []
-    _validate_subject_splits(train_subjects, validation_subjects, test_subjects, "PAMAP2")
-    all_subjects = sorted(set(int(s) for s in train_subjects + validation_subjects + test_subjects))
+    _validate_subject_splits(train_subjects, test_subjects, "PAMAP2")
+    all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
 
     protocol_dir = validate_pamap2_root(root, all_subjects)
     train = _pamap2_build_split(protocol_dir, train_subjects, dataset_cfg)
-    validation = _pamap2_build_split(protocol_dir, validation_subjects, dataset_cfg)
     test = _pamap2_build_split(protocol_dir, test_subjects, dataset_cfg)
-    train, validation, test, label_mapping = _pamap2_remap_labels(train, validation, test)
+    train, test, label_mapping = _pamap2_remap_labels(train, test)
     if bool(dataset_cfg.get("normalize", True)):
-        train, validation, test = _normalize_from_train(train, validation, test)
+        train, test = _normalize_from_train(train, test)
 
     modality_names = list(_pamap2_modality_columns(dataset_cfg).keys())
     input_shapes = _pamap2_input_shapes(train["modalities"])
     return {
         "train": train,
-        "validation": validation,
         "test": test,
         "root": str(root),
         "split_subjects": {"train": list(train_subjects), "test": list(test_subjects)},

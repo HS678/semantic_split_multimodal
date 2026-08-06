@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.nn import functional as F
+from sklearn.metrics import f1_score
 
 from MSL.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch, common_labels_for_clusters
 from MSL.data.partitioner import resolve_project_path
@@ -264,6 +265,8 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
             "contrastive_loss": 0.0,
             "heterogeneous_loss": 0.0,
             "accuracy": 0.0,
+            "preds": torch.empty(0, dtype=torch.long),
+            "labels": torch.empty(0, dtype=torch.long),
             "pseudo_batch_size": 0,
             "common_labels": common_labels,
             "binding_success": 0.0,
@@ -317,12 +320,16 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
 
     correct = int((logits.argmax(dim=1) == pseudo.labels.to(logits.device)).sum().item())
     total = int(pseudo.labels.numel())
+    preds = logits.argmax(dim=1).detach().cpu()
+    labels = pseudo.labels.detach().cpu()
     return {
         "loss": float(loss.item()),
         "classification_loss": float(classification_loss.item()),
         "contrastive_loss": float(contrastive_loss.item()),
         "heterogeneous_loss": float(heterogeneous_loss.item()),
         "accuracy": float(correct / max(1, total)),
+        "preds": preds,
+        "labels": labels,
         "pseudo_batch_size": int(total),
         "common_labels": common_labels,
         "binding_success": 1.0,
@@ -354,6 +361,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
     contrastive_losses = []
     heterogeneous_losses = []
     binding_confidences = []
+    all_preds = []
+    all_labels = []
     correct_weighted_sum = 0.0
     total_pseudo_samples = 0
     effective_local_steps = 0
@@ -388,6 +397,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         contrastive_losses.append(float(local_metrics["contrastive_loss"]))
         heterogeneous_losses.append(float(local_metrics["heterogeneous_loss"]))
         binding_confidences.append(float(local_metrics["binding_confidence_mean"]))
+        all_preds.append(local_metrics["preds"])
+        all_labels.append(local_metrics["labels"])
         correct_weighted_sum += float(local_metrics["accuracy"]) * pseudo_batch_size
         server_update_l1 += float(local_metrics["server_update_l1"])
         client_update_l1 += float(local_metrics["client_update_l1"])
@@ -397,6 +408,14 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
     mean_loss = float(sum(losses) / max(1, len(losses))) if losses else 0.0
     mean_pseudo_batch_size = float(total_pseudo_samples / max(1, effective_local_steps)) if effective_local_steps else 0.0
     accuracy = float(correct_weighted_sum / max(1, total_pseudo_samples)) if total_pseudo_samples else 0.0
+    if all_preds:
+        preds = torch.cat(all_preds).numpy()
+        labels = torch.cat(all_labels).numpy()
+        macro_f1 = float(f1_score(labels, preds, average="macro", zero_division=0))
+        weighted_f1 = float(f1_score(labels, preds, average="weighted", zero_division=0))
+    else:
+        macro_f1 = 0.0
+        weighted_f1 = 0.0
     binding_success_rate = float(effective_local_steps / max(1, attempted_local_steps))
     round_status = "empty_binding_round" if empty_binding_round else "effective"
 
@@ -407,6 +426,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         "contrastive_loss": float(sum(contrastive_losses) / max(1, len(contrastive_losses))) if contrastive_losses else 0.0,
         "heterogeneous_loss": float(sum(heterogeneous_losses) / max(1, len(heterogeneous_losses))) if heterogeneous_losses else 0.0,
         "accuracy": accuracy,
+        "macro_f1": macro_f1,
+        "weighted_f1": weighted_f1,
         "K_t": int(len(selected)),
         "pseudo_batch_size": int(total_pseudo_samples),
         "total_pseudo_samples": int(total_pseudo_samples),
@@ -500,6 +521,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "contrastive_loss",
         "heterogeneous_loss",
         "accuracy",
+        "macro_f1",
+        "weighted_f1",
         "K_t",
         "pseudo_batch_size",
         "total_pseudo_samples",
@@ -572,6 +595,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "contrastive_loss": train_metrics.get("contrastive_loss", 0.0),
                     "heterogeneous_loss": train_metrics.get("heterogeneous_loss", 0.0),
                     "accuracy": train_metrics["accuracy"],
+                    "macro_f1": train_metrics.get("macro_f1", 0.0),
+                    "weighted_f1": train_metrics.get("weighted_f1", 0.0),
                     "K_t": train_metrics["K_t"],
                     "pseudo_batch_size": train_metrics["pseudo_batch_size"],
                     "total_pseudo_samples": train_metrics["total_pseudo_samples"],

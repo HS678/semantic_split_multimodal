@@ -34,7 +34,7 @@
 
 ✅ 当前正式方案不使用验证集：
 
-- 数据划分只有 train / test 两段，`validation_subjects/sessions` 全部为空；
+- 数据划分只有 train / test 两段，代码中已无 `validation_subjects/sessions`、`validation_multimodal.pt`、`best_model.pt` 等验证集产物；
 - Stage3 固定 `global_rounds` 训练，无 early stopping、无 best checkpoint 选择；
 - 训练结束后直接使用 `last_model.pt` 对 naturally paired `test_multimodal.pt` 评估一次；
 - 与主流 LOSO/固定划分论文一致，论文无需说明验证集口径。
@@ -45,7 +45,7 @@
 
 - 正式精度主实验：四个数据集 × 5 折完整运行；
 - D2D 效率实验（未来实现后）：作为独立章节，可在 1~2 个代表性数据集或单折上做通信量/时延/收敛轮数对比，不必 5 折全跑；
-- 统一训练协议下，D2D 与其他方法的对比更公平（相同轮次与早停规则）。
+- 统一训练协议下，D2D 与其他方法的对比更公平（相同固定轮数训练规则）。
 
 ### 1.5 无泄漏红线（沿用并强化）
 
@@ -81,10 +81,10 @@
 
 | 数据集 | split_protocol | 说明 |
 | --- | --- | --- |
-| uci_har | `subject_disjoint_tvt_v1` | 官方固定划分，保持不变 |
-| mhealth | `subject_5fold_foldN_v1`（N=1..5） | fold 编号进签名，目录天然隔离 |
-| pamap2 | `subject_9fold_loso_foldN_v1`（N=1..9） | 明确 9 折 LOSO |
-| iemocap | `session_disjoint_123_4_5_v1` | 固定 Session，保持不变 |
+| uci_har | `subject_disjoint_70_30` | 官方固定 70/30 划分 |
+| mhealth | `subject_5fold_foldN`（N=1..5） | fold 编号进签名，目录天然隔离 |
+| pamap2 | `subject_9fold_loso_foldN`（N=1..9） | 明确 9 折 LOSO |
+| iemocap | `session_5fold_loso_foldN`（N=1..5） | 5 折 session-LOSO |
 
 原则：划分方式一变，签名必变；fold 编号进入签名，保证 5 折 / 9 折产物互不覆盖、全程可追溯。
 
@@ -137,7 +137,7 @@
 
 设计约束与论文说明：
 
-- subject 109 原始记录仅约 8,477 行（约 85 秒 @100Hz），该折 test 仅约 50 窗口（128/128）——这是数据集固有特性，主流 9 折 LOSO 均包含该折，报告 9 折均值 ± 标准差；
+- subject 109 原始记录很少（约 85 秒 @100Hz），该折 test 窗口数远少于其他折（此前运行约 64 个窗口）——这是数据集固有特性，主流 9 折 LOSO 均包含该折，报告 9 折均值 ± 标准差；
 - 不包含心率通道（代码内置，模态固定 acc/gyro/mag）；
 - 无验证集：每折 train 8 个 subject / test 1 个 subject，划分内置在数据集代码中；
 - 论文需注明：采用 9 折 LOSO（原论文推荐协议），subject 109 折的波动属于数据集特性。
@@ -220,8 +220,8 @@
 ### 4.6 沿用现状的细节
 
 - fingerprint 提取参数：`batch_size=64`、`max_batches=4`；
-- 指纹可视化：保留 `fingerprint_visualization.enabled=true`（PCA 双面板审计图继续输出）；
-- 每折目录隔离：Stage 2 输出目录自动带 fold（`<split_protocol>/adaptive_isodata/<run_name>`），由命名规范保证。
+- 指纹可视化：保留 `fingerprint_visualization.enabled=true`（PCA 双面板审计图继续输出到 `adaptive_isodata/visualization/`）；
+- 每折目录隔离：Stage 2 输出目录自动带 fold（`<dataset>/<partition_signature>/adaptive_isodata/`），无 run_name 层。
 
 ---
 
@@ -239,23 +239,23 @@
 
 > 定位说明：`mmbind_weighted_contrastive` 为借用的 MMBind 模块，**不是本论文的贡献点**；保持现状、不调优、不做消融。论文贡献点集中在分布式 Split Learning 框架与未知模态环境下的模态发现/调度/伪绑定流程。
 
-### 5.2 训练规模与 early stopping
+### 5.2 训练规模（无验证集，固定轮数）
 
-- `global_rounds=300`（各数据集 formal 配置）；
-- early stopping：`patience=6~7`、`min_rounds=80~100`、`min_delta=0.0005`；
-- `local_steps=1`；batch_size 64（iemocap 32）；lr 0.0001~0.0002；weight_decay 0.0001；max_grad_norm 5.0；class_weighting none/inverse_sqrt 按数据集沿用。
+- `global_rounds=200`（无验证集，直接固定轮数）；
+- 无 early stopping、无 best checkpoint 选择；
+- `local_steps=1`；batch_size / lr / weight_decay / max_grad_norm / class_weighting 按数据集内置在 `dataset_defaults.py`（均为当前运行成功的参数）。
 
-### 5.3 验证选择指标
+### 5.3 评估指标
 
-- best checkpoint 选择与 early stopping 使用 **validation weighted-F1**（与代码一致，修正 handoff.md 的 macro-F1 表述）；
-- **macro-F1 同步输出供参考**（validation_log.csv / best_metrics.json / final_metrics.json 均含 macro-F1），不参与选择；
-- 训练结束恢复 `best_model.pt`，test 只评估一次。
+- 正式指标：**acc / macro_f1 / weighted_f1**（论文只报告这三个）；
+- 训练结束直接使用 `last_model.pt` 对 naturally paired `test_multimodal.pt` 评估一次；
+- 汇总格式：`{foldN/seedN: {acc, macro_f1, weighted_f1}, average: {...}}`。
 
 ### 5.4 seed 与聚合报告
 
 - MHEALTH（5 折）/ PAMAP2（9 折）：1 seed（42），报告 5/9 折 test 均值 ± 标准差；
 - UCI-HAR / IEMOCAP：5 seed（101, 202, 303, 404, 505），报告均值 ± 标准差；
-- 汇总脚本需支持多折 / 多 seed 聚合（实现时细化）。
+- 汇总脚本 `scripts/summarize_results.py` 已支持多折 / 多 seed 聚合。
 
 ---
 
@@ -266,10 +266,9 @@
 | 1 | mhealth / pamap2 窗口参数（window_size、stride、min_label_purity） | ✅ 已定（128/64；200/100；0.6） | Stage 1 样本量与 encoder 输入长度 |
 | 2 | `split_protocol` 命名规范（含 fold 签名） | ✅ 已定 | 目录签名与可追溯性 |
 | 3 | 多 seed 数量 | ✅ 已定（交叉验证 1 seed；单次划分 5 seed） | 算力成本与方差报告 |
-| 4 | Stage 3 训练规模与 early stopping | ✅ 已定（300 轮、patience 6~7、min 80~100） | 训练成本与收敛 |
+| 4 | Stage 3 训练规模（无验证集固定轮数） | ✅ 已定（200 轮，无早停、无 best checkpoint） | 训练成本与收敛 |
 | 5 | `pred_cluster` 切换验证（聚类调优后） | ⏳ | 无泄漏主线能否跑通（当前先用 true_cluster） |
-| 6 | 每折 train 内部验证集划分（MHEALTH / PAMAP2 subject 级） | ✅ 已定规则（数据量居中 2 个） | 实现时落地 |
-| 7 | 汇总脚本多折聚合 | 🔄 | 正式结果报告 |
+| 6 | 汇总脚本多折聚合 | ✅ 已实现 | 正式结果报告 |
 
 ---
 
@@ -280,15 +279,14 @@
 | 2026-08-04 | 移除 CMU-MOSEI，正式实验只保留四个数据集 |
 | 2026-08-04 | `seed=42`，`clients_per_modality=10`，pamap2 不包含心率 |
 | 2026-08-04 | 采用各数据集领域主流协议：UCI-HAR 官方 70/30、MHEALTH 5 折、PAMAP2 9 折 LOSO、IEMOCAP 5 折 session-LOSO |
-| 2026-08-04 | 选择方向 A：保留验证集 + early stopping + best checkpoint 机制，只做最小修正 |
 | 2026-08-04 | 确定 MHEALTH 5 折分组（fold1: 1,10；fold2: 9,6；fold3: 2,7；fold4: 8,4；fold5: 3,5） |
-| 2026-08-04 | 最终协议：MHEALTH 5 折、PAMAP2 9 折 LOSO、UCI-HAR 官方固定、IEMOCAP 固定 Session S1-3/S4/S5 |
 | 2026-08-04 | 窗口参数：MHEALTH 128/64（50% overlap）、PAMAP2 200/100（2s、50% overlap）、min_label_purity 均为 0.6 |
 | 2026-08-04 | seed 策略：MHEALTH/PAMAP2 用 1 seed（42）；UCI-HAR/IEMOCAP 用 5 seed（101,202,303,404,505） |
-| 2026-08-04 | split_protocol 命名：uci_har/iemocap 保持；mhealth `subject_5fold_foldN_v1`；pamap2 `subject_9fold_loso_foldN_v1` |
-| 2026-08-04 | 每折验证集规则：MHEALTH/PAMAP2 每折取 train 中数据量居中的 2 个 subject 做 validation |
+| 2026-08-06 | 最终 split_protocol 命名：uci_har `subject_disjoint_70_30`；mhealth `subject_5fold_foldN`；pamap2 `subject_9fold_loso_foldN`；iemocap `session_5fold_loso_foldN` |
+| 2026-08-06 | 确定无验证集：删除 validation 相关代码与产物，固定 `global_rounds=200`，训练结束用 `last_model.pt` 测试一次 |
+| 2026-08-06 | 论文指标只保留 acc / macro_f1 / weighted_f1；汇总格式 `{foldN/seedN, average}` |
 | 2026-08-04 | Stage 2：固定 true_cluster（后续调聚类后切 pred_cluster）；fingerprint 保持现状（uci_har hybrid、mhealth/pamap2 signal、iemocap hybrid）；预训练用 classification；聚类参数暂不调 |
-| 2026-08-04 | Stage 3：沿用 formal 配置（mmbind_weighted_contrastive、300 轮、early stopping 保留）；验证选择用 weighted-F1，macro-F1 同步输出供参考 |
+| 2026-08-04 | Stage 3：沿用 formal 配置（mmbind_weighted_contrastive、200 轮、无验证集） |
 
 ---
 
@@ -340,7 +338,7 @@ python scripts/summarize_results.py --results-root local/results_msl
 
 输出：
 
-- `local/results_msl/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标 + 各指标均值/std；
+- `local/results_msl/summary/<dataset>.json`：每个数据集每折/每 seed 的 test 指标（acc/macro_f1/weighted_f1）+ average；
 - `local/results_msl/summary/summary.json`：四个数据集聚合总览。
 
 ### 8.5 注意事项

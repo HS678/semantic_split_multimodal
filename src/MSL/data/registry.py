@@ -40,7 +40,7 @@ def load_dataset(cfg: dict, project_root: Path) -> dict:
 
 
 def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") -> None:
-    required_top = {"train", "validation", "test", "modality_names", "modality_input_shapes"}
+    required_top = {"train", "test", "modality_names", "modality_input_shapes"}
     missing_top = sorted(required_top - set(dataset))
     if missing_top:
         raise ValueError(f"Dataset '{dataset_type}' is missing required keys: {missing_top}")
@@ -61,7 +61,7 @@ def validate_dataset_contract(dataset: dict, dataset_type: str = "<unknown>") ->
             f"{len(modality_names)} vs {len(encoder_types)}"
         )
 
-    for split_name in ("train", "validation", "test"):
+    for split_name in ("train", "test"):
         split = dataset[split_name]
         if "modalities" not in split or "labels" not in split:
             raise ValueError(f"Dataset '{dataset_type}' split '{split_name}' must contain modalities and labels.")

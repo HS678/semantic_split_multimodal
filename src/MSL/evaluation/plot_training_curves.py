@@ -29,19 +29,46 @@ def write_training_curves(run_dir: Path):
     train_loss = [float(row["loss"]) for row in train_rows]
     stop_round = train_rounds[-1]
 
-    fig, axes = plt.subplots(1, 1, figsize=(10, 4))
-    axes.plot(train_rounds, train_loss, label="train loss", linewidth=1.5)
-    axes.set_xlabel("Global round")
-    axes.set_ylabel("Loss")
-    axes.grid(alpha=0.25)
-    axes.legend()
-    axes.axvline(
-        stop_round,
-        color="red",
-        linestyle=":",
-        alpha=0.7,
-        label="_stop",
-    )
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    axes[0].plot(train_rounds, train_loss, label="train loss", linewidth=1.5)
+    axes[0].set_ylabel("Loss")
+    axes[0].grid(alpha=0.25)
+    axes[0].legend(loc="best")
+
+    metric_series = [
+        ("accuracy", "acc"),
+        ("macro_f1", "macro-F1"),
+        ("weighted_f1", "weighted-F1"),
+    ]
+    for column, label in metric_series:
+        if column not in train_rows[0]:
+            continue
+        values = [
+            float(row[column])
+            for row in train_rows
+            if row.get(column) not in (None, "")
+        ]
+        if not values:
+            continue
+        axes[1].plot(
+            train_rounds[: len(values)],
+            values,
+            label=label,
+            linewidth=1.5,
+        )
+    axes[1].set_xlabel("Global round")
+    axes[1].set_ylabel("Accuracy / F1")
+    axes[1].grid(alpha=0.25)
+    axes[1].legend(loc="best")
+
+    for axis in axes:
+        axis.axvline(
+            stop_round,
+            color="red",
+            linestyle=":",
+            alpha=0.7,
+            label="_stop",
+        )
     fig.suptitle(f"Training curves (fixed rounds={stop_round})")
     fig.tight_layout()
     output_path = run_dir / "training_curves.png"

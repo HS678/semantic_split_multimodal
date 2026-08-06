@@ -1,7 +1,6 @@
 import argparse
 import json
 import re
-import statistics
 from pathlib import Path
 
 import sys
@@ -15,10 +14,9 @@ if str(SRC) not in sys.path:
 from MSL.utils.config import load_config
 
 
-# 论文指标：acc=Accuracy, ua=Balanced Accuracy(UA), macro_f1, weighted_f1。
+# 论文指标：acc=Accuracy, macro_f1, weighted_f1。
 METRIC_KEYS = {
     "acc": "test_accuracy",
-    "ua": "test_balanced_accuracy",
     "macro_f1": "test_macro_f1",
     "weighted_f1": "test_weighted_f1",
 }
@@ -56,22 +54,9 @@ def _load_record(run_dir: Path) -> dict | None:
     }
 
 
-def _mean_std(values: list[float]) -> dict:
-    if not values:
-        return {"mean": None, "std": None, "values": []}
-    return {
-        "mean": float(statistics.fmean(values)),
-        "std": float(statistics.stdev(values)) if len(values) > 1 else 0.0,
-        "values": [float(value) for value in values],
-    }
-
-
-def _aggregate(records: list[dict]) -> dict:
-    aggregates = {}
-    for key in METRIC_KEYS:
-        values = [record["metrics"][key] for record in records]
-        aggregates[key] = _mean_std([float(v) for v in values if v is not None])
-    return aggregates
+def _mean(values: list[float]) -> float | None:
+    values = [float(value) for value in values if value is not None]
+    return sum(values) / len(values) if values else None
 
 
 def build_dataset_summary(records: list[dict]) -> dict:
@@ -82,9 +67,12 @@ def build_dataset_summary(records: list[dict]) -> dict:
             record["fold"] if record["fold"] is not None else record["seed"],
         ),
     )
-    has_folds = any(record["fold"] is not None for record in records)
-    dimension = "fold" if has_folds else "seed"
-    summary = {"dimension": dimension, "average": _aggregate(records), "num_runs": len(records)}
+    summary = {
+        "average": {
+            key: _mean([record["metrics"][key] for record in records])
+            for key in METRIC_KEYS
+        }
+    }
     for record in records:
         key = f"fold{record['fold']}" if record["fold"] is not None else f"seed{record['seed']}"
         summary[key] = {
@@ -118,9 +106,7 @@ def build_summary(results_root: Path) -> dict:
         matches = [record for record in records if record["dataset"] == dataset]
         by_dataset[dataset] = build_dataset_summary(matches)
     return {
-        "results_root": str(results_root.resolve()),
         "datasets": by_dataset,
-        "num_runs": len(run_summaries),
     }
 
 
@@ -147,7 +133,7 @@ def main():
         selected = {
             dataset_key: summary["datasets"].get(
                 dataset_key,
-                {"dimension": "seed", "average": {}, "num_runs": 0},
+                {"average": {}},
             )
         }
     else:
@@ -157,12 +143,12 @@ def main():
     for dataset, dataset_summary in selected.items():
         path = summary_dir / f"{dataset}.json"
         path.write_text(json.dumps(dataset_summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        agg = dataset_summary["average"]
-        acc_mean = agg.get("acc", {}).get("mean")
-        wf1_mean = agg.get("weighted_f1", {}).get("mean")
+        average = dataset_summary.get("average", {})
+        acc_mean = average.get("acc")
+        wf1_mean = average.get("weighted_f1")
+        runs = len([key for key in dataset_summary if key != "average"])
         print(
-            f"{dataset:10s} {dataset_summary['dimension']:6s} "
-            f"runs={dataset_summary['num_runs']:2d} "
+            f"{dataset:10s} runs={runs:2d} "
             f"acc={acc_mean} wf1={wf1_mean}"
         )
     summary_path = summary_dir / "summary.json"

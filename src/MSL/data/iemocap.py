@@ -75,7 +75,8 @@ def _load_feature_payload(path: Path, modality_name: str) -> dict:
     return payload
 
 
-def _load_manifest(processed_root: Path) -> list[dict]:
+def load_manifest(processed_root: Path) -> dict:
+    """读取并校验 processed 目录下的 manifest.json，返回完整 payload。"""
     path = processed_root / "manifest.json"
     if not path.exists():
         raise FileNotFoundError(
@@ -90,17 +91,12 @@ def _load_manifest(processed_root: Path) -> list[dict]:
     sample_ids = [str(row.get("utterance_id", "")) for row in rows]
     if any(not sample_id for sample_id in sample_ids) or len(set(sample_ids)) != len(sample_ids):
         raise ValueError("IEMOCAP manifest utterance IDs must be non-empty and unique.")
-    return rows
+    return payload
 
 
-def _standardize_valid_sequences(train, validation, test):
+def _standardize_sequences(train, test):
     outputs = {
         "train": {"modalities": [], "modality_lengths": train["modality_lengths"], "labels": train["labels"]},
-        "validation": {
-            "modalities": [],
-            "modality_lengths": validation["modality_lengths"],
-            "labels": validation["labels"],
-        },
         "test": {"modalities": [], "modality_lengths": test["modality_lengths"], "labels": test["labels"]},
     }
     for modality_idx, x_train in enumerate(train["modalities"]):
@@ -110,13 +106,13 @@ def _standardize_valid_sequences(train, validation, test):
         valid_train = x_train[train_mask]
         mean = valid_train.mean(dim=0, keepdim=True)
         std = valid_train.std(dim=0, keepdim=True, unbiased=False).clamp_min(1e-6)
-        for split_name, split in (("train", train), ("validation", validation), ("test", test)):
+        for split_name, split in (("train", train), ("test", test)):
             x = split["modalities"][modality_idx]
             lengths = split["modality_lengths"][modality_idx]
             mask = (torch.arange(x.shape[1]).unsqueeze(0) < lengths.unsqueeze(1)).unsqueeze(-1)
             normalized = torch.where(mask, (x - mean) / std, torch.zeros_like(x))
             outputs[split_name]["modalities"].append(normalized.contiguous())
-    return outputs["train"], outputs["validation"], outputs["test"]
+    return outputs["train"], outputs["test"]
 
 
 def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
@@ -139,7 +135,8 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
     if not raw_root.exists():
         raise FileNotFoundError(f"IEMOCAP full root not found: {raw_root}")
 
-    rows = _load_manifest(processed_root)
+    manifest = load_manifest(processed_root)
+    rows = manifest["samples"]
     manifest_ids = [str(row["utterance_id"]) for row in rows]
     payloads = [
         _load_feature_payload(processed_root / f"{name}.pt", name)
@@ -161,15 +158,9 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
     # 由 split_protocol 中的 fold<N> 决定当前折；无验证集。
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
     train_sessions, test_sessions = IEMOCAP_FOLD_SESSIONS[fold]
-    validation_sessions = []
-    session_splits = _validate_subject_splits(
-        train_sessions,
-        validation_sessions,
-        test_sessions,
-        "IEMOCAP",
-    )
+    session_splits = _validate_subject_splits(train_sessions, test_sessions, "IEMOCAP")
     available_sessions = {int(value) for value in sessions.tolist()}
-    requested_sessions = set().union(*session_splits.values())
+    requested_sessions = set(session_splits["train"]) | set(session_splits["test"])
     if requested_sessions != available_sessions:
         raise ValueError(
             "IEMOCAP configured sessions must cover exactly the processed sessions; "
@@ -179,10 +170,6 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
         [int(value) in session_splits["train"] for value in sessions.tolist()],
         dtype=torch.bool,
     )
-    validation_mask = torch.tensor(
-        [int(value) in session_splits["validation"] for value in sessions.tolist()],
-        dtype=torch.bool,
-    )
     test_mask = torch.tensor(
         [int(value) in session_splits["test"] for value in sessions.tolist()],
         dtype=torch.bool,
@@ -190,29 +177,26 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
     split_metadata = {
         "strategy": "session_5fold_loso",
         "train_sessions": sorted(session_splits["train"]),
-        "validation_sessions": sorted(session_splits["validation"]),
         "test_sessions": sorted(session_splits["test"]),
     }
 
-    def build_split(mask, split_name):
-        if not bool(mask.any()) and split_name != "validation":
-            raise ValueError(f"IEMOCAP {split_name} split produced no samples.")
+    def build_split(mask):
+        if not bool(mask.any()):
+            raise ValueError("IEMOCAP split produced no samples.")
         return {
             "modalities": [payload["features"][mask].contiguous() for payload in payloads],
             "modality_lengths": [payload["lengths"][mask].contiguous() for payload in payloads],
             "labels": labels[mask].contiguous(),
         }
 
-    train = build_split(train_mask, "train")
-    validation = build_split(validation_mask, "validation")
-    test = build_split(test_mask, "test")
+    train = build_split(train_mask)
+    test = build_split(test_mask)
     if bool(dataset_cfg.get("normalize", True)):
-        train, validation, test = _standardize_valid_sequences(train, validation, test)
+        train, test = _standardize_sequences(train, test)
 
     input_shapes = [[int(value) for value in payload["features"].shape[1:]] for payload in payloads]
     return {
         "train": train,
-        "validation": validation,
         "test": test,
         "root": str(raw_root),
         "processed_root": str(processed_root),

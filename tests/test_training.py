@@ -223,6 +223,8 @@ def test_no_validation_runs_fixed_rounds_and_tests_last_model(
         "loss": 1.0,
         "mean_loss": 1.0,
         "accuracy": 0.5,
+        "macro_f1": 0.4,
+        "weighted_f1": 0.45,
         "K_t": 2,
         "pseudo_batch_size": 2,
         "total_pseudo_samples": 2,

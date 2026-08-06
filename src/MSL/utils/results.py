@@ -1,4 +1,3 @@
-from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -26,11 +25,6 @@ def _resolve_project_path(project_root: Path, value: str) -> Path:
     if not path.is_absolute():
         path = project_root / path
     return path.resolve()
-
-
-def _timestamp_ms():
-    now = datetime.now()
-    return now.strftime("%y_%m_%d_%H_%M_%S_") + f"{now.microsecond // 1000:03d}"
 
 
 def dataset_result_name(cfg: dict) -> str:
@@ -93,90 +87,31 @@ def experiment_config_signature(cfg: dict) -> str:
     return f"{safe_result_component(objective)}-h-{digest}"
 
 
-def configure_result_run(cfg: dict, project_root: Path, stage: str, create_new: bool = False) -> dict:
+def configure_result_run(cfg: dict, project_root: Path) -> dict:
+    """Stage1 专用：解析 base_dir 并生成 partition 输出目录（含协议签名字段）。"""
     cfg = dict(cfg)
     result_cfg = dict(cfg.get("results", {}))
     base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./local/results")
     base_dir = _resolve_project_path(project_root, base_dir_value)
-    data_root_value = result_cfg.get("data_root")
-    data_root = _resolve_project_path(project_root, data_root_value) if data_root_value else None
     dataset_name = dataset_result_name(cfg)
-    if stage == "stage1_partition":
-        partition_root = (data_root / "partition") if data_root is not None else base_dir / "partition"
-        dataset_dir = partition_root / dataset_name
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-        clients_per_modality = int(
-            cfg.get("partition", {}).get("clients_per_modality", cfg.get("clients_per_modality", 10))
-        )
-        paths = {
-            "base_dir": str(base_dir),
-            "dataset_dir": str(dataset_dir),
-            "run_id": "",
-            "run_dir": str(dataset_dir),
-            "data_partition": str(dataset_dir),
-            "cluster": "",
-            "logs": "",
-            "models": "",
-        }
-        cfg["results"] = {**result_cfg, **paths}
-        cfg["partition"] = {
-            **cfg.get("partition", {}),
-            "output_dir": str(dataset_dir),
-            "auto_signature_dir": True,
-            "clients_per_modality": clients_per_modality,
-        }
-        return cfg
-
-    dataset_dir = base_dir / "experiments" / dataset_name
-    latest_path = dataset_dir / "latest_run.txt"
-
-    run_id = result_cfg.get("run_id")
-    if not run_id:
-        if create_new:
-            run_id = _timestamp_ms()
-        else:
-            if not latest_path.exists():
-                raise FileNotFoundError(
-                    f"Missing latest run marker: {latest_path}. Run Stage 1 first or set results.run_id."
-                )
-            run_id = latest_path.read_text(encoding="utf-8").strip()
-    run_dir = dataset_dir / str(run_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    dataset_dir = base_dir / "partition" / dataset_name
     dataset_dir.mkdir(parents=True, exist_ok=True)
-
-    if create_new:
-        latest_path.write_text(str(run_id), encoding="utf-8")
-
-    paths = {
+    clients_per_modality = int(
+        cfg.get("partition", {}).get("clients_per_modality", cfg.get("clients_per_modality", 10))
+    )
+    cfg["results"] = {
+        **result_cfg,
         "base_dir": str(base_dir),
         "dataset_dir": str(dataset_dir),
-        "run_id": str(run_id),
-        "run_dir": str(run_dir),
-        "data_partition": str(
-            ((data_root / "partition") if data_root is not None else base_dir / "partition") / dataset_name
-        ),
-        "cluster": str(
-            ((data_root / "cluster") if data_root is not None else base_dir / "cluster") / dataset_name
-        ),
-        "logs": str(run_dir),
-        "models": str(run_dir),
+        "run_dir": str(dataset_dir),
+        "data_partition": str(dataset_dir),
     }
-
-    cfg["results"] = {**result_cfg, **paths}
-    cfg["partition"] = {**cfg.get("partition", {}), "output_dir": paths["data_partition"]}
-    cfg["cluster"] = {**cfg.get("cluster", {}), "output_dir": paths["cluster"]}
-    cfg["result"] = {**cfg.get("result", {}), "output_dir": paths["logs"]}
-    cfg["result_model"] = {**cfg.get("result_model", {}), "output_dir": paths["models"]}
-
-    run_meta = {
-        "dataset": dataset_name,
-        "run_id": str(run_id),
-        "stage": stage,
-        "run_dir": str(run_dir),
-        "paths": paths,
+    cfg["partition"] = {
+        **cfg.get("partition", {}),
+        "output_dir": str(dataset_dir),
+        "auto_signature_dir": True,
+        "clients_per_modality": clients_per_modality,
     }
-    with (run_dir / "run_meta.json").open("w", encoding="utf-8") as f:
-        json.dump(run_meta, f, indent=2, ensure_ascii=False, sort_keys=True)
     return cfg
 
 

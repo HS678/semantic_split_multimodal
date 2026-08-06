@@ -131,7 +131,6 @@ def run_stage1_partition(cfg: dict, project_root: Path):
     partition_cfg = cfg.get("partition", {})
     output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "local/results/data_partition"))
     train = dataset["train"]
-    validation = dataset["validation"]
     test = dataset["test"]
     modality_names = dataset["modality_names"]
     input_shapes = dataset.get("modality_input_shapes", [list(train["modalities"][i].shape[1:]) for i in range(len(modality_names))])
@@ -140,7 +139,7 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         default_encoder_type = cfg.get("partition", {}).get("encoder_type") or cfg.get("model", {}).get("encoder", {}).get("type", "time_series")
         modality_encoder_types = [str(default_encoder_type)] * len(modality_names)
     clients_per_modality = int(partition_cfg.get("clients_per_modality", cfg.get("clients_per_modality", 10)))
-    split_protocol = str(cfg.get("dataset", {}).get("split_protocol", "subject_disjoint_tvt_v1"))
+    split_protocol = str(cfg.get("dataset", {}).get("split_protocol", "subject_disjoint"))
     if bool(partition_cfg.get("auto_signature_dir", False)):
         output_dir = output_dir / partition_signature(modality_names, clients_per_modality, split_protocol)
     if output_dir.exists() and any(output_dir.iterdir()) and not bool(partition_cfg.get("allow_existing", False)):
@@ -183,29 +182,28 @@ def run_stage1_partition(cfg: dict, project_root: Path):
             )
             client_id_num += 1
 
-    for split_name, split in [("test", test)]:
-        split_modalities = {
-            name: split["modalities"][idx].contiguous()
+    test_modalities = {
+        name: test["modalities"][idx].contiguous()
+        for idx, name in enumerate(modality_names)
+    }
+    test_payload = {
+        "label": test["labels"].contiguous(),
+        "modalities": test_modalities,
+        "modality_names": list(modality_names),
+        "modality_input_shapes": {
+            name: [int(v) for v in shape]
+            for name, shape in zip(modality_names, input_shapes)
+        },
+        "split": "test",
+    }
+    if test.get("modality_lengths") is not None:
+        test_payload["modality_lengths"] = {
+            name: test["modality_lengths"][idx].contiguous()
             for idx, name in enumerate(modality_names)
         }
-        split_payload = {
-            "label": split["labels"].contiguous(),
-            "modalities": split_modalities,
-            "modality_names": list(modality_names),
-            "modality_input_shapes": {
-                name: [int(v) for v in shape]
-                for name, shape in zip(modality_names, input_shapes)
-            },
-            "split": split_name,
-        }
-        if split.get("modality_lengths") is not None:
-            split_payload["modality_lengths"] = {
-                name: split["modality_lengths"][idx].contiguous()
-                for idx, name in enumerate(modality_names)
-            }
-        for name, tensor in split_modalities.items():
-            split_payload[name] = tensor
-        torch.save(split_payload, output_dir / f"{split_name}_multimodal.pt")
+    for name, tensor in test_modalities.items():
+        test_payload[name] = tensor
+    torch.save(test_payload, output_dir / "test_multimodal.pt")
 
     with (output_dir / "client_meta.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(

@@ -34,8 +34,6 @@ MMBind-style Fusion Split Learning
 mmbind_fusion_split_learning
 ```
 
-ing
-
 核心流程：
 
 ```

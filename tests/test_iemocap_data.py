@@ -89,7 +89,7 @@ def test_iemocap_loader_returns_three_sequence_modalities(tmp_path):
         "sad": 2,
         "neutral": 3,
     }
-    for split_name in ("train", "validation", "test"):
+    for split_name in ("train", "test"):
         split = dataset[split_name]
         assert len(split["modalities"]) == 3
         assert len(split["modality_lengths"]) == 3

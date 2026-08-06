@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 import torch
 
-from .iemocap import IEMOCAP_LABEL_MAPPING
+from .iemocap import IEMOCAP_LABEL_MAPPING, load_manifest
 
 
 ANNOTATION_PATTERN = re.compile(
@@ -128,11 +128,6 @@ def build_manifest(root: Path, output_path: Path) -> dict:
     }
     _write_json(output_path, payload)
     return payload
-
-
-def _load_manifest(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def extract_audio_features(root: Path, manifest: dict, output_path: Path, max_frames: int) -> None:
@@ -383,7 +378,7 @@ def write_metadata(processed_root: Path) -> None:
     if missing:
         print(f"metadata_not_written_missing={missing}")
         return
-    manifest = _load_manifest(processed_root / "manifest.json")
+    manifest = load_manifest(processed_root)
     modalities = {}
     for name in ("audio", "video", "text"):
         payload = torch.load(processed_root / f"{name}.pt", map_location="cpu")
@@ -458,7 +453,7 @@ def main(argv=None):
             print(f"saved={manifest_path}")
     if not manifest_path.exists():
         raise FileNotFoundError(f"Missing manifest required by feature extraction: {manifest_path}")
-    manifest = _load_manifest(manifest_path)
+    manifest = load_manifest(processed_root)
 
     actions = {
         "audio": lambda path: extract_audio_features(root, manifest, path, args.max_audio_frames),

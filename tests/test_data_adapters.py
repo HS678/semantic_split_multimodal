@@ -42,11 +42,11 @@ def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expe
     cfg = normalize_experiment_config(load_config(PROJECT_ROOT / config_path))
     dataset = load_dataset(cfg, PROJECT_ROOT)
 
-    assert set(dataset) >= {"modality_input_shapes", "modality_names", "root", "train", "validation", "test"}
+    assert set(dataset) >= {"modality_input_shapes", "modality_names", "root", "train", "test"}
     assert dataset["modality_names"] == expected_names
     assert dataset["modality_input_shapes"] == expected_shapes
 
-    for split_name in ("train", "validation", "test"):
+    for split_name in ("train", "test"):
         split = dataset[split_name]
         labels = split["labels"]
         modalities = split["modalities"]
@@ -64,7 +64,7 @@ def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expe
 
 
 @pytest.mark.parametrize("dataset_name,config_path,expected_names,expected_shapes", DATASET_CASES)
-def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payloads(
+def test_stage1_writes_metadata_and_naturally_paired_test_payloads(
     tmp_path,
     dataset_name,
     config_path,
@@ -115,7 +115,6 @@ def test_stage1_writes_metadata_and_naturally_paired_validation_and_test_payload
 def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwrite(monkeypatch, tmp_path):
     def fake_load_dataset(_cfg, _root):
         train_labels = torch.tensor([0, 1, 0, 1])
-        validation_labels = torch.tensor([0, 1])
         test_labels = torch.tensor([0, 1])
         return {
             "root": str(tmp_path / "dataset"),
@@ -124,10 +123,6 @@ def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwr
             "train": {
                 "labels": train_labels,
                 "modalities": [torch.zeros(4, 1), torch.ones(4, 1)],
-            },
-            "validation": {
-                "labels": validation_labels,
-                "modalities": [torch.zeros(2, 1), torch.ones(2, 1)],
             },
             "test": {
                 "labels": test_labels,
@@ -143,7 +138,7 @@ def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwr
         "partition": {"clients_per_modality": 2},
         "model": {"encoder": {"type": "time_series"}},
     }
-    cfg = configure_result_run(cfg, tmp_path, stage="stage1_partition", create_new=True)
+    cfg = configure_result_run(cfg, tmp_path)
 
     info = run_stage1_partition(cfg, tmp_path)
 
@@ -163,17 +158,15 @@ def test_stage1_auto_partition_layout_uses_modality_signature_and_refuses_overwr
 
 
 def test_subject_splits_must_be_non_empty_and_disjoint():
-    splits = _validate_subject_splits([1, 2], [3], [4], "synthetic")
-    assert splits == {"train": {1, 2}, "validation": {3}, "test": {4}}
+    splits = _validate_subject_splits([1, 2], [4], "synthetic")
+    assert splits == {"train": {1, 2}, "test": {4}}
 
     with pytest.raises(ValueError, match="must be disjoint"):
-        _validate_subject_splits([1, 2], [2, 3], [4], "synthetic")
-    empty_validation = _validate_subject_splits([1], [], [2], "synthetic")
-    assert empty_validation == {"train": {1}, "validation": set(), "test": {2}}
+        _validate_subject_splits([1, 2], [2], "synthetic")
     with pytest.raises(ValueError, match="must not be empty"):
-        _validate_subject_splits([], [3], [2], "synthetic")
+        _validate_subject_splits([], [2], "synthetic")
     with pytest.raises(ValueError, match="must not be empty"):
-        _validate_subject_splits([1], [3], [], "synthetic")
+        _validate_subject_splits([1], [], "synthetic")
 
 
 def test_normalization_statistics_are_fitted_on_train_only():
@@ -181,42 +174,31 @@ def test_normalization_statistics_are_fitted_on_train_only():
         "modalities": [torch.tensor([[[1.0, 3.0]], [[5.0, 7.0]]])],
         "labels": torch.tensor([0, 1]),
     }
-    validation = {
-        "modalities": [torch.tensor([[[9.0, 11.0]]])],
-        "labels": torch.tensor([1]),
-    }
     test = {
-        "modalities": [torch.tensor([[[13.0, 15.0]]])],
+        "modalities": [torch.tensor([[[9.0, 11.0]]])],
         "labels": torch.tensor([0]),
     }
 
-    normalized_train, normalized_validation, normalized_test = _normalize_from_train(train, validation, test)
+    normalized_train, normalized_test = _normalize_from_train(train, test)
     train_mean = train["modalities"][0].mean(dim=(0, 2), keepdim=True)
     train_std = train["modalities"][0].std(dim=(0, 2), keepdim=True)
 
     assert torch.allclose(normalized_train["modalities"][0].mean(dim=(0, 2)), torch.zeros(1), atol=1e-6)
-    assert torch.allclose(
-        normalized_validation["modalities"][0],
-        (validation["modalities"][0] - train_mean) / train_std,
-    )
     assert torch.allclose(
         normalized_test["modalities"][0],
         (test["modalities"][0] - train_mean) / train_std,
     )
 
 
-def test_pamap2_label_mapping_is_fixed_without_validation_or_test_label_union():
+def test_pamap2_label_mapping_is_fixed_without_test_label_union():
     train = {"modalities": [], "labels": torch.tensor([1, 24])}
-    validation = {"modalities": [], "labels": torch.tensor([12])}
     test = {"modalities": [], "labels": torch.tensor([17])}
 
-    remapped_train, remapped_validation, remapped_test, mapping = _pamap2_remap_labels(
+    remapped_train, remapped_test, mapping = _pamap2_remap_labels(
         train,
-        validation,
         test,
     )
 
     assert mapping == {activity_id: idx for idx, activity_id in enumerate(PAMAP2_ACTIVITY_IDS)}
     assert remapped_train["labels"].tolist() == [mapping[1], mapping[24]]
-    assert remapped_validation["labels"].tolist() == [mapping[12]]
     assert remapped_test["labels"].tolist() == [mapping[17]]
