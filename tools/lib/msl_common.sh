@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# MSL 实验公共运行库：封装 Stage1/2/3 执行与断点续跑，供 single/serial/parallel 脚本复用。
+# MSL 实验公共运行库：封装 Stage1/2/3 执行与断点续跑，供统一入口脚本复用。
 # 用法：先 cd 到项目根，再 source 本文件，然后调用 run_msl_dataset <dataset>。
 
 set -euo pipefail
@@ -26,26 +26,44 @@ run_or_skip() {
 }
 
 stage1() {
-  local name="$1" config="$2" clients="${3:-10}"
+  local name="$1" config="$2" clients="${3:-10}" fold="${4:-}"
   local log_dir="local/results_msl/logs/${name}"
   mkdir -p "$log_dir"
-  local log_file="${log_dir}/stage1_${name}_$(date '+%Y%m%d_%H%M%S').log"
+  local fold_tag=""
+  local fold_args=()
+  if [ -n "$fold" ]; then
+    fold_tag="_fold${fold}"
+    fold_args=(--fold "$fold")
+  fi
+  local log_file="${log_dir}/stage1_${name}${fold_tag}_$(date '+%Y%m%d_%H%M%S').log"
   run_or_skip "$name Stage1" "$log_file" "$PYTHON" \
-    scripts/stage1_partition.py --config "$config" --clients "$clients"
+    scripts/stage1_partition.py --config "$config" --clients "$clients" "${fold_args[@]}"
 }
 stage2() {
-  local name="$1" config="$2"
+  local name="$1" config="$2" fold="${3:-}"
   local log_dir="local/results_msl/logs/${name}"
   mkdir -p "$log_dir"
-  local log_file="${log_dir}/stage2_${name}_$(date '+%Y%m%d_%H%M%S').log"
-  run_or_skip "$name Stage2" "$log_file" "$PYTHON" scripts/stage2_discovery.py --config "$config"
+  local fold_tag=""
+  local fold_args=()
+  if [ -n "$fold" ]; then
+    fold_tag="_fold${fold}"
+    fold_args=(--fold "$fold")
+  fi
+  local log_file="${log_dir}/stage2_${name}${fold_tag}_$(date '+%Y%m%d_%H%M%S').log"
+  run_or_skip "$name Stage2" "$log_file" "$PYTHON" scripts/stage2_discovery.py --config "$config" "${fold_args[@]}"
 }
 stage3() {
-  local name="$1" config="$2" seed="$3"
+  local name="$1" config="$2" seed="$3" fold="${4:-}"
   local log_dir="local/results_msl/logs/${name}"
   mkdir -p "$log_dir"
-  local log_file="${log_dir}/stage3_${name}_seed${seed}_$(date '+%Y%m%d_%H%M%S').log"
-  run_or_skip "$name Stage3" "$log_file" "$PYTHON" scripts/stage3_train.py --config "$config" --seed "$seed"
+  local fold_tag=""
+  local fold_args=()
+  if [ -n "$fold" ]; then
+    fold_tag="_fold${fold}"
+    fold_args=(--fold "$fold")
+  fi
+  local log_file="${log_dir}/stage3_${name}${fold_tag}_seed${seed}_$(date '+%Y%m%d_%H%M%S').log"
+  run_or_skip "$name Stage3" "$log_file" "$PYTHON" scripts/stage3_train.py --config "$config" --seed "$seed" "${fold_args[@]}"
 }
 
 summarize() {
@@ -68,12 +86,12 @@ run_fixed_dataset() {
 # 多折数据集：每折 Stage1/2/3（seed 固定），最后汇总。
 run_folds_dataset() {
   local name="$1" folds="$2" seed="$3" clients="$4"
+  local config="configs/${name}.config"
   local fold
   for fold in $(seq 1 "$folds"); do
-    local config="configs/${name}/fold${fold}.config"
-    stage1 "$name" "$config" "$clients"
-    stage2 "$name" "$config"
-    stage3 "$name" "$config" "$seed"
+    stage1 "$name" "$config" "$clients" "$fold"
+    stage2 "$name" "$config" "$fold"
+    stage3 "$name" "$config" "$seed" "$fold"
   done
   summarize "$name"
 }

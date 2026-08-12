@@ -3,9 +3,11 @@ from pathlib import Path
 import pytest
 
 from MSL.utils.config import (
+    apply_experiment_overrides,
     load_config,
     normalize_experiment_config,
     save_config_artifacts,
+    split_protocol_for_fold,
     write_config,
 )
 from MSL.utils.results import (
@@ -17,18 +19,18 @@ from MSL.utils.results import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_all_dataset_configs_are_ini_style_and_use_true_cluster_for_current_development():
+def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
     paths = {
         "uci_har": "configs/uci_har.config",
-        "mhealth": "configs/mhealth/fold1.config",
-        "pamap2": "configs/pamap2/fold1.config",
-        "iemocap": "configs/iemocap/fold1.config",
+        "mhealth": "configs/mhealth.config",
+        "pamap2": "configs/pamap2.config",
+        "iemocap": "configs/iemocap.config",
     }
     for dataset, relative_path in paths.items():
         path = PROJECT_ROOT / relative_path
         cfg = normalize_experiment_config(load_config(path))
         assert cfg["dataset"]["type"] == dataset
-        assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
+        assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
         assert cfg["partition"]["clients_per_modality"] == 10
         assert cfg["cluster"]["method"] == "adaptive_isodata"
         assert cfg["evaluation"]["run_test"] is True
@@ -78,27 +80,37 @@ def test_config_extends_deep_merges_relative_parent(tmp_path):
 def test_MSL_configs_resolve_expected_protocols_and_objective():
     config_dir = PROJECT_ROOT / "configs"
     for dataset in ["uci_har", "mhealth", "pamap2"]:
-        relative = (
-            f"{dataset}.config"
-            if dataset == "uci_har"
-            else f"{dataset}/fold1.config"
-        )
-        cfg = normalize_experiment_config(load_config(config_dir / relative))
+        cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
         assert cfg["dataset"]["type"] == dataset
         assert cfg["fusion"]["training_objective"] in {
             "label_random_ce",
             "mmbind_weighted_contrastive",
         }
-        assert cfg["training"]["cluster_assignment_source"] == "true_cluster"
+        assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
         assert "validation_enabled" not in cfg["training"]
         assert cfg["evaluation"]["run_test"] is True
 
     for fold in range(1, 6):
-        cfg = normalize_experiment_config(load_config(config_dir / "iemocap" / f"fold{fold}.config"))
+        cfg = normalize_experiment_config(load_config(config_dir / "iemocap.config"))
+        cfg = apply_experiment_overrides(cfg, fold=fold)
         assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}"
         assert "train_sessions" not in cfg["dataset"]
         assert "test_sessions" not in cfg["dataset"]
         assert "validation_sessions" not in cfg["dataset"]
+
+
+def test_fold_override_generates_dataset_protocols_without_fold_configs():
+    cases = {
+        "mhealth": (5, "subject_5fold_fold5"),
+        "pamap2": (9, "subject_9fold_loso_fold9"),
+        "iemocap": (5, "session_5fold_loso_fold5"),
+    }
+    for dataset, (fold, expected_protocol) in cases.items():
+        cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / f"{dataset}.config"))
+        overridden = apply_experiment_overrides(cfg, fold=fold)
+        assert split_protocol_for_fold(dataset, fold) == expected_protocol
+        assert overridden["dataset"]["split_protocol"] == expected_protocol
+        assert overridden["runtime_overrides"]["fold"] == fold
 
 
 def test_yaml_extension_is_rejected(tmp_path):
@@ -129,4 +141,4 @@ def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes()
         "fusion": {**cfg["fusion"], "training_objective": "label_random_ce"},
     }
     assert experiment_config_signature(changed_objective) != signature
-    assert cluster_assignment_scope(cfg) == "oracle_true_cluster"
+    assert cluster_assignment_scope(cfg) == "predicted_cluster"

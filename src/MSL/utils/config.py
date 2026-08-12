@@ -119,6 +119,52 @@ def _class_weighting_mode(value) -> str:
     raise ValueError(f"class_weighting must be true/false, got {value!r}.")
 
 
+def split_protocol_for_fold(dataset_type: str, fold: int) -> str:
+    from MSL.data.dataset_defaults import DATASET_DEFAULTS
+
+    key = str(dataset_type).strip().lower()
+    if key not in DATASET_DEFAULTS:
+        raise ValueError(f"Unknown dataset type: {dataset_type!r}")
+    defaults = DATASET_DEFAULTS[key]
+    fold_count = defaults.get("fold_count")
+    if fold_count is None:
+        raise ValueError(f"Dataset {key!r} does not define folds.")
+    fold = int(fold)
+    if fold < 1 or fold > int(fold_count):
+        raise ValueError(f"Dataset {key!r} fold must be in [1, {fold_count}], got {fold}.")
+    template = defaults.get("dataset", {}).get("split_protocol_template")
+    if not template:
+        raise ValueError(f"Dataset {key!r} does not define split_protocol_template.")
+    return str(template).format(fold=fold)
+
+
+def apply_experiment_overrides(
+    cfg: dict,
+    *,
+    fold: int | None = None,
+    split_protocol: str | None = None,
+) -> dict:
+    if fold is not None and split_protocol is not None:
+        raise ValueError("--fold and --split-protocol cannot be used together.")
+    if fold is None and split_protocol is None:
+        return cfg
+    cfg = dict(cfg)
+    dataset = dict(cfg.get("dataset", {}))
+    dataset_type = dataset.get("type")
+    if not dataset_type:
+        raise ValueError("dataset.type is required before applying split overrides.")
+    if fold is not None:
+        split_protocol = split_protocol_for_fold(str(dataset_type), int(fold))
+    dataset["split_protocol"] = str(split_protocol)
+    cfg["dataset"] = dataset
+    cfg["runtime_overrides"] = {
+        **dict(cfg.get("runtime_overrides", {})),
+        "fold": None if fold is None else int(fold),
+        "split_protocol": str(split_protocol),
+    }
+    return cfg
+
+
 def normalize_experiment_config(cfg: dict) -> dict:
     """把 6 段实验配置（config/partition/cluster/train/d2d/other）归一化为内部结构。
 
@@ -147,13 +193,10 @@ def normalize_experiment_config(cfg: dict) -> dict:
 
     # ---- dataset / partition ----
     dataset = dict(defaults["dataset"])
-    dataset.update(
-        {
-            "type": dataset_type,
-            "split_protocol": partition.get("split_protocol"),
-            "normalize": True,  # 内置：只用 train 统计量标准化
-        }
-    )
+    split_protocol = partition.get("split_protocol", dataset.get("split_protocol"))
+    dataset.update({"type": dataset_type, "normalize": True})  # 内置：只用 train 统计量标准化
+    if split_protocol is not None:
+        dataset["split_protocol"] = split_protocol
     for key in ("name", "variant", "processed_root", "feature_recipe", "task", "label_protocol"):
         if key in partition:
             dataset[key] = partition[key]
@@ -196,7 +239,7 @@ def normalize_experiment_config(cfg: dict) -> dict:
     cfg["training"] = {
         "cluster_assignment_source": train.get("cluster_assignment_source", "pred_cluster"),
         "scheduler": train.get("scheduler", "balanced_cluster_round_robin"),
-        "global_rounds": int(train.get("global_rounds", 200)),
+        "global_rounds": int(train.get("global_rounds", defaults.get("default_global_rounds", 200))),
         "local_steps": int(train.get("local_steps", 1)),
         "clients_per_cluster_per_round": int(train.get("clients_per_cluster_per_round", 4)),
         "batch_size": int(train.get("batch_size", defaults["training"]["batch_size"])),

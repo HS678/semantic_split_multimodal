@@ -8,7 +8,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.data.partitioner import run_stage1_partition
-from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
+from MSL.utils.config import apply_experiment_overrides, load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.results import configure_result_run
 from MSL.utils.seed import set_seed
 
@@ -21,9 +21,12 @@ def main():
         type=int,
         help="Override partition.clients_per_modality (changes the partition signature directory).",
     )
+    parser.add_argument("--fold", type=int, help="Override dataset.split_protocol from the dataset fold template.")
+    parser.add_argument("--split-protocol", help="Override dataset.split_protocol directly.")
     args = parser.parse_args()
 
     cfg = normalize_experiment_config(load_config(args.config))
+    cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
     if args.clients:
         cfg["partition"] = {**cfg.get("partition", {}), "clients_per_modality": args.clients}
     cfg = configure_result_run(cfg, ROOT)

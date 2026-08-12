@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
 
 from MSL.learning.fusion_sl import run_mmbind_fusion_stage3_split_training
 from MSL.evaluation.plot_training_curves import write_training_curves
-from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
+from MSL.utils.config import apply_experiment_overrides, load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.device import select_device
 from MSL.utils.results import (
     cluster_assignment_scope,
@@ -513,6 +513,8 @@ _metadata.start_monotonic = 0.0
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 3: train fusion Split Learning from frozen Stage1/Stage2 inputs.")
     parser.add_argument("--config", required=True, help="Path to INI-style .config file")
+    parser.add_argument("--fold", type=int, help="Override dataset.split_protocol from the dataset fold template.")
+    parser.add_argument("--split-protocol", help="Override dataset.split_protocol directly.")
     parser.add_argument(
         "--seed",
         type=int,
@@ -537,6 +539,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     cfg = normalize_experiment_config(load_config(args.config))
+    cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
     stage3_cfg = cfg.get("stage3", {})
     stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
     stage2_dir = args.stage2_dir or stage3_cfg.get("stage2_dir")

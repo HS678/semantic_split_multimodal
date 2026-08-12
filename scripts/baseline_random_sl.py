@@ -24,7 +24,7 @@ if str(SRC) not in sys.path:
 
 from baseline.randomSL.training import run_random_sl_stage3_split_training
 from MSL.evaluation.plot_training_curves import write_training_curves
-from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
+from MSL.utils.config import apply_experiment_overrides, load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.device import select_device
 from MSL.utils.results import resolve_stage_paths
 from MSL.utils.seed import set_seed
@@ -64,6 +64,8 @@ def parse_args(argv=None):
         description="Stage 3 baseline: random-scheduling Split Learning (randomSL)."
     )
     parser.add_argument("--config", required=True, help="Path to INI-style .config file")
+    parser.add_argument("--fold", type=int, help="Override dataset.split_protocol from the dataset fold template.")
+    parser.add_argument("--split-protocol", help="Override dataset.split_protocol directly.")
     parser.add_argument(
         "--seed",
         type=int,
@@ -89,6 +91,7 @@ def main(argv=None):
     stage3 = _load_stage3_script()
     args = parse_args(argv)
     cfg = normalize_experiment_config(load_config(args.config))
+    cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
     stage3_cfg = cfg.get("stage3", {})
     stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
     stage2_dir = args.stage2_dir or stage3_cfg.get("stage2_dir")

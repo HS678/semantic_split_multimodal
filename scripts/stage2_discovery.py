@@ -11,7 +11,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.learning.pretrain import run_stage2_discovery
-from MSL.utils.config import load_config, normalize_experiment_config, save_config_artifacts
+from MSL.utils.config import apply_experiment_overrides, load_config, normalize_experiment_config, save_config_artifacts
 from MSL.utils.device import select_device
 from MSL.utils.results import dataset_result_name, resolve_stage_paths, safe_result_component
 from MSL.utils.seed import set_seed
@@ -113,6 +113,8 @@ def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_second
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Stage 2: discover modality clusters from a frozen Stage1 partition.")
     parser.add_argument("--config", required=True, help="Path to INI-style .config file")
+    parser.add_argument("--fold", type=int, help="Override dataset.split_protocol from the dataset fold template.")
+    parser.add_argument("--split-protocol", help="Override dataset.split_protocol directly.")
     parser.add_argument("--stage1-dir", help="Optional override for stage2.stage1_dir")
     parser.add_argument("--output-root", help="Optional override for stage2.output_root")
     return parser.parse_args(argv)
@@ -121,6 +123,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     cfg = normalize_experiment_config(load_config(args.config))
+    cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
     stage2_cfg = cfg.get("stage2", {})
     stage1_dir = args.stage1_dir or stage2_cfg.get("stage1_dir")
     output_root = args.output_root or stage2_cfg.get("output_root")

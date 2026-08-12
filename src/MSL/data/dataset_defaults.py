@@ -1,7 +1,7 @@
 # 每个数据集的固定配置（内置，不在 config 中重复设置）。
-# config 只保留：experiment_name / base_dir / type / split_protocol /
-# clients_per_modality / cluster_assignment_source / scheduler /
-# fusion_training_objective / global_rounds 等"要切换或要调"的字段。
+# config 只保留：experiment_name / base_dir / type / clients_per_modality /
+# cluster_assignment_source / scheduler / fusion_training_objective 等"要切换或要调"的字段。
+# 多折协议由 split_protocol_template + CLI --fold 生成，避免为每折维护重复 config。
 
 # 聚类参数（adaptive_isodata，四个数据集一致，内置）。
 DEFAULT_ADAPTIVE = {
@@ -23,7 +23,12 @@ DEFAULT_ADAPTIVE = {
 DATASET_DEFAULTS = {
     "uci_har": {
         "num_classes": 6,
-        "dataset": {"root": "./local/datasets/uci_har"},
+        "dataset": {
+            "root": "./local/datasets/uci_har",
+            "split_protocol": "subject_disjoint_70_30",
+        },
+        "fold_count": None,
+        "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
             "epochs": 25,
@@ -73,7 +78,10 @@ DATASET_DEFAULTS = {
             "feature_recipe": "mfcc_mobilevit_xs_distilbert_v1",
             "task": "emotion_4class",
             "label_protocol": "ang_hap_exc_sad_neu_v1",
+            "split_protocol_template": "session_5fold_loso_fold{fold}",
         },
+        "fold_count": 5,
+        "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
             "epochs": 25,
@@ -130,7 +138,12 @@ DATASET_DEFAULTS = {
     },
     "mhealth": {
         "num_classes": 12,
-        "dataset": {"root": "./local/datasets/mhealth"},
+        "dataset": {
+            "root": "./local/datasets/mhealth",
+            "split_protocol_template": "subject_5fold_fold{fold}",
+        },
+        "fold_count": 5,
+        "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
             "epochs": 25,
@@ -172,7 +185,12 @@ DATASET_DEFAULTS = {
     },
     "pamap2": {
         "num_classes": 12,
-        "dataset": {"root": "./local/datasets/pamap2"},
+        "dataset": {
+            "root": "./local/datasets/pamap2",
+            "split_protocol_template": "subject_9fold_loso_fold{fold}",
+        },
+        "fold_count": 9,
+        "default_global_rounds": 300,
         "pretrain": {
             "objective": "classification",
             "epochs": 30,
