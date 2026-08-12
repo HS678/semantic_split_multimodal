@@ -1,4 +1,5 @@
 /local/
+/results/
 .agents/
 .codex/
 
@@ -24,3 +25,4 @@ Thumbs.db
 *.pth
 *.ckpt
 *.npy
+tools/logs/
