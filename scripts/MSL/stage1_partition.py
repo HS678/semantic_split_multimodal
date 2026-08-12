@@ -20,6 +20,7 @@ from MSL.utils.experiment_args import (
     load_experiment_config_from_args,
     print_resolved_config,
     save_resolved_config_artifact,
+    stage1_config_snapshot,
 )
 from MSL.utils.results import configure_result_run
 from MSL.utils.seed import set_seed
@@ -37,7 +38,7 @@ def main():
     cfg = configure_result_run(cfg, ROOT)
     set_seed(int(cfg.get("seed", 42)))
     info = run_stage1_partition(cfg, ROOT)
-    save_resolved_config_artifact(cfg, info["output_dir"])
+    save_resolved_config_artifact(stage1_config_snapshot(cfg), info["output_dir"])
     print(f"Stage 1 finished. Saved data partition to: {info['output_dir']}")
     print(f"run_dir={cfg['results']['run_dir']}")
     print(f"num_clients={info['num_clients']}, clients_per_modality={info['clients_per_modality']}")

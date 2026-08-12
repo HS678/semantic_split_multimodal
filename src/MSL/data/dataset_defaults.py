@@ -31,7 +31,7 @@ DATASET_DEFAULTS = {
         "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
-            "epochs": 25,
+            "epochs": 5,
             "batch_size": 64,
             "lr": 0.0005,
             "weight_decay": 0.0001,
@@ -84,7 +84,7 @@ DATASET_DEFAULTS = {
         "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
-            "epochs": 25,
+            "epochs": 5,
             "batch_size": 32,
             "lr": 0.0002,
             "weight_decay": 0.0001,
@@ -146,7 +146,7 @@ DATASET_DEFAULTS = {
         "default_global_rounds": 200,
         "pretrain": {
             "objective": "classification",
-            "epochs": 25,
+            "epochs": 5,
             "batch_size": 64,
             "lr": 0.0005,
             "weight_decay": 0.0001,
@@ -193,7 +193,7 @@ DATASET_DEFAULTS = {
         "default_global_rounds": 300,
         "pretrain": {
             "objective": "classification",
-            "epochs": 30,
+            "epochs": 5,
             "batch_size": 64,
             "lr": 0.0003,
             "weight_decay": 0.0001,

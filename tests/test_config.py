@@ -10,6 +10,8 @@ from MSL.utils.experiment_args import (
     build_experiment_config,
     load_experiment_config_from_args,
     save_resolved_config_artifact,
+    stage1_config_snapshot,
+    stage2_config_snapshot,
     split_protocol_for_fold,
 )
 from MSL.utils.results import cluster_assignment_scope, experiment_config_signature
@@ -137,3 +139,30 @@ def test_resolved_config_artifact_is_json(tmp_path):
     path = Path(artifacts["resolved_config"])
     assert path.name == "resolved_config.json"
     assert json.loads(path.read_text(encoding="utf-8")) == resolved
+
+
+def test_stage1_config_snapshot_keeps_only_partition_inputs():
+    cfg = build_experiment_config(dataset_type="uci_har")
+    snapshot = stage1_config_snapshot(cfg)
+
+    assert snapshot["config_scope"] == "stage1_partition"
+    assert snapshot["dataset"]["type"] == "uci_har"
+    assert snapshot["partition"]["clients_per_modality"] == 10
+    assert "training" not in snapshot
+    assert "pretrain" not in snapshot
+    assert "cluster" not in snapshot
+    assert "fusion" not in snapshot
+
+
+def test_stage2_config_snapshot_excludes_stage3_training_inputs():
+    cfg = build_experiment_config(dataset_type="pamap2")
+    snapshot = stage2_config_snapshot(cfg)
+
+    assert snapshot["config_scope"] == "stage2_discovery"
+    assert snapshot["pretrain"]["epochs"] == 5
+    assert snapshot["cluster"]["method"] == "adaptive_isodata"
+    assert "training" not in snapshot
+    assert "binding" not in snapshot
+    assert "fusion" not in snapshot
+    assert "model" not in snapshot
+    assert "evaluation" not in snapshot

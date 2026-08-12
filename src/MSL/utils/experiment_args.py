@@ -229,6 +229,48 @@ def save_resolved_config_artifact(resolved_cfg: dict, output_dir: str | Path) ->
     return {"resolved_config": str(snapshot)}
 
 
+def stage1_config_snapshot(cfg: dict) -> dict:
+    """Keep Stage1 artifacts focused on partition construction inputs."""
+    return _copy_selected_sections(
+        cfg,
+        [
+            "experiment_name",
+            "base_dir",
+            "seed",
+            "num_classes",
+            "dataset",
+            "partition",
+            "runtime_overrides",
+            "results",
+        ],
+        config_scope="stage1_partition",
+    )
+
+
+def stage2_config_snapshot(cfg: dict) -> dict:
+    """Keep Stage2 artifacts focused on partition and discovery inputs."""
+    return _copy_selected_sections(
+        cfg,
+        [
+            "experiment_name",
+            "base_dir",
+            "seed",
+            "device",
+            "num_classes",
+            "dataset",
+            "partition",
+            "pretrain",
+            "fingerprint",
+            "cluster",
+            "fingerprint_visualization",
+            "runtime_overrides",
+            "result",
+            "stage2",
+        ],
+        config_scope="stage2_discovery",
+    )
+
+
 def print_resolved_config(cfg: dict):
     print(json.dumps(cfg, indent=2, ensure_ascii=False, sort_keys=True))
 
@@ -288,3 +330,11 @@ def _class_weighting_mode(value) -> str:
 def _set_if_not_none(target: dict, key: str, value, caster):
     if value is not None:
         target[key] = caster(value)
+
+
+def _copy_selected_sections(cfg: dict, keys: list[str], *, config_scope: str) -> dict:
+    snapshot = {"config_scope": config_scope}
+    for key in keys:
+        if key in cfg:
+            snapshot[key] = cfg[key]
+    return snapshot

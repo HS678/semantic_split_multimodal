@@ -24,6 +24,7 @@ from MSL.utils.experiment_args import (
     load_experiment_config_from_args,
     print_resolved_config,
     save_resolved_config_artifact,
+    stage2_config_snapshot,
 )
 from MSL.utils.results import dataset_result_name, resolve_stage_paths, safe_result_component
 from MSL.utils.seed import set_seed
@@ -104,6 +105,7 @@ def build_stage2_run(cfg: dict, stage1_dir, output_root):
 
 def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_seconds: float):
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
+    config_snapshot = stage2_config_snapshot(cfg)
     metadata = {
         "stage": "stage2_discovery",
         "dataset": paths["dataset"],
@@ -115,7 +117,7 @@ def _write_metadata(paths: dict, cfg: dict, metrics: dict | None, runtime_second
         "git_commit": _git_commit(),
         "runtime_seconds": float(runtime_seconds),
         "seed": int(cfg.get("seed", 42)),
-        "config_snapshot": cfg,
+        "config_snapshot": config_snapshot,
         "metrics": metrics,
     }
     with (paths["cluster_dir"] / "stage2_metadata.json").open("w", encoding="utf-8") as f:
@@ -150,7 +152,7 @@ def main(argv=None):
         output_root=output_root,
     )
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
-    save_resolved_config_artifact(cfg, paths["cluster_dir"])
+    save_resolved_config_artifact(stage2_config_snapshot(cfg), paths["cluster_dir"])
 
     start = time.time()
     set_seed(int(cfg.get("seed", 42)))
