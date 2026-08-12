@@ -62,6 +62,34 @@ MAX_JOBS=1 bash tools/launch_random_sl.sh
 
 `MAX_JOBS=1` 就是串行运行，适合显存紧张时使用。
 
+后台运行可以用 `nohup`。建议把日志放到 `results/` 下，不放在 `tools/` 里：
+
+```bash
+mkdir -p results/MSL/logs
+nohup bash tools/launch_msl.sh > results/MSL/logs/launch_msl.log 2>&1 &
+```
+
+指定并行数后台运行：
+
+```bash
+mkdir -p results/MSL/logs
+nohup env MAX_JOBS=4 bash tools/launch_msl.sh > results/MSL/logs/launch_msl_max4.log 2>&1 &
+```
+
+randomSL baseline 后台运行：
+
+```bash
+mkdir -p results/baseline/randomSL/logs
+nohup bash tools/launch_random_sl.sh > results/baseline/randomSL/logs/launch_random_sl.log 2>&1 &
+```
+
+查看日志：
+
+```bash
+tail -f results/MSL/logs/launch_msl.log
+tail -f results/baseline/randomSL/logs/launch_random_sl.log
+```
+
 ## 3. 单独跑一个任务
 
 也可以直接调用 Python 脚本：
@@ -70,6 +98,13 @@ MAX_JOBS=1 bash tools/launch_random_sl.sh
 python3 scripts/MSL/stage3_train.py --dataset uci_har --seed 101
 python3 scripts/MSL/stage3_train.py --dataset mhealth --fold 1 --seed 42
 python3 scripts/baseline/randomSL/stage3_train.py --dataset pamap2 --fold 1 --seed 42
+```
+
+单个任务后台运行示例：
+
+```bash
+mkdir -p results/MSL/logs
+nohup python3 scripts/MSL/stage3_train.py --dataset uci_har --seed 101 > results/MSL/logs/uci_har_seed101.log 2>&1 &
 ```
 
 运行前查看完整解析参数：
