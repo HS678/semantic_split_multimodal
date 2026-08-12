@@ -76,16 +76,15 @@ python scripts/baseline/randomSL/stage3_train.py --dataset pamap2 --fold 2 --pri
 python scripts/MSL/stage3_train.py --dataset uci_har --seed 101 --global-rounds 50 --client-lr 0.0001
 ```
 
-`configs/MSL/` 和 `configs/baseline/` 保留正式设置的可读快照；多折数据集通过 `--fold N` 从数据集默认模板生成划分协议。配置统一分段结构：
+数据集默认参数集中在 `src/MSL/data/dataset_defaults.py`，正式命令行 parser 在 `src/MSL/utils/experiment_args.py`。多折数据集通过 `--fold N` 从数据集默认模板生成划分协议，命令行参数覆盖默认值。
 
-```ini
-[config]      # experiment_name、base_dir（seed/device 已内置；--seed 覆盖）
-[partition]   # type、split_protocol、clients_per_modality
-[train]       # cluster_assignment_source、scheduler、fusion_training_objective、global_rounds
-# cluster / d2d / other 段均有内置默认，仅在需要覆盖时写出。
+运行前可以用 `--print-config` 查看完整解析后的参数：
+
+```bash
+python scripts/MSL/stage3_train.py --dataset mhealth --fold 1 --print-config
 ```
 
-所有输出路径由 `base_dir` + 数据集 + 划分协议自动生成。主线默认写入 `results/MSL/`，baseline 默认写入 `results/baseline/randomSL/`。`configs/config.config` 是字段参考模板。
+所有输出路径由 `base_dir` + 数据集 + 划分协议自动生成。主线默认写入 `results/MSL/`，baseline 默认写入 `results/baseline/randomSL/`。每次运行会在结果目录保存 `resolved_config.json`。
 
 ## 运行
 

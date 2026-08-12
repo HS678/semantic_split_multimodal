@@ -38,17 +38,25 @@ Stage1 data construction
 
 ```text
 src/MSL/
-configs/MSL/
 scripts/MSL/
+tools/dataset/
 ```
 
 baseline 只放对照方法：
 
 ```text
 src/baseline/
-configs/baseline/
 scripts/baseline/
 ```
+
+参数入口：
+
+```text
+src/MSL/data/dataset_defaults.py
+src/MSL/utils/experiment_args.py
+```
+
+不再使用外部 `.config` 文件；运行脚本通过 `--dataset`、`--fold`、`--seed` 和显式覆盖参数启动。
 
 ## No Leakage
 

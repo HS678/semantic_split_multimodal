@@ -31,9 +31,13 @@ if str(SRC) not in sys.path:
 
 from baseline.randomSL.training import run_random_sl_stage3_split_training
 from MSL.evaluation.plot_training_curves import write_training_curves
-from MSL.utils.config import save_config_artifacts
 from MSL.utils.device import select_device
-from MSL.utils.experiment_args import add_experiment_args, load_experiment_config_from_args, print_resolved_config
+from MSL.utils.experiment_args import (
+    add_experiment_args,
+    load_experiment_config_from_args,
+    print_resolved_config,
+    save_resolved_config_artifact,
+)
 from MSL.utils.results import resolve_stage_paths
 from MSL.utils.seed import set_seed
 
@@ -86,7 +90,7 @@ def parse_args(argv=None):
 def main(argv=None):
     stage3 = _load_stage3_script()
     args = parse_args(argv)
-    cfg, source_path = load_experiment_config_from_args(args, baseline=True)
+    cfg = load_experiment_config_from_args(args, baseline=True)
     if args.print_config:
         print_resolved_config(cfg)
         return
@@ -103,7 +107,7 @@ def main(argv=None):
         output_root = resolve_stage_paths(cfg, ROOT)["output_dir"]
     if not stage1_dir or not stage2_dir:
         raise ValueError(
-            "Set stage3.stage1_dir and stage3.stage2_dir in the .config file or pass CLI overrides."
+            "Run Stage1/Stage2 first or pass --stage1-dir and --stage2-dir explicitly."
         )
     attempt = args.attempt if args.attempt is not None else int(stage3_cfg.get("attempt", 1))
     resolved_seed = int(cfg.get("seed", 42))
@@ -128,7 +132,7 @@ def main(argv=None):
     audit = stage3.audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)
-    save_config_artifacts(source_path, run_cfg, paths["run_dir"])
+    save_resolved_config_artifact(run_cfg, paths["run_dir"])
 
     start = stage3._utc_now()
     stage3._metadata.start_monotonic = time.time()

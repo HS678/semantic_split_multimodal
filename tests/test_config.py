@@ -1,132 +1,73 @@
+import argparse
+import json
 from pathlib import Path
 
 import pytest
 
-from MSL.utils.config import (
+from MSL.utils.experiment_args import (
+    add_experiment_args,
     apply_experiment_overrides,
-    load_config,
-    normalize_experiment_config,
-    save_config_artifacts,
+    build_experiment_config,
+    load_experiment_config_from_args,
+    save_resolved_config_artifact,
     split_protocol_for_fold,
-    write_config,
 )
-from MSL.utils.experiment_args import load_experiment_config_from_args
-from MSL.utils.results import (
-    cluster_assignment_scope,
-    experiment_config_signature,
-)
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from MSL.utils.results import cluster_assignment_scope, experiment_config_signature
 
 
 class Args:
     def __init__(self, **kwargs):
         defaults = {
-            "config": None,
             "dataset": "mhealth",
             "fold": None,
             "split_protocol": None,
-            "clients": None,
+            "clients": 10,
             "global_rounds": None,
+            "local_steps": 1,
             "client_lr": None,
             "server_lr": None,
             "batch_size": None,
             "eval_batch_size": None,
-            "clients_per_cluster_per_round": None,
+            "clients_per_cluster_per_round": 2,
             "pretrain_epochs": None,
             "pretrain_lr": None,
             "fingerprint_type": None,
-            "fusion_training_objective": None,
-            "cluster_assignment_source": None,
-            "scheduler": None,
-            "seed": None,
+            "fusion_training_objective": "mmbind_weighted_contrastive",
+            "cluster_assignment_source": "pred_cluster",
+            "scheduler": "balanced_cluster_round_robin",
+            "binding_type": "label_random",
+            "seed": 42,
+            "device": "auto",
             "print_config": False,
         }
         defaults.update(kwargs)
         self.__dict__.update(defaults)
 
 
-def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
-    paths = {
-        "uci_har": "configs/MSL/uci_har.config",
-        "mhealth": "configs/MSL/mhealth.config",
-        "pamap2": "configs/MSL/pamap2.config",
-        "iemocap": "configs/MSL/iemocap.config",
-    }
-    for dataset, relative_path in paths.items():
-        path = PROJECT_ROOT / relative_path
-        cfg = normalize_experiment_config(load_config(path))
+def test_parser_requires_dataset_and_has_no_config_argument():
+    parser = argparse.ArgumentParser()
+    add_experiment_args(parser)
+
+    args = parser.parse_args(["--dataset", "uci_har"])
+    assert args.dataset == "uci_har"
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--config", "old.config"])
+
+
+def test_dataset_defaults_are_full_mainline_configs():
+    for dataset in ["uci_har", "mhealth", "pamap2", "iemocap"]:
+        cfg = build_experiment_config(dataset_type=dataset)
         assert cfg["dataset"]["type"] == dataset
         assert cfg["base_dir"] == "./results/MSL"
         assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
-        assert "global_rounds" in cfg["training"]
+        assert cfg["training"]["scheduler"] == "balanced_cluster_round_robin"
+        assert cfg["training"]["global_rounds"] > 0
         assert cfg["partition"]["clients_per_modality"] == 10
         assert cfg["cluster"]["method"] == "adaptive_isodata"
+        assert cfg["cluster"]["known_k"] is None
         assert cfg["evaluation"]["run_test"] is True
-
-
-def test_config_round_trip_preserves_nested_types(tmp_path):
-    cfg = {
-        "seed": 101,
-        "device": "cpu",
-        "dataset": {"type": "demo", "subjects": [1, 2], "normalize": True},
-        "cluster": {"known_k": None, "adaptive": {"epsilon": 1.0e-8}},
-    }
-    path = write_config(cfg, tmp_path / "demo.config")
-    assert load_config(path) == cfg
-
-
-def test_none_is_preserved_as_enum_while_null_is_empty(tmp_path):
-    path = tmp_path / "enums.config"
-    path.write_text(
-        "[config]\nclass_weighting=none\nknown_k=null\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(path)
-    assert cfg["class_weighting"] == "none"
-    assert cfg["known_k"] is None
-
-
-def test_config_extends_deep_merges_relative_parent(tmp_path):
-    parent = tmp_path / "parent.config"
-    child = tmp_path / "nested" / "child.config"
-    child.parent.mkdir()
-    parent.write_text(
-        "[config]\nseed=42\n[training]\nclient_lr=0.001\nserver_lr=0.001\n",
-        encoding="utf-8",
-    )
-    child.write_text(
-        "[config]\nextends=../parent.config\nseed=101\n[training]\nclient_lr=0.0002\n",
-        encoding="utf-8",
-    )
-
-    cfg = load_config(child)
-    assert cfg["seed"] == 101
-    assert cfg["training"] == {"client_lr": 0.0002, "server_lr": 0.001}
-    assert "extends" not in cfg
-
-
-def test_MSL_configs_resolve_expected_protocols_and_objective():
-    config_dir = PROJECT_ROOT / "configs" / "MSL"
-    for dataset in ["uci_har", "mhealth", "pamap2"]:
-        cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
-        assert cfg["dataset"]["type"] == dataset
-        assert cfg["fusion"]["training_objective"] in {
-            "label_random_ce",
-            "mmbind_weighted_contrastive",
-        }
-        assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
         assert "validation_enabled" not in cfg["training"]
-        assert cfg["evaluation"]["run_test"] is True
-
-    for fold in range(1, 6):
-        cfg = normalize_experiment_config(load_config(config_dir / "iemocap.config"))
-        cfg = apply_experiment_overrides(cfg, fold=fold)
-        assert cfg["dataset"]["split_protocol"] == f"session_5fold_loso_fold{fold}"
-        assert "train_sessions" not in cfg["dataset"]
-        assert "test_sessions" not in cfg["dataset"]
-        assert "validation_sessions" not in cfg["dataset"]
 
 
 def test_fold_override_generates_dataset_protocols_without_fold_configs():
@@ -136,32 +77,21 @@ def test_fold_override_generates_dataset_protocols_without_fold_configs():
         "iemocap": (5, "session_5fold_loso_fold5"),
     }
     for dataset, (fold, expected_protocol) in cases.items():
-        cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "MSL" / f"{dataset}.config"))
+        cfg = build_experiment_config(dataset_type=dataset)
         overridden = apply_experiment_overrides(cfg, fold=fold)
         assert split_protocol_for_fold(dataset, fold) == expected_protocol
         assert overridden["dataset"]["split_protocol"] == expected_protocol
         assert overridden["runtime_overrides"]["fold"] == fold
 
 
-def test_yaml_extension_is_rejected(tmp_path):
-    path = tmp_path / "legacy.yaml"
-    path.write_text("seed: 42\n", encoding="utf-8")
-    with pytest.raises(ValueError, match=".config"):
-        load_config(path)
-
-
-def test_config_artifacts_preserve_source_bytes_and_resolved_snapshot(tmp_path):
-    source = tmp_path / "input.config"
-    source.write_text("# original comment\n[config]\nseed=42\n", encoding="utf-8")
-    resolved = {"seed": 101, "stage3": {"attempt": 2}}
-    artifacts = save_config_artifacts(source, resolved, tmp_path / "run")
-
-    assert Path(artifacts["source_config"]).read_bytes() == source.read_bytes()
-    assert load_config(artifacts["resolved_config"]) == resolved
+def test_fold_and_split_protocol_are_mutually_exclusive():
+    cfg = build_experiment_config(dataset_type="mhealth")
+    with pytest.raises(ValueError, match="--fold and --split-protocol"):
+        apply_experiment_overrides(cfg, fold=1, split_protocol="subject_5fold_fold1")
 
 
 def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes():
-    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "MSL" / "uci_har.config"))
+    cfg = build_experiment_config(dataset_type="uci_har")
     signature = experiment_config_signature(cfg)
     changed_runtime = {**cfg, "seed": 505, "base_dir": "/tmp/elsewhere"}
     assert experiment_config_signature(changed_runtime) == signature
@@ -174,14 +104,12 @@ def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes()
     assert cluster_assignment_scope(cfg) == "predicted_cluster"
 
 
-def test_baseline_configs_write_under_results_and_reuse_msl_artifacts_by_default():
-    config_dir = PROJECT_ROOT / "configs" / "baseline" / "randomSL"
-    for dataset in ["uci_har", "mhealth", "pamap2", "iemocap"]:
-        cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
-        assert cfg["base_dir"] == "./results/baseline/randomSL"
-        assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
-        assert "global_rounds" in cfg["training"]
-        assert "stage3" not in cfg
+def test_baseline_dataset_defaults_to_random_scheduler():
+    cfg = build_experiment_config(dataset_type="pamap2", baseline=True)
+    assert cfg["base_dir"] == "./results/baseline/randomSL"
+    assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
+    assert cfg["training"]["scheduler"] == "random"
+    assert "stage3" not in cfg
 
 
 def test_dataset_arg_loads_full_defaults_and_cli_overrides():
@@ -193,8 +121,7 @@ def test_dataset_arg_loads_full_defaults_and_cli_overrides():
         client_lr=0.0007,
         fusion_training_objective="label_random_ce",
     )
-    cfg, source_path = load_experiment_config_from_args(args)
-    assert source_path is None
+    cfg = load_experiment_config_from_args(args)
     assert cfg["dataset"]["type"] == "mhealth"
     assert cfg["dataset"]["split_protocol"] == "subject_5fold_fold3"
     assert cfg["partition"]["clients_per_modality"] == 20
@@ -204,9 +131,9 @@ def test_dataset_arg_loads_full_defaults_and_cli_overrides():
     assert cfg["model"]["encoder"]["type"] == "temporal_conv_gru"
 
 
-def test_baseline_dataset_arg_defaults_to_random_scheduler():
-    cfg, source_path = load_experiment_config_from_args(Args(dataset="pamap2", fold=2), baseline=True)
-    assert source_path is None
-    assert cfg["base_dir"] == "./results/baseline/randomSL"
-    assert cfg["dataset"]["split_protocol"] == "subject_9fold_loso_fold2"
-    assert cfg["training"]["scheduler"] == "random"
+def test_resolved_config_artifact_is_json(tmp_path):
+    resolved = {"seed": 101, "stage3": {"attempt": 2}}
+    artifacts = save_resolved_config_artifact(resolved, tmp_path / "run")
+    path = Path(artifacts["resolved_config"])
+    assert path.name == "resolved_config.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == resolved

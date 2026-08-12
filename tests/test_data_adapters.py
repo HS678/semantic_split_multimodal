@@ -13,7 +13,7 @@ from MSL.data.datasets import (
     _pamap2_remap_labels,
     _validate_subject_splits,
 )
-from MSL.utils.config import load_config, normalize_experiment_config
+from MSL.utils.experiment_args import apply_experiment_overrides, build_experiment_config
 from MSL.utils.results import configure_result_run
 
 
@@ -21,25 +21,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 DATASET_CASES = [
-    ("uci_har", "configs/MSL/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
+    ("uci_har", None, ["acc", "gyro"], [[6, 128], [3, 128]]),
     (
         "mhealth",
-        "configs/mhealth/fold1.config",
+        1,
         ["acc", "gyro", "mag", "ecg"],
         [[9, 128], [6, 128], [6, 128], [2, 128]],
     ),
     (
         "pamap2",
-        "configs/pamap2/fold1.config",
+        1,
         ["acc", "gyro", "mag"],
         [[9, 200], [9, 200], [9, 200]],
     ),
 ]
 
 
-@pytest.mark.parametrize("dataset_name,config_path,expected_names,expected_shapes", DATASET_CASES)
-def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expected_names, expected_shapes):
-    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / config_path))
+def _dataset_cfg(dataset_name: str, fold: int | None = None) -> dict:
+    cfg = build_experiment_config(dataset_type=dataset_name)
+    return apply_experiment_overrides(cfg, fold=fold) if fold is not None else cfg
+
+
+@pytest.mark.parametrize("dataset_name,fold,expected_names,expected_shapes", DATASET_CASES)
+def test_dataset_loaders_return_unified_contract(dataset_name, fold, expected_names, expected_shapes):
+    cfg = _dataset_cfg(dataset_name, fold)
     dataset = load_dataset(cfg, PROJECT_ROOT)
 
     assert set(dataset) >= {"modality_input_shapes", "modality_names", "root", "train", "test"}
@@ -63,15 +68,15 @@ def test_dataset_loaders_return_unified_contract(dataset_name, config_path, expe
     assert all(int(x.shape[0]) == test_n for x in dataset["test"]["modalities"])
 
 
-@pytest.mark.parametrize("dataset_name,config_path,expected_names,expected_shapes", DATASET_CASES)
+@pytest.mark.parametrize("dataset_name,fold,expected_names,expected_shapes", DATASET_CASES)
 def test_stage1_writes_metadata_and_naturally_paired_test_payloads(
     tmp_path,
     dataset_name,
-    config_path,
+    fold,
     expected_names,
     expected_shapes,
 ):
-    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / config_path))
+    cfg = _dataset_cfg(dataset_name, fold)
     cfg["partition"] = {
         **cfg.get("partition", {}),
         "output_dir": str(tmp_path / dataset_name / "01_dataset_partition"),

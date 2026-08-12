@@ -18,9 +18,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.learning.pretrain import run_stage2_discovery
-from MSL.utils.config import save_config_artifacts
 from MSL.utils.device import select_device
-from MSL.utils.experiment_args import add_experiment_args, load_experiment_config_from_args, print_resolved_config
+from MSL.utils.experiment_args import (
+    add_experiment_args,
+    load_experiment_config_from_args,
+    print_resolved_config,
+    save_resolved_config_artifact,
+)
 from MSL.utils.results import dataset_result_name, resolve_stage_paths, safe_result_component
 from MSL.utils.seed import set_seed
 
@@ -128,7 +132,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    cfg, source_path = load_experiment_config_from_args(args)
+    cfg = load_experiment_config_from_args(args)
     if args.print_config:
         print_resolved_config(cfg)
         return
@@ -146,7 +150,7 @@ def main(argv=None):
         output_root=output_root,
     )
     paths["cluster_dir"].mkdir(parents=True, exist_ok=True)
-    save_config_artifacts(source_path, cfg, paths["cluster_dir"])
+    save_resolved_config_artifact(cfg, paths["cluster_dir"])
 
     start = time.time()
     set_seed(int(cfg.get("seed", 42)))

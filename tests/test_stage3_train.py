@@ -6,8 +6,6 @@ from pathlib import Path
 import pytest
 import torch
 
-from MSL.utils.config import write_config
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROJECT_ROOT / "scripts" / "MSL" / "stage3_train.py"
@@ -129,10 +127,20 @@ def _stage2_dir(tmp_path, client_ids=("client_000", "client_001"), clusters=(0, 
     return stage2
 
 
-def _config_file(tmp_path):
-    path = tmp_path / "config.config"
-    write_config(_cfg(), path)
-    return path
+def _cli_args(stage1, stage2, output_root, *extra):
+    return [
+        "--dataset",
+        "uci_har",
+        "--global-rounds",
+        "2",
+        "--stage1-dir",
+        str(stage1),
+        "--stage2-dir",
+        str(stage2),
+        "--output-root",
+        str(output_root),
+        *extra,
+    ]
 
 
 def _write_success_outputs(result_dir: Path, metrics: dict):
@@ -190,8 +198,8 @@ def test_stage3_cli_rejects_removed_run_type_option():
     with pytest.raises(SystemExit):
         script.parse_args(
             [
-                "--config",
-                "configs/MSL/uci_har.config",
+                "--dataset",
+                "uci_har",
                 "--stage1-dir",
                 "stage1",
                 "--stage2-dir",
@@ -250,25 +258,15 @@ def test_audit_accepts_valid_stage1_and_stage2_inputs(tmp_path):
 
 def test_missing_stage1_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
     script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
     (stage1 / "test_multimodal.pt").unlink()
     called = {"train": False}
 
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.update(train=True))
     with pytest.raises(FileNotFoundError, match="test_multimodal"):
         script.main(
-            [
-                "--config",
-                str(config),
-                "--stage1-dir",
-                str(stage1),
-                "--stage2-dir",
-                str(stage2),
-                "--output-root",
-                str(tmp_path / "experiments"),
-            ]
+            _cli_args(stage1, stage2, tmp_path / "experiments")
         )
 
     assert not called["train"]
@@ -295,8 +293,7 @@ def test_formal_completion_status_accepts_no_validation_fixed_rounds(tmp_path):
         "evaluation_mode": "formal_test",
     }
     for name in [
-        "source_config.config",
-        "resolved_config.config",
+        "resolved_config.json",
         "train_log.csv",
         "final_metrics.json",
         "last_model.pt",
@@ -314,25 +311,15 @@ def test_formal_completion_status_accepts_no_validation_fixed_rounds(tmp_path):
 
 def test_missing_stage2_file_blocks_training_before_output_creation(monkeypatch, tmp_path):
     script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
     (stage2 / "pred_cluster.csv").unlink()
     called = {"train": False}
 
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: called.update(train=True))
     with pytest.raises(FileNotFoundError, match="pred_cluster"):
         script.main(
-            [
-                "--config",
-                str(config),
-                "--stage1-dir",
-                str(stage1),
-                "--stage2-dir",
-                str(stage2),
-                "--output-root",
-                str(tmp_path / "experiments"),
-            ]
+            _cli_args(stage1, stage2, tmp_path / "experiments")
         )
 
     assert not called["train"]
@@ -474,10 +461,8 @@ def test_stage2_client_mismatch_missing_pred_cluster_and_duplicates_are_rejected
 
 def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_path):
     script = _load_script()
-    config = _config_file(tmp_path)
-    before = config.read_text(encoding="utf-8")
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
     seen = {}
 
     def fake_train(cfg, root, device):
@@ -501,21 +486,9 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
     script.main(
-        [
-            "--config",
-            str(config),
-            "--seed",
-            "101",
-            "--stage1-dir",
-            str(stage1),
-            "--stage2-dir",
-            str(stage2),
-            "--output-root",
-            str(tmp_path / "experiments"),
-        ]
+        _cli_args(stage1, stage2, tmp_path / "experiments", "--seed", "101")
     )
 
-    assert config.read_text(encoding="utf-8") == before
     run_dir = _only_attempt_dir(tmp_path / "experiments")
     metadata = json.loads((run_dir / "stage3_metadata.json").read_text(encoding="utf-8"))
     assert seen["root"] == script.ROOT
@@ -538,8 +511,7 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
     assert not (run_dir / "train_clients").exists()
     assert not (run_dir / "pred_cluster.csv").exists()
     for name in [
-        "source_config.config",
-        "resolved_config.config",
+        "resolved_config.json",
         "train_log.csv",
         "final_metrics.json",
         "last_model.pt",
@@ -549,43 +521,6 @@ def test_mocked_success_records_metadata_and_required_outputs(monkeypatch, tmp_p
         assert (run_dir / name).exists()
 
 
-def test_stage3_can_run_with_config_as_the_only_cli_input(monkeypatch, tmp_path):
-    script = _load_script()
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
-    output_root = tmp_path / "experiments"
-    cfg = {
-        **_cfg(),
-        "stage3": {
-            "stage1_dir": str(stage1),
-            "stage2_dir": str(stage2),
-            "output_root": str(output_root),
-            "attempt": 1,
-        },
-    }
-    config = tmp_path / "config_only.config"
-    write_config(cfg, config)
-
-    def fake_train(run_cfg, *_args):
-        metrics = {
-            "test_eval_status": "success",
-            "test_eval_failure_reason": None,
-            "test_accuracy": 0.5,
-            "test_macro_f1": 0.4,
-            "test_loss": 1.0,
-        }
-        _write_success_outputs(Path(run_cfg["result"]["output_dir"]), metrics)
-        return metrics
-
-    monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
-    monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
-    script.main(["--config", str(config)])
-
-    run_dir = _only_attempt_dir(output_root)
-    assert (run_dir / "source_config.config").read_bytes() == config.read_bytes()
-    assert (run_dir / "resolved_config.config").exists()
-
-
 @pytest.mark.parametrize("discovery_status", ["discovery_failure", None])
 def test_discovery_status_never_gates_mocked_trainer(
     monkeypatch,
@@ -593,9 +528,8 @@ def test_discovery_status_never_gates_mocked_trainer(
     discovery_status,
 ):
     script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
     metadata_path = stage2 / "stage2_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if discovery_status is None:
@@ -623,16 +557,7 @@ def test_discovery_status_never_gates_mocked_trainer(
     monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
     script.main(
-        [
-            "--config",
-            str(config),
-            "--stage1-dir",
-            str(stage1),
-            "--stage2-dir",
-            str(stage2),
-            "--output-root",
-            str(tmp_path / "experiments"),
-        ]
+        _cli_args(stage1, stage2, tmp_path / "experiments")
     )
 
     assert called["train"]
@@ -644,24 +569,14 @@ def test_discovery_status_never_gates_mocked_trainer(
 
 def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
     script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
 
     monkeypatch.setattr(script, "select_device", lambda _value: torch.device("cpu"))
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", lambda *_args: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError, match="boom"):
         script.main(
-            [
-                "--config",
-                str(config),
-                "--stage1-dir",
-                str(stage1),
-                "--stage2-dir",
-                str(stage2),
-                "--output-root",
-                str(tmp_path / "experiments"),
-            ]
+            _cli_args(stage1, stage2, tmp_path / "experiments")
         )
 
     run_dir = _only_attempt_dir(tmp_path / "experiments")
@@ -672,9 +587,8 @@ def test_mocked_failure_records_failed_metadata(monkeypatch, tmp_path):
 
 def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkeypatch, tmp_path):
     script = _load_script()
-    config = _config_file(tmp_path)
-    stage1 = _stage1_dir(tmp_path)
-    stage2 = _stage2_dir(tmp_path)
+    stage1 = _stage1_dir(tmp_path, dataset="uci_har")
+    stage2 = _stage2_dir(tmp_path, dataset="uci_har")
 
     def fake_train(cfg, *_args):
         result_dir = Path(cfg["result"]["output_dir"])
@@ -695,16 +609,7 @@ def test_test_evaluation_failure_or_missing_outputs_do_not_record_success(monkey
     monkeypatch.setattr(script, "run_mmbind_fusion_stage3_split_training", fake_train)
     with pytest.raises(RuntimeError, match="mapping_failed"):
         script.main(
-            [
-                "--config",
-                str(config),
-                "--stage1-dir",
-                str(stage1),
-                "--stage2-dir",
-                str(stage2),
-                "--output-root",
-                str(tmp_path / "experiments"),
-            ]
+            _cli_args(stage1, stage2, tmp_path / "experiments")
         )
 
     run_dir = _only_attempt_dir(tmp_path / "experiments")

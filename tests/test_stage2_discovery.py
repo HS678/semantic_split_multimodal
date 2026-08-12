@@ -94,8 +94,8 @@ def test_stage2_cli_rejects_removed_run_type_option():
     with pytest.raises(SystemExit):
         script.parse_args(
             [
-                "--config",
-                "configs/MSL/uci_har.config",
+                "--dataset",
+                "uci_har",
                 "--stage1-dir",
                 "stage1",
                 "--run-type",

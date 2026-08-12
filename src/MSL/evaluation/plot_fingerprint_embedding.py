@@ -12,7 +12,7 @@ import torch
 
 from MSL.data.client import Client
 from MSL.discovery.fingerprint import build_fingerprints
-from MSL.utils.config import load_config
+from MSL.utils.experiment_args import add_experiment_args, load_experiment_config_from_args
 
 
 def _prepare_pca(fingerprints: np.ndarray, standardize: bool = True):
@@ -227,12 +227,12 @@ def rebuild_fingerprint_figure(cfg: dict, stage1_dir: Path, stage2_dir: Path, de
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Create publication-quality PCA plots of Stage 2 client fingerprints.")
-    parser.add_argument("--config", required=True)
+    add_experiment_args(parser, include_seed=True)
     parser.add_argument("--stage1-dir", required=True)
     parser.add_argument("--stage2-dir", required=True)
-    parser.add_argument("--device", default="cpu")
     args = parser.parse_args(argv)
-    outputs = rebuild_fingerprint_figure(load_config(args.config), Path(args.stage1_dir), Path(args.stage2_dir), torch.device(args.device))
+    cfg = load_experiment_config_from_args(args)
+    outputs = rebuild_fingerprint_figure(cfg, Path(args.stage1_dir), Path(args.stage2_dir), torch.device(args.device))
     for key, path in outputs.items():
         print(f"{key}={path}")
 

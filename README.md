@@ -76,16 +76,15 @@ Command-line options override dataset defaults:
 python scripts/MSL/stage3_train.py --dataset uci_har --seed 101 --global-rounds 50 --client-lr 0.0001
 ```
 
-`configs/MSL/` and `configs/baseline/` keep readable config snapshots for the official settings. Multi-fold datasets use `--fold N` to derive the split protocol from dataset defaults. Every config uses the same sections:
+Dataset defaults are centralized in `src/MSL/data/dataset_defaults.py`; the official CLI parser is `src/MSL/utils/experiment_args.py`. Multi-fold datasets use `--fold N` to derive the split protocol from dataset defaults, and command-line options override those defaults.
 
-```ini
-[config]      # experiment_name, base_dir (seed/device built-in; --seed overrides)
-[partition]   # type, split_protocol, clients_per_modality
-[train]       # cluster_assignment_source, scheduler, fusion_training_objective, global_rounds
-# cluster / d2d / other sections keep built-in defaults; write them only when overriding.
+Use `--print-config` to inspect the full resolved parameters before running:
+
+```bash
+python scripts/MSL/stage3_train.py --dataset mhealth --fold 1 --print-config
 ```
 
-All output paths are generated automatically from `base_dir` + dataset + split protocol. Mainline outputs default to `results/MSL/`; baseline outputs default to `results/baseline/randomSL/`. `configs/config.config` documents every field.
+All output paths are generated automatically from `base_dir` + dataset + split protocol. Mainline outputs default to `results/MSL/`; baseline outputs default to `results/baseline/randomSL/`. Each run writes `resolved_config.json` next to its results.
 
 ## Running
 

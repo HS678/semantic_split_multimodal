@@ -14,7 +14,7 @@ from MSL.discovery.clustering import (
     adaptive_isodata,
 )
 from MSL.evaluation.metrics import discovery_metrics
-from MSL.utils.config import load_config, normalize_experiment_config
+from MSL.utils.experiment_args import apply_experiment_overrides, build_experiment_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -232,29 +232,24 @@ def test_estimator_api_does_not_accept_hidden_modality_or_true_q():
 def test_unknown_q_configs_use_dataset_fixed_adaptive_parameters_without_true_initial_k():
     expected = {
         "uci_har": {
-            "path": PROJECT_ROOT / "configs" / "uci_har.config",
             "bic_improvement_min": 0.0,
             "min_split_silhouette": 0.1,
         },
         "mhealth": {
-            "path": PROJECT_ROOT / "configs" / "mhealth" / "fold1.config",
             "bic_improvement_min": 30.0,
             "min_split_silhouette": 0.2,
         },
         "pamap2": {
-            "path": PROJECT_ROOT / "configs" / "pamap2" / "fold1.config",
             "bic_improvement_min": 15.0,
             "min_split_silhouette": 0.2,
         },
         "iemocap": {
-            "path": PROJECT_ROOT / "configs" / "iemocap" / "fold1.config",
             "bic_improvement_min": 15.0,
             "min_split_silhouette": 0.2,
         },
     }
     for dataset, values in expected.items():
-        path = values["path"]
-        cfg = normalize_experiment_config(load_config(path))
+        cfg = build_experiment_config(dataset_type=dataset)
         cluster = cfg["cluster"]
         adaptive = cluster["adaptive"]
         assert cfg["dataset"]["type"] == dataset
@@ -270,22 +265,25 @@ def test_unknown_q_configs_use_dataset_fixed_adaptive_parameters_without_true_in
         assert "min_silhouette_improvement" not in adaptive
 
 
-def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
+def test_parser_defaults_freeze_stage_boundaries_and_no_validation_selection():
     expected = {
-        "configs/MSL/uci_har.config": {
+        "uci_har": {
             "lr": 0.0002,
             "split_protocol": "subject_disjoint_70_30",
             "global_rounds": 200,
+            "fold": None,
         },
-        "configs/mhealth/fold1.config": {
+        "mhealth": {
             "lr": 0.0002,
             "split_protocol": "subject_5fold_fold1",
             "global_rounds": 200,
+            "fold": 1,
         },
-        "configs/pamap2/fold1.config": {
+        "pamap2": {
             "lr": 0.0001,
             "split_protocol": "subject_9fold_loso_fold1",
             "global_rounds": 300,
+            "fold": 1,
         },
     }
     forbidden_top_level = {
@@ -295,9 +293,10 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
         "result",
         "result_model",
     }
-    for relative, values in expected.items():
-        path = PROJECT_ROOT / relative
-        cfg = normalize_experiment_config(load_config(path))
+    for dataset, values in expected.items():
+        cfg = build_experiment_config(dataset_type=dataset)
+        if values["fold"] is not None:
+            cfg = apply_experiment_overrides(cfg, fold=values["fold"])
         assert cfg["seed"] == 42
         assert not forbidden_top_level.intersection(cfg)
         assert "server" not in cfg["model"]

@@ -18,9 +18,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from MSL.utils.config import load_config
-
-
 # 论文指标：acc=Accuracy, macro_f1, weighted_f1。
 METRIC_KEYS = {
     "acc": "test_accuracy",
@@ -33,12 +30,12 @@ FOLD_PATTERN = re.compile(r"fold(\d+)")
 
 def _load_record(run_dir: Path) -> dict | None:
     metrics_path = run_dir / "final_metrics.json"
-    config_path = run_dir / "resolved_config.config"
+    config_path = run_dir / "resolved_config.json"
     metadata_path = run_dir / "stage3_metadata.json"
     if not all(path.is_file() for path in (metrics_path, config_path, metadata_path)):
         return None
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    cfg = load_config(config_path)
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if (
         metadata.get("status") != "success"
