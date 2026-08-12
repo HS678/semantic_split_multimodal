@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Unified MSL launcher.
+# Unified MSL Stage3 launcher. Stage1/2 artifacts must already exist.
 #
 # Examples:
 #   PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
@@ -26,6 +26,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --help|-h)
       echo "Usage: bash tools/launch_msl.sh [--dataset all|uci_har|iemocap|mhealth|pamap2] [--clients N]"
+      echo "Stage1/2 artifacts must already exist under results/MSL."
       exit 0
       ;;
     *)
@@ -38,11 +39,11 @@ done
 if [ "$dataset" = "all" ]; then
   for item in uci_har iemocap mhealth pamap2; do
     echo "[$(date '+%F %T')] ===== start: ${item} ====="
-    run_msl_dataset "$item" "$clients"
+    run_msl_stage3_dataset "$item" "$clients"
     echo "[$(date '+%F %T')] ===== done: ${item} ====="
   done
 else
-  run_msl_dataset "$dataset" "$clients"
+  run_msl_stage3_dataset "$dataset" "$clients"
 fi
 
-echo "[$(date '+%F %T')] MSL launcher finished."
+echo "[$(date '+%F %T')] MSL Stage3 launcher finished."

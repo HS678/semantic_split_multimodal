@@ -6,7 +6,14 @@ from pathlib import Path
 import sys
 
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "src" / "MSL").is_dir():
+            return parent
+    raise RuntimeError("Cannot locate project root containing src/MSL.")
+
+
+ROOT = _project_root()
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -130,8 +137,8 @@ def main():
     )
     parser.add_argument(
         "--results-root",
-        default=str(ROOT / "local" / "results_msl"),
-        help="Results root; defaults to local/results_msl.",
+        default=str(ROOT / "results" / "MSL"),
+        help="Results root; defaults to results/MSL.",
     )
     parser.add_argument(
         "--dataset",

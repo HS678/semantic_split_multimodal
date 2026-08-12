@@ -72,19 +72,31 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 # cluster / d2d / other 段均有内置默认，仅在需要覆盖时写出。
 ```
 
-所有输出路径由 `base_dir` + 数据集 + 划分协议自动生成。`configs/config.config` 是字段参考模板。
+所有输出路径由 `base_dir` + 数据集 + 划分协议自动生成。主线默认写入 `results/MSL/`，baseline 默认写入 `results/baseline/randomSL/`。`configs/config.config` 是字段参考模板。
 
 ## 运行
 
-单阶段运行：
+先生成可复用的 Stage1 和 Stage2 产物。Stage2 必须在对应 Stage1 目录存在后才能运行。
 
 ```bash
 python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
 python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+```
+
+多折数据集逐折生成：
+
+```bash
+python scripts/MSL/stage1_partition.py --config configs/MSL/mhealth.config --fold 1
+python scripts/MSL/stage2_discovery.py --config configs/MSL/mhealth.config --fold 1
+```
+
+Stage1 和 Stage2 都存在后，Stage3 可以反复使用这两个公共产物运行不同 seed、loss 或 attempt：
+
+```bash
 python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
 ```
 
-一键启动脚本（每个数据集完整执行 Stage1 → Stage2 → Stage3 → 汇总）：
+Stage3 启动脚本只复用已有 Stage1/Stage2 产物并写入 Stage3 结果：
 
 ```bash
 PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
@@ -92,12 +104,12 @@ PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --d
 PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
 ```
 
-启动脚本对已存在的输出目录自动跳过（可断点续跑），日志写入 `local/results_msl/logs/`。
+如果缺少所需 Stage1/Stage2 产物，Stage3 启动脚本会直接失败。日志写入 `results/MSL/logs/` 或 `results/baseline/randomSL/logs/`。
 
 ## 结果目录
 
 ```text
-local/results_msl/
+results/MSL/
 ├── partition/<dataset>/<partition_signature>/   # Stage 1（train_clients/、test_multimodal.pt 等）
 ├── cluster/<dataset>/<partition_signature>/adaptive_isodata/   # Stage 2（含 visualization/）
 ├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/   # Stage 3 运行
@@ -112,7 +124,7 @@ Stage 输出不覆盖已有非空目录；重复同一 fold/seed 会自动生成
 ## 汇总格式
 
 ```bash
-python scripts/MSL/summarize_results.py --results-root local/results_msl
+python scripts/MSL/summarize_results.py --results-root results/MSL
 ```
 
 ```json

@@ -91,7 +91,7 @@ def configure_result_run(cfg: dict, project_root: Path) -> dict:
     """Stage1 专用：解析 base_dir 并生成 partition 输出目录（含协议签名字段）。"""
     cfg = dict(cfg)
     result_cfg = dict(cfg.get("results", {}))
-    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./local/results")
+    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./results/MSL")
     base_dir = _resolve_project_path(project_root, base_dir_value)
     dataset_name = dataset_result_name(cfg)
     dataset_dir = base_dir / "partition" / dataset_name
@@ -120,7 +120,7 @@ def resolve_stage_paths(cfg: dict, project_root: Path) -> dict:
     from MSL.data.registry import load_dataset
 
     result_cfg = dict(cfg.get("results", {}))
-    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./local/results")
+    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./results/MSL")
     base_dir = _resolve_project_path(project_root, base_dir_value)
     dataset_name = dataset_result_name(cfg)
     dataset = load_dataset(cfg, project_root)

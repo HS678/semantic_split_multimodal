@@ -5,7 +5,14 @@ import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "src" / "MSL").is_dir():
+            return parent
+    raise RuntimeError("Cannot locate project root containing src/MSL.")
+
+
+ROOT = _project_root()
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

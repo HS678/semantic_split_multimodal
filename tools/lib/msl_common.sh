@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# MSL 实验公共运行库：封装 Stage1/2/3 执行与断点续跑，供统一入口脚本复用。
-# 用法：先 cd 到项目根，再 source 本文件，然后调用 run_msl_dataset <dataset>。
+# MSL 实验公共运行库：Stage1/2 作为可复用公共产物，launcher 默认只跑 Stage3。
+# 用法：先 cd 到项目根，再 source 本文件。
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ run_or_skip() {
 
 stage1() {
   local name="$1" config="$2" clients="${3:-10}" fold="${4:-}"
-  local log_dir="local/results_msl/logs/${name}"
+  local log_dir="results/MSL/logs/${name}"
   mkdir -p "$log_dir"
   local fold_tag=""
   local fold_args=()
@@ -41,7 +41,7 @@ stage1() {
 }
 stage2() {
   local name="$1" config="$2" fold="${3:-}"
-  local log_dir="local/results_msl/logs/${name}"
+  local log_dir="results/MSL/logs/${name}"
   mkdir -p "$log_dir"
   local fold_tag=""
   local fold_args=()
@@ -54,7 +54,7 @@ stage2() {
 }
 stage3() {
   local name="$1" config="$2" seed="$3" fold="${4:-}"
-  local log_dir="local/results_msl/logs/${name}"
+  local log_dir="results/MSL/logs/${name}"
   mkdir -p "$log_dir"
   local fold_tag=""
   local fold_args=()
@@ -67,15 +67,13 @@ stage3() {
 }
 
 summarize() {
-  "$PYTHON" scripts/MSL/summarize_results.py --results-root local/results_msl --dataset "$1"
+  "$PYTHON" scripts/MSL/summarize_results.py --results-root results/MSL --dataset "$1"
 }
 
-# 固定划分数据集：Stage1/2 一次 + 多个 seed 的 Stage3，最后汇总。
-run_fixed_dataset() {
+# 固定划分数据集：只跑 Stage3，复用已存在的 Stage1/2。
+run_fixed_dataset_stage3() {
   local name="$1" config="$2" clients="$3"
   shift 3
-  stage1 "$name" "$config" "$clients"
-  stage2 "$name" "$config"
   local seed
   for seed in "$@"; do
     stage3 "$name" "$config" "$seed"
@@ -83,27 +81,53 @@ run_fixed_dataset() {
   summarize "$name"
 }
 
-# 多折数据集：每折 Stage1/2/3（seed 固定），最后汇总。
-run_folds_dataset() {
+# 多折数据集：只跑 Stage3，复用每折已存在的 Stage1/2。
+run_folds_dataset_stage3() {
   local name="$1" folds="$2" seed="$3" clients="$4"
   local config="configs/MSL/${name}.config"
   local fold
   for fold in $(seq 1 "$folds"); do
-    stage1 "$name" "$config" "$clients" "$fold"
-    stage2 "$name" "$config" "$fold"
     stage3 "$name" "$config" "$seed" "$fold"
   done
   summarize "$name"
 }
 
-# 数据集入口：运行该数据集的完整实验。
-run_msl_dataset() {
+# Stage1/2 产物准备入口：按需手动调用，生成后可长期复用。
+prepare_fixed_dataset_artifacts() {
+  local name="$1" config="$2" clients="$3"
+  stage1 "$name" "$config" "$clients"
+  stage2 "$name" "$config"
+}
+
+prepare_folds_dataset_artifacts() {
+  local name="$1" folds="$2" clients="$3"
+  local config="configs/MSL/${name}.config"
+  local fold
+  for fold in $(seq 1 "$folds"); do
+    stage1 "$name" "$config" "$clients" "$fold"
+    stage2 "$name" "$config" "$fold"
+  done
+}
+
+prepare_msl_artifacts() {
   local dataset="$1" clients="${2:-10}"
   case "$dataset" in
-    uci_har) run_fixed_dataset uci_har configs/MSL/uci_har.config "$clients" 101 202 303 404 505 ;;
-    iemocap) run_folds_dataset iemocap 5 42 "$clients" ;;
-    mhealth) run_folds_dataset mhealth 5 42 "$clients" ;;
-    pamap2)  run_folds_dataset pamap2 9 42 "$clients" ;;
+    uci_har) prepare_fixed_dataset_artifacts uci_har configs/MSL/uci_har.config "$clients" ;;
+    iemocap) prepare_folds_dataset_artifacts iemocap 5 "$clients" ;;
+    mhealth) prepare_folds_dataset_artifacts mhealth 5 "$clients" ;;
+    pamap2)  prepare_folds_dataset_artifacts pamap2 9 "$clients" ;;
+    *) echo "unknown dataset: $dataset" >&2; return 1 ;;
+  esac
+}
+
+# Stage3 入口：运行该数据集的训练实验，要求 Stage1/2 产物已存在。
+run_msl_stage3_dataset() {
+  local dataset="$1" clients="${2:-10}"
+  case "$dataset" in
+    uci_har) run_fixed_dataset_stage3 uci_har configs/MSL/uci_har.config "$clients" 101 202 303 404 505 ;;
+    iemocap) run_folds_dataset_stage3 iemocap 5 42 "$clients" ;;
+    mhealth) run_folds_dataset_stage3 mhealth 5 42 "$clients" ;;
+    pamap2)  run_folds_dataset_stage3 pamap2 9 42 "$clients" ;;
     *) echo "unknown dataset: $dataset" >&2; return 1 ;;
   esac
 }

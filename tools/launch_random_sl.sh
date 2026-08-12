@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 PYTHON="${PYTHON:-python3}"
 export PYTHONPATH="${PWD}/src${PYTHONPATH:+:${PYTHONPATH}}"
-RESULTS_ROOT="local/results_baseline/randomSL"
+RESULTS_ROOT="results/baseline/randomSL"
 
 dataset="all"
 

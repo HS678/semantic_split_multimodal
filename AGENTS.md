@@ -107,8 +107,10 @@ split/mix audit
 
 ## Experiment Rules
 
-- 正式结果保存到 `local/results_msl/`。
-- baseline 结果保存到 `local/results_baseline/`。
+- 正式结果保存到 `results/MSL/`。
+- baseline 结果保存到 `results/baseline/`。
+- Stage1/Stage2 是可复用公共产物；Stage2 必须在 Stage1 存在后运行。
+- Stage3 只复用已有 Stage1/Stage2，可反复运行不同 seed / loss / attempt。
 - 不覆盖已有正式实验结果。
 - 无验证集；`test_multimodal.pt` 只在训练结束后评估一次。
 - 多 seed / 多 fold 汇总 `mean ± std`。

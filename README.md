@@ -72,19 +72,31 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 # cluster / d2d / other sections keep built-in defaults; write them only when overriding.
 ```
 
-All output paths are generated automatically from `base_dir` + dataset + split protocol. `configs/config.config` documents every field.
+All output paths are generated automatically from `base_dir` + dataset + split protocol. Mainline outputs default to `results/MSL/`; baseline outputs default to `results/baseline/randomSL/`. `configs/config.config` documents every field.
 
 ## Running
 
-Run one stage:
+Prepare reusable Stage1 and Stage2 artifacts first. Stage2 requires the Stage1 directory to exist.
 
 ```bash
 python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
 python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+```
+
+For multi-fold datasets, prepare each fold:
+
+```bash
+python scripts/MSL/stage1_partition.py --config configs/MSL/mhealth.config --fold 1
+python scripts/MSL/stage2_discovery.py --config configs/MSL/mhealth.config --fold 1
+```
+
+After Stage1 and Stage2 exist, Stage3 can be run repeatedly with different seeds, losses, or attempts:
+
+```bash
 python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
 ```
 
-One-command launchers (each dataset runs its full Stage1 → Stage2 → Stage3 → summarize flow):
+Stage3 launchers reuse existing Stage1/Stage2 artifacts and write only Stage3 results:
 
 ```bash
 PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
@@ -92,12 +104,12 @@ PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --d
 PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
 ```
 
-Launchers skip steps whose output directories already exist (resume-friendly) and write logs under `local/results_msl/logs/`.
+Stage3 launchers fail fast if the required Stage1/Stage2 artifact directories are missing. Logs are written under `results/MSL/logs/` or `results/baseline/randomSL/logs/`.
 
 ## Result layout
 
 ```text
-local/results_msl/
+results/MSL/
 ├── partition/<dataset>/<partition_signature>/   # Stage 1 (train_clients/, test_multimodal.pt, ...)
 ├── cluster/<dataset>/<partition_signature>/adaptive_isodata/   # Stage 2 (+ visualization/)
 ├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/   # Stage 3 runs
@@ -112,7 +124,7 @@ Stage outputs never overwrite an existing non-empty directory. Re-running the sa
 ## Summary format
 
 ```bash
-python scripts/MSL/summarize_results.py --results-root local/results_msl
+python scripts/MSL/summarize_results.py --results-root results/MSL
 ```
 
 ```json

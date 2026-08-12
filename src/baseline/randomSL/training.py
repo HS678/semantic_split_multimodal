@@ -156,8 +156,8 @@ def _random_sl_round(server, server_optimizer, selected, required_clusters, cfg,
 
 
 def run_random_sl_stage3_split_training(cfg: dict, project_root: Path, device: torch.device):
-    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "local/results/data_partition"))
-    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "local/results/cluster"))
+    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/MSL/partition"))
+    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/MSL/cluster"))
     result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "local/logs"))
     model_dir = resolve_project_path(project_root, cfg.get("result_model", {}).get("output_dir", "local/checkpoints"))
     result_dir.mkdir(parents=True, exist_ok=True)

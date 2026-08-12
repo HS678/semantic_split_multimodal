@@ -4,7 +4,7 @@ Runs the randomSL baseline (random-scheduling Split Learning) on top of the
 frozen Stage1 partition and Stage2 cluster assignments produced by the MSL
 mainline. The run directory layout, input audit, metadata, completion status
 and summary format are identical to the mainline ``stage3_train.py`` so that
-``summarize_results.py --results-root local/results_baseline/randomSL`` works
+``summarize_results.py --results-root results/baseline/randomSL`` works
 unchanged.
 
 The mainline script is imported (not executed) so path building, auditing and
@@ -99,11 +99,12 @@ def main(argv=None):
     args = parse_args(argv)
     cfg = normalize_experiment_config(load_config(args.config))
     cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
+    msl_cfg = {**cfg, "base_dir": str(ROOT / "results" / "MSL")}
     stage3_cfg = cfg.get("stage3", {})
     stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
     stage2_dir = args.stage2_dir or stage3_cfg.get("stage2_dir")
     if not stage1_dir or not stage2_dir:
-        resolved = resolve_stage_paths(cfg, ROOT)
+        resolved = resolve_stage_paths(msl_cfg, ROOT)
         stage1_dir = stage1_dir or resolved["stage1_dir"]
         stage2_dir = stage2_dir or resolved["stage2_dir"]
     output_root = args.output_root or stage3_cfg.get("output_root")

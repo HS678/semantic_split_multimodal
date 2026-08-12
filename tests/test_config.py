@@ -30,6 +30,7 @@ def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
         path = PROJECT_ROOT / relative_path
         cfg = normalize_experiment_config(load_config(path))
         assert cfg["dataset"]["type"] == dataset
+        assert cfg["base_dir"] == "./results/MSL"
         assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
         assert cfg["partition"]["clients_per_modality"] == 10
         assert cfg["cluster"]["method"] == "adaptive_isodata"
@@ -142,3 +143,12 @@ def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes()
     }
     assert experiment_config_signature(changed_objective) != signature
     assert cluster_assignment_scope(cfg) == "predicted_cluster"
+
+
+def test_baseline_configs_write_under_results_and_reuse_msl_artifacts_by_default():
+    config_dir = PROJECT_ROOT / "configs" / "baseline" / "randomSL"
+    for dataset in ["uci_har", "mhealth", "pamap2", "iemocap"]:
+        cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
+        assert cfg["base_dir"] == "./results/baseline/randomSL"
+        assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
+        assert "stage3" not in cfg

@@ -129,7 +129,7 @@ def _debug_client_label_distribution(
 def run_stage1_partition(cfg: dict, project_root: Path):
     dataset = load_dataset(cfg, project_root)
     partition_cfg = cfg.get("partition", {})
-    output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "local/results/data_partition"))
+    output_dir = resolve_project_path(project_root, partition_cfg.get("output_dir", "results/MSL/partition"))
     train = dataset["train"]
     test = dataset["test"]
     modality_names = dataset["modality_names"]
