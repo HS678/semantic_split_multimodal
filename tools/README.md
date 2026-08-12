@@ -1,10 +1,16 @@
 # Tools
 
-这些脚本只负责启动实验，不保存参数默认值。正式参数默认值在：
+这些脚本只负责启动实验，默认参数在代码里：
 
 ```bash
 src/MSL/data/dataset_defaults.py
 src/MSL/utils/experiment_args.py
+```
+
+运行顺序必须是：
+
+```bash
+Stage1 partition -> Stage2 discovery -> Stage3 training
 ```
 
 日志统一放在：
@@ -13,11 +19,12 @@ src/MSL/utils/experiment_args.py
 tools/logs/<dataset>/stage1.log
 tools/logs/<dataset>/stage2.log
 tools/logs/<dataset>/stage3.log
+tools/logs/all/*.log
 ```
 
-`--dataset uci_har/mhealth/pamap2/iemocap` 是代码里的数据集 key，不是磁盘数据目录名。
+## 单数据集启动
 
-## UCI-HAR
+### UCI-HAR
 
 Stage1：
 
@@ -54,7 +61,7 @@ mkdir -p tools/logs/uci_har
 nohup bash -c 'for seed in 101 202 303 404 505; do python3 scripts/MSL/stage3_train.py --dataset uci_har --seed $seed; done' > tools/logs/uci_har/stage3.log 2>&1 &
 ```
 
-## MHEALTH
+### MHEALTH
 
 Stage1：
 
@@ -91,7 +98,7 @@ mkdir -p tools/logs/mhealth
 nohup bash -c 'for fold in 1 2 3 4 5; do python3 scripts/MSL/stage3_train.py --dataset mhealth --fold $fold --seed 42; done' > tools/logs/mhealth/stage3.log 2>&1 &
 ```
 
-## PAMAP2
+### PAMAP2
 
 Stage1：
 
@@ -128,7 +135,7 @@ mkdir -p tools/logs/pamap2
 nohup bash -c 'for fold in 1 2 3 4 5 6 7 8 9; do python3 scripts/MSL/stage3_train.py --dataset pamap2 --fold $fold --seed 42; done' > tools/logs/pamap2/stage3.log 2>&1 &
 ```
 
-## IEMOCAP
+### IEMOCAP
 
 Stage1：
 
@@ -165,9 +172,31 @@ mkdir -p tools/logs/iemocap
 nohup bash -c 'for fold in 1 2 3 4 5; do python3 scripts/MSL/stage3_train.py --dataset iemocap --fold $fold --seed 42; done' > tools/logs/iemocap/stage3.log 2>&1 &
 ```
 
-## 全部 Stage3
+## 一键启动
 
-如果 Stage1/Stage2 都已经生成，可以直接跑所有数据集的 Stage3。默认并行数是 2：
+Stage1 一键并行启动四个数据集：
+
+```bash
+bash tools/data/launch_stage1_all.sh
+```
+
+```bash
+mkdir -p tools/logs/all
+nohup bash tools/data/launch_stage1_all.sh > tools/logs/all/stage1_all.log 2>&1 &
+```
+
+Stage2 一键并行启动四个数据集：
+
+```bash
+bash tools/data/launch_stage2_all.sh
+```
+
+```bash
+mkdir -p tools/logs/all
+nohup bash tools/data/launch_stage2_all.sh > tools/logs/all/stage2_all.log 2>&1 &
+```
+
+Stage3 一键启动全部 MSL 主线实验，默认并行数是 2：
 
 ```bash
 bash tools/launch_msl.sh
@@ -178,7 +207,7 @@ mkdir -p tools/logs/all
 nohup bash tools/launch_msl.sh > tools/logs/all/stage3_msl.log 2>&1 &
 ```
 
-指定并行数：
+Stage3 指定并行数：
 
 ```bash
 MAX_JOBS=4 bash tools/launch_msl.sh
@@ -206,6 +235,9 @@ nohup bash tools/launch_random_sl.sh > tools/logs/all/stage3_random_sl.log 2>&1 
 tail -f tools/logs/uci_har/stage1.log
 tail -f tools/logs/uci_har/stage2.log
 tail -f tools/logs/uci_har/stage3.log
+tail -f tools/logs/all/stage1_all.log
+tail -f tools/logs/all/stage2_all.log
+tail -f tools/logs/all/stage3_msl.log
 ```
 
 ## 查看参数
@@ -230,4 +262,4 @@ baseline 结果：
 results/baseline/randomSL/
 ```
 
-每次运行会保存 `resolved_config.json`，用于记录本次实际使用的完整参数。
+Stage1 和 Stage2 的 `resolved_config.json` 只保存本阶段相关参数；Stage3 保存完整训练参数。
