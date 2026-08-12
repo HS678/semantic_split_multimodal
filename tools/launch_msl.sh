@@ -1,49 +1,30 @@
-#!/usr/bin/env bash
-#
-# Unified MSL Stage3 launcher. Stage1/2 artifacts must already exist.
-#
-# Examples:
-#   PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
-#   PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset all
-#   PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset pamap2 --clients 20
+max_jobs=${MAX_JOBS:-2}
+job_count=0
 
-set -euo pipefail
-cd "$(dirname "$0")/.."
-source "tools/lib/msl_common.sh"
+run_job() {
+  "$@" &
+  job_count=$((job_count + 1))
+  if [ "$job_count" -ge "$max_jobs" ]; then
+    wait
+    job_count=0
+  fi
+}
 
-dataset="all"
-clients="10"
-
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --dataset)
-      dataset="$2"
-      shift 2
-      ;;
-    --clients)
-      clients="$2"
-      shift 2
-      ;;
-    --help|-h)
-      echo "Usage: bash tools/launch_msl.sh [--dataset all|uci_har|iemocap|mhealth|pamap2] [--clients N]"
-      echo "Stage1/2 artifacts must already exist under results/MSL."
-      exit 0
-      ;;
-    *)
-      echo "unknown argument: $1" >&2
-      exit 1
-      ;;
-  esac
+for seed in 101 202 303 404 505; do
+  run_job python3 scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed $seed
 done
 
-if [ "$dataset" = "all" ]; then
-  for item in uci_har iemocap mhealth pamap2; do
-    echo "[$(date '+%F %T')] ===== start: ${item} ====="
-    run_msl_stage3_dataset "$item" "$clients"
-    echo "[$(date '+%F %T')] ===== done: ${item} ====="
-  done
-else
-  run_msl_stage3_dataset "$dataset" "$clients"
-fi
+for fold in 1 2 3 4 5; do
+  run_job python3 scripts/MSL/stage3_train.py --config configs/MSL/mhealth.config --fold $fold --seed 42
+done
 
-echo "[$(date '+%F %T')] MSL Stage3 launcher finished."
+for fold in 1 2 3 4 5 6 7 8 9; do
+  run_job python3 scripts/MSL/stage3_train.py --config configs/MSL/pamap2.config --fold $fold --seed 42
+done
+
+for fold in 1 2 3 4 5; do
+  run_job python3 scripts/MSL/stage3_train.py --config configs/MSL/iemocap.config --fold $fold --seed 42
+done
+
+wait
+python3 scripts/MSL/summarize_results.py --results-root results/MSL

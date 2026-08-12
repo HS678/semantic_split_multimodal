@@ -79,15 +79,19 @@ All output paths are generated automatically from `base_dir` + dataset + split p
 Prepare reusable Stage1 and Stage2 artifacts first. Stage2 requires the Stage1 directory to exist.
 
 ```bash
-python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
-python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+bash tools/dataset/uci_har/stage1.sh
+bash tools/dataset/uci_har/stage2.sh
 ```
 
-For multi-fold datasets, prepare each fold:
+For multi-fold datasets, the dataset scripts contain explicit fold loops:
 
 ```bash
-python scripts/MSL/stage1_partition.py --config configs/MSL/mhealth.config --fold 1
-python scripts/MSL/stage2_discovery.py --config configs/MSL/mhealth.config --fold 1
+bash tools/dataset/mhealth/stage1.sh
+bash tools/dataset/mhealth/stage2.sh
+bash tools/dataset/pamap2/stage1.sh
+bash tools/dataset/pamap2/stage2.sh
+bash tools/dataset/iemocap/stage1.sh
+bash tools/dataset/iemocap/stage2.sh
 ```
 
 After Stage1 and Stage2 exist, Stage3 can be run repeatedly with different seeds, losses, or attempts:
@@ -99,12 +103,11 @@ python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 10
 Stage3 launchers reuse existing Stage1/Stage2 artifacts and write only Stage3 results:
 
 ```bash
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset all
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
+bash tools/launch_msl.sh
+bash tools/launch_random_sl.sh
 ```
 
-Stage3 launchers fail fast if the required Stage1/Stage2 artifact directories are missing. Logs are written under `results/MSL/logs/` or `results/baseline/randomSL/logs/`.
+Stage3 launchers run jobs in parallel with `MAX_JOBS=2` by default. Use `MAX_JOBS=1 bash tools/launch_msl.sh` for serial execution or increase `MAX_JOBS` if resources allow. They fail fast if the required Stage1/Stage2 artifact directories are missing.
 
 ## Result layout
 

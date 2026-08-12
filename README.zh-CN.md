@@ -79,15 +79,19 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 先生成可复用的 Stage1 和 Stage2 产物。Stage2 必须在对应 Stage1 目录存在后才能运行。
 
 ```bash
-python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
-python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+bash tools/dataset/uci_har/stage1.sh
+bash tools/dataset/uci_har/stage2.sh
 ```
 
-多折数据集逐折生成：
+多折数据集的脚本里写了显式 fold 循环：
 
 ```bash
-python scripts/MSL/stage1_partition.py --config configs/MSL/mhealth.config --fold 1
-python scripts/MSL/stage2_discovery.py --config configs/MSL/mhealth.config --fold 1
+bash tools/dataset/mhealth/stage1.sh
+bash tools/dataset/mhealth/stage2.sh
+bash tools/dataset/pamap2/stage1.sh
+bash tools/dataset/pamap2/stage2.sh
+bash tools/dataset/iemocap/stage1.sh
+bash tools/dataset/iemocap/stage2.sh
 ```
 
 Stage1 和 Stage2 都存在后，Stage3 可以反复使用这两个公共产物运行不同 seed、loss 或 attempt：
@@ -99,12 +103,11 @@ python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 10
 Stage3 启动脚本只复用已有 Stage1/Stage2 产物并写入 Stage3 结果：
 
 ```bash
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset all
-PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
+bash tools/launch_msl.sh
+bash tools/launch_random_sl.sh
 ```
 
-如果缺少所需 Stage1/Stage2 产物，Stage3 启动脚本会直接失败。日志写入 `results/MSL/logs/` 或 `results/baseline/randomSL/logs/`。
+Stage3 启动脚本默认 `MAX_JOBS=2` 并行运行。资源不够时用 `MAX_JOBS=1 bash tools/launch_msl.sh` 串行；资源允许时可以调大 `MAX_JOBS`。如果缺少所需 Stage1/Stage2 产物，脚本会直接失败。
 
 ## 结果目录
 
