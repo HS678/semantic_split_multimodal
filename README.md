@@ -43,7 +43,7 @@ Four datasets are supported; splits are hardcoded in `src/MSL/data/datasets.py` 
 | --- | --- | --- |
 | UCI-HAR | `subject_disjoint_70_30` | Official 70/30 fixed split; 5 seeds |
 | MHEALTH | `subject_5fold_foldN` | 5-fold subject CV; 1 seed |
-| PAMAP2 | `subject_9fold_loso_foldN` | 9-fold LOSO, 12 activities, no heart rate; 1 seed |
+| PAMAP2 | `subject_8fold_loso_foldN` | 8-fold LOSO over subjects 101-108, excluding subject 109 due to insufficient selected activity coverage; 12 activities, no heart rate; 1 seed |
 | IEMOCAP | `session_5fold_loso_foldN` | 5-fold session-LOSO, audio/video/text; 1 seed |
 
 Per-dataset fixed parameters (num_classes, roots, encoders, pretrain/train lr, mmbind weights, clustering defaults) live in `src/MSL/data/dataset_defaults.py` and are not duplicated in config files.

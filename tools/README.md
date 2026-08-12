@@ -125,14 +125,14 @@ nohup bash tools/dataset/pamap2/stage2.sh > tools/logs/pamap2/stage2.log 2>&1 &
 Stage3：
 
 ```bash
-for fold in 1 2 3 4 5 6 7 8 9; do
+for fold in 1 2 3 4 5 6 7 8; do
   python3 scripts/MSL/stage3_train.py --dataset pamap2 --fold $fold --seed 42
 done
 ```
 
 ```bash
 mkdir -p tools/logs/pamap2
-nohup bash -c 'for fold in 1 2 3 4 5 6 7 8 9; do python3 scripts/MSL/stage3_train.py --dataset pamap2 --fold $fold --seed 42; done' > tools/logs/pamap2/stage3.log 2>&1 &
+nohup bash -c 'for fold in 1 2 3 4 5 6 7 8; do python3 scripts/MSL/stage3_train.py --dataset pamap2 --fold $fold --seed 42; done' > tools/logs/pamap2/stage3.log 2>&1 &
 ```
 
 ### IEMOCAP

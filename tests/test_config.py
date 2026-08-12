@@ -75,7 +75,7 @@ def test_dataset_defaults_are_full_mainline_configs():
 def test_fold_override_generates_dataset_protocols_without_fold_configs():
     cases = {
         "mhealth": (5, "subject_5fold_fold5"),
-        "pamap2": (9, "subject_9fold_loso_fold9"),
+        "pamap2": (8, "subject_8fold_loso_fold8"),
         "iemocap": (5, "session_5fold_loso_fold5"),
     }
     for dataset, (fold, expected_protocol) in cases.items():

@@ -136,8 +136,10 @@ MHEALTH_FOLD_SUBJECTS = {
     5: ([1, 2, 4, 6, 7, 8, 9, 10], [3, 5]),
 }
 
-# PAMAP2 9 折 LOSO：每折 test 1 人（101~109），train 为其余 8 人。
+# PAMAP2 8-fold LOSO：subject 109 is excluded because it has insufficient
+# coverage of the selected 12-activity protocol.
 PAMAP2_ALL_SUBJECTS = [101, 102, 103, 104, 105, 106, 107, 108, 109]
+PAMAP2_EVALUATION_SUBJECTS = [101, 102, 103, 104, 105, 106, 107, 108]
 
 
 def _select_subjects(split, subjects, split_name):
@@ -566,8 +568,13 @@ def load_pamap2_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
     root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/PAMAP2"))
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
-    test_subjects = [PAMAP2_ALL_SUBJECTS[fold - 1]]
-    train_subjects = [s for s in PAMAP2_ALL_SUBJECTS if s != test_subjects[0]]
+    if fold < 1 or fold > len(PAMAP2_EVALUATION_SUBJECTS):
+        raise ValueError(
+            f"PAMAP2 8-fold LOSO uses folds 1-{len(PAMAP2_EVALUATION_SUBJECTS)} "
+            "after excluding subject 109."
+        )
+    test_subjects = [PAMAP2_EVALUATION_SUBJECTS[fold - 1]]
+    train_subjects = [s for s in PAMAP2_EVALUATION_SUBJECTS if s != test_subjects[0]]
     _validate_subject_splits(train_subjects, test_subjects, "PAMAP2")
     all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
 

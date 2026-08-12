@@ -281,7 +281,7 @@ def test_parser_defaults_freeze_stage_boundaries_and_no_validation_selection():
         },
         "pamap2": {
             "lr": 0.0001,
-            "split_protocol": "subject_9fold_loso_fold1",
+            "split_protocol": "subject_8fold_loso_fold1",
             "global_rounds": 300,
             "fold": 1,
         },

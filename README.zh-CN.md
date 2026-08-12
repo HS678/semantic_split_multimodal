@@ -43,7 +43,7 @@ python -m pip install -e .
 | --- | --- | --- |
 | UCI-HAR | `subject_disjoint_70_30` | 官方 70/30 固定划分；5 个 seed |
 | MHEALTH | `subject_5fold_foldN` | subject 级 5 折；1 个 seed |
-| PAMAP2 | `subject_9fold_loso_foldN` | 9 折 LOSO，12 类活动，不含心率；1 个 seed |
+| PAMAP2 | `subject_8fold_loso_foldN` | subject 101-108 的 8 折 LOSO，因所选活动覆盖不足排除 subject 109；12 类活动，不含心率；1 个 seed |
 | IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；1 个 seed |
 
 每个数据集的固定参数（num_classes、root、encoder、预训练/训练 lr、mmbind 权重、聚类默认参数）内置在 `src/MSL/data/dataset_defaults.py`，不重复写入配置文件。
