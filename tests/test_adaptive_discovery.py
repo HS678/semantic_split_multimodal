@@ -240,7 +240,7 @@ def test_unknown_q_configs_use_dataset_fixed_adaptive_parameters_without_true_in
             "min_split_silhouette": 0.2,
         },
         "pamap2": {
-            "bic_improvement_min": 15.0,
+            "bic_improvement_min": 20.0,
             "min_split_silhouette": 0.2,
         },
         "iemocap": {

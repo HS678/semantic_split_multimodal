@@ -227,7 +227,7 @@ DATASET_DEFAULTS = {
             "heterogeneous_ce_weight": 0.25,
         },
         "cluster_adaptive": {
-            "bic_improvement_min": 15.0,
+            "bic_improvement_min": 20.0,
         },
     },
 }
