@@ -59,6 +59,9 @@ DATASET_DEFAULTS = {
             "contrastive_weight": 0.02,
             "heterogeneous_ce_weight": 0.1,
         },
+        "cluster_adaptive": {
+            "min_split_silhouette": 0.1,
+        },
     },
     "iemocap": {
         "num_classes": 4,
@@ -121,6 +124,9 @@ DATASET_DEFAULTS = {
             "contrastive_weight": 0.03,
             "heterogeneous_ce_weight": 0.15,
         },
+        "cluster_adaptive": {
+            "bic_improvement_min": 15.0,
+        },
     },
     "mhealth": {
         "num_classes": 12,
@@ -160,6 +166,9 @@ DATASET_DEFAULTS = {
             "contrastive_weight": 0.1,
             "heterogeneous_ce_weight": 0.5,
         },
+        "cluster_adaptive": {
+            "bic_improvement_min": 30.0,
+        },
     },
     "pamap2": {
         "num_classes": 12,
@@ -198,6 +207,9 @@ DATASET_DEFAULTS = {
             "temperature": 0.1,
             "contrastive_weight": 0.05,
             "heterogeneous_ce_weight": 0.25,
+        },
+        "cluster_adaptive": {
+            "bic_improvement_min": 15.0,
         },
     },
 }

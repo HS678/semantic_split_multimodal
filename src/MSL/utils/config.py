@@ -178,6 +178,7 @@ def normalize_experiment_config(cfg: dict) -> dict:
         "max_batches": cluster.get("fingerprint_max_batches", 4),
     }
     adaptive = dict(DEFAULT_ADAPTIVE)
+    adaptive.update(dict(defaults.get("cluster_adaptive", {})))
     adaptive.update(
         {
             key[len("adaptive_"):]: value

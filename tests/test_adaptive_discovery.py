@@ -229,28 +229,45 @@ def test_estimator_api_does_not_accept_hidden_modality_or_true_q():
     assert list(signature.parameters) == ["self", "client_reps"]
 
 
-def test_unknown_q_configs_use_same_adaptive_parameters_without_true_initial_k():
-    configs = [
-        PROJECT_ROOT / "configs" / "uci_har.config",
-        PROJECT_ROOT / "configs" / "mhealth" / "fold1.config",
-        PROJECT_ROOT / "configs" / "pamap2" / "fold1.config",
-        PROJECT_ROOT / "configs" / "iemocap" / "fold1.config",
-    ]
-    adaptive_blocks = []
-    for path in configs:
+def test_unknown_q_configs_use_dataset_fixed_adaptive_parameters_without_true_initial_k():
+    expected = {
+        "uci_har": {
+            "path": PROJECT_ROOT / "configs" / "uci_har.config",
+            "bic_improvement_min": 0.0,
+            "min_split_silhouette": 0.1,
+        },
+        "mhealth": {
+            "path": PROJECT_ROOT / "configs" / "mhealth" / "fold1.config",
+            "bic_improvement_min": 30.0,
+            "min_split_silhouette": 0.2,
+        },
+        "pamap2": {
+            "path": PROJECT_ROOT / "configs" / "pamap2" / "fold1.config",
+            "bic_improvement_min": 15.0,
+            "min_split_silhouette": 0.2,
+        },
+        "iemocap": {
+            "path": PROJECT_ROOT / "configs" / "iemocap" / "fold1.config",
+            "bic_improvement_min": 15.0,
+            "min_split_silhouette": 0.2,
+        },
+    }
+    for dataset, values in expected.items():
+        path = values["path"]
         cfg = normalize_experiment_config(load_config(path))
         cluster = cfg["cluster"]
+        adaptive = cluster["adaptive"]
+        assert cfg["dataset"]["type"] == dataset
         assert cluster["method"] == "adaptive_isodata"
         assert cluster["known_k"] is None
         assert "isodata" not in cluster
-        assert "initial_k" not in cluster.get("adaptive", {})
-        assert cluster["adaptive"]["q_max"] == 8
-        assert cluster["adaptive"]["min_cluster_size"] == 2
-        assert cluster["adaptive"]["min_cluster_size_fraction"] is None
-        assert "min_silhouette_improvement" not in cluster["adaptive"]
-        adaptive_blocks.append(cluster["adaptive"])
-
-    assert all(block == adaptive_blocks[0] for block in adaptive_blocks[1:])
+        assert "initial_k" not in adaptive
+        assert adaptive["q_max"] == 8
+        assert adaptive["min_cluster_size"] == 2
+        assert adaptive["min_cluster_size_fraction"] is None
+        assert adaptive["bic_improvement_min"] == values["bic_improvement_min"]
+        assert adaptive["min_split_silhouette"] == values["min_split_silhouette"]
+        assert "min_silhouette_improvement" not in adaptive
 
 
 def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
@@ -258,17 +275,19 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
         "configs/uci_har.config": {
             "lr": 0.0002,
             "split_protocol": "subject_disjoint_70_30",
+            "global_rounds": 200,
         },
         "configs/mhealth/fold1.config": {
             "lr": 0.0002,
             "split_protocol": "subject_5fold_fold1",
+            "global_rounds": 200,
         },
         "configs/pamap2/fold1.config": {
             "lr": 0.0001,
             "split_protocol": "subject_9fold_loso_fold1",
+            "global_rounds": 300,
         },
     }
-    adaptive_blocks = []
     forbidden_top_level = {
         "num_modalities",
         "learning_rate",
@@ -291,18 +310,15 @@ def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
         assert cfg["dataset"]["split_protocol"] == values["split_protocol"]
         assert "validation_enabled" not in cfg["training"]
         assert "validation_subjects" not in cfg["dataset"]
-        assert cfg["training"]["global_rounds"] == 200
+        assert cfg["training"]["global_rounds"] == values["global_rounds"]
         assert "early_stopping" not in cfg["training"]
         assert cfg["training"]["local_steps"] == 1
-        assert cfg["training"]["clients_per_cluster_per_round"] == 4
+        assert cfg["training"]["clients_per_cluster_per_round"] == 2
         assert cfg["training"]["client_lr"] == values["lr"]
         assert cfg["training"]["server_lr"] == values["lr"]
         assert cfg["binding"]["type"] == "label_random"
         assert cfg["fusion"]["type"] == "concat_mlp"
         assert cfg["d2d"]["enabled"] is False
-        adaptive_blocks.append(cfg["cluster"]["adaptive"])
-
-    assert all(block == adaptive_blocks[0] for block in adaptive_blocks[1:])
 
 
 def test_discovery_metrics_distinguish_overclustering_from_success():
