@@ -50,9 +50,9 @@ python -m pip install -e .
 
 下载公开数据集并放到 `local/datasets/`：
 
-- **UCI-HAR**：官方 `UCI HAR Dataset`（把 `train/`、`test/` 目录放到 `local/datasets/uci_har/`）。
-- **MHEALTH**：UCI 的 `MHEALTHDATASET.zip`，解压为 `local/datasets/mhealth/`（内含 `MHEALTHDATASET/`）。
-- **PAMAP2**：UCI 的 `PAMAP2_Dataset.zip`，解压为 `local/datasets/pamap2/`（`PAMAP2_Dataset/Protocol/subject10*.dat`）。
+- **UCI-HAR**：官方 `UCI HAR Dataset`（把 `train/`、`test/` 目录放到 `local/datasets/UCI-HAR/`）。
+- **MHEALTH**：UCI 的 `MHEALTHDATASET.zip`，解压为 `local/datasets/MHEALTH/`（内含 `MHEALTHDATASET/`）。
+- **PAMAP2**：UCI 的 `PAMAP2_Dataset.zip`，解压为 `local/datasets/PAMAP2/`（`PAMAP2_Dataset/Protocol/subject10*.dat`）。
 - **IEMOCAP**：完整版放在 `local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/`（需 CMU IEMOCAP 许可）。
 
 IEMOCAP 冻结特征需要在 Stage 1 前准备一次：

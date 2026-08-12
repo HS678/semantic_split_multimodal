@@ -154,7 +154,7 @@ def _select_subjects(split, subjects, split_name):
 
 def load_uci_har_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
-    root_cfg = dataset_cfg.get("root", "./local/datasets/uci_har")
+    root_cfg = dataset_cfg.get("root", "./local/datasets/UCI-HAR")
     root = Path(root_cfg)
     if not root.is_absolute():
         root = project_root / root
@@ -308,7 +308,7 @@ def _mhealth_input_shapes(modalities):
 
 def load_mhealth_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
-    root = _mhealth_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/mhealth"))
+    root = _mhealth_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/MHEALTH"))
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
     train_subjects, test_subjects = MHEALTH_FOLD_SUBJECTS[fold]
     _validate_subject_splits(train_subjects, test_subjects, "MHEALTH")
@@ -482,7 +482,7 @@ def _pamap2_input_shapes(modalities):
 
 def load_pamap2_dataset(cfg, project_root: Path):
     dataset_cfg = cfg.get("dataset", {})
-    root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/pamap2"))
+    root = _pamap2_resolve_project_path(project_root, dataset_cfg.get("root", "./local/datasets/PAMAP2"))
     fold = _fold_number(dataset_cfg.get("split_protocol", ""))
     test_subjects = [PAMAP2_ALL_SUBJECTS[fold - 1]]
     train_subjects = [s for s in PAMAP2_ALL_SUBJECTS if s != test_subjects[0]]

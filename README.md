@@ -50,9 +50,9 @@ Per-dataset fixed parameters (num_classes, roots, encoders, pretrain/train lr, m
 
 Download the public datasets and place them under `local/datasets/`:
 
-- **UCI-HAR**: the official `UCI HAR Dataset` (put the `train/` and `test/` folders under `local/datasets/uci_har/`).
-- **MHEALTH**: `MHEALTHDATASET.zip` from UCI, extracted as `local/datasets/mhealth/` with `MHEALTHDATASET/` inside.
-- **PAMAP2**: `PAMAP2_Dataset.zip` from UCI, extracted as `local/datasets/pamap2/` with `PAMAP2_Dataset/Protocol/subject10*.dat`.
+- **UCI-HAR**: the official `UCI HAR Dataset` (put the `train/` and `test/` folders under `local/datasets/UCI-HAR/`).
+- **MHEALTH**: `MHEALTHDATASET.zip` from UCI, extracted as `local/datasets/MHEALTH/` with `MHEALTHDATASET/` inside.
+- **PAMAP2**: `PAMAP2_Dataset.zip` from UCI, extracted as `local/datasets/PAMAP2/` with `PAMAP2_Dataset/Protocol/subject10*.dat`.
 - **IEMOCAP**: the full release under `local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/` (requires the CMU IEMOCAP license).
 
 IEMOCAP frozen features must be prepared once before Stage 1:

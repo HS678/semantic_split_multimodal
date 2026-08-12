@@ -24,7 +24,7 @@ DATASET_DEFAULTS = {
     "uci_har": {
         "num_classes": 6,
         "dataset": {
-            "root": "./local/datasets/uci_har",
+            "root": "./local/datasets/UCI-HAR",
             "split_protocol": "subject_disjoint_70_30",
         },
         "fold_count": None,
@@ -139,7 +139,7 @@ DATASET_DEFAULTS = {
     "mhealth": {
         "num_classes": 12,
         "dataset": {
-            "root": "./local/datasets/mhealth",
+            "root": "./local/datasets/MHEALTH",
             "split_protocol_template": "subject_5fold_fold{fold}",
         },
         "fold_count": 5,
@@ -186,7 +186,7 @@ DATASET_DEFAULTS = {
     "pamap2": {
         "num_classes": 12,
         "dataset": {
-            "root": "./local/datasets/pamap2",
+            "root": "./local/datasets/PAMAP2",
             "split_protocol_template": "subject_9fold_loso_fold{fold}",
         },
         "fold_count": 9,
