@@ -1,4 +1,5 @@
 import csv
+import os
 from pathlib import Path
 
 import numpy as np
@@ -343,6 +344,7 @@ PAMAP2_SENSOR_TYPE_MODALITIES = {
     "gyro": [10, 11, 12, 27, 28, 29, 44, 45, 46],
     "mag": [13, 14, 15, 30, 31, 32, 47, 48, 49],
 }
+PAMAP2_WINDOW_CACHE_VERSION = 1
 
 
 def _pamap2_modality_columns(_dataset_cfg=None):
@@ -436,12 +438,93 @@ def _pamap2_window_subject(data, window_size, stride, drop_other, min_label_puri
     return modalities, np.asarray(y_windows, dtype=np.int64)
 
 
-def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg):
+def _pamap2_window_params():
     # 滑窗与预处理参数固定内置：window=200, stride=100, 丢弃"其他"标签, 标签纯度>=0.6。
-    window_size = 200
-    stride = 100
-    drop_other = True
-    min_label_purity = 0.6
+    return {
+        "window_size": 200,
+        "stride": 100,
+        "drop_other": True,
+        "min_label_purity": 0.6,
+    }
+
+
+def _pamap2_cache_root(root: Path, dataset_cfg: dict) -> Path:
+    cache_cfg = dataset_cfg.get("processed_root")
+    if cache_cfg:
+        cache_root = Path(str(cache_cfg))
+        if not cache_root.is_absolute():
+            cache_root = root / cache_root
+    else:
+        cache_root = root / "processed" / "window_cache"
+    return cache_root / "sensor_type_w200_s100_purity0p6_dropother"
+
+
+def _pamap2_expected_cache_metadata(source_path: Path, modality_columns: dict, params: dict) -> dict:
+    stat = source_path.stat()
+    return {
+        "version": PAMAP2_WINDOW_CACHE_VERSION,
+        "source_path": str(source_path.resolve()),
+        "source_mtime_ns": int(stat.st_mtime_ns),
+        "source_size": int(stat.st_size),
+        "activity_ids": list(PAMAP2_ACTIVITY_IDS),
+        "modality_columns": {name: list(columns) for name, columns in modality_columns.items()},
+        "window": dict(params),
+    }
+
+
+def _pamap2_cache_path(cache_root: Path, subject_id: int) -> Path:
+    return cache_root / f"subject{int(subject_id)}.pt"
+
+
+def _pamap2_payload_matches_cache(payload: dict, expected_metadata: dict, modality_columns: dict) -> bool:
+    if not isinstance(payload, dict) or payload.get("metadata") != expected_metadata:
+        return False
+    modalities = payload.get("modalities")
+    labels = payload.get("labels")
+    if not isinstance(modalities, list) or len(modalities) != len(modality_columns):
+        return False
+    if not torch.is_tensor(labels) or labels.dtype != torch.long:
+        return False
+    return all(torch.is_tensor(x) and x.dtype == torch.float32 for x in modalities)
+
+
+def _pamap2_load_or_build_subject_windows(protocol_dir: Path, subject_id: int, modality_columns: dict, params: dict, cache_root: Path):
+    source_path = _pamap2_subject_path(protocol_dir, int(subject_id))
+    expected_metadata = _pamap2_expected_cache_metadata(source_path, modality_columns, params)
+    cache_path = _pamap2_cache_path(cache_root, int(subject_id))
+    if cache_path.exists():
+        try:
+            payload = torch.load(cache_path, map_location="cpu")
+            if _pamap2_payload_matches_cache(payload, expected_metadata, modality_columns):
+                return payload["modalities"], payload["labels"]
+        except Exception:
+            pass
+
+    data = _pamap2_read_subject_file(source_path)
+    modalities_np, labels_np = _pamap2_window_subject(
+        data,
+        int(params["window_size"]),
+        int(params["stride"]),
+        bool(params["drop_other"]),
+        float(params["min_label_purity"]),
+        modality_columns,
+    )
+    modalities = [torch.tensor(x, dtype=torch.float32) for x in modalities_np]
+    labels = torch.tensor(labels_np, dtype=torch.long)
+    payload = {
+        "metadata": expected_metadata,
+        "modalities": modalities,
+        "labels": labels,
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
+    torch.save(payload, temp_path)
+    temp_path.replace(cache_path)
+    return modalities, labels
+
+
+def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg, cache_root: Path):
+    params = _pamap2_window_params()
     modality_columns = _pamap2_modality_columns(dataset_cfg)
 
     if not subjects:
@@ -453,14 +536,13 @@ def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg):
     split_modalities = [[] for _ in modality_columns]
     split_labels = []
     for subject_id in subjects:
-        data = _pamap2_read_subject_file(_pamap2_subject_path(protocol_dir, int(subject_id)))
-        modalities, y = _pamap2_window_subject(data, window_size, stride, drop_other, min_label_purity, modality_columns)
+        modalities, y = _pamap2_load_or_build_subject_windows(protocol_dir, int(subject_id), modality_columns, params, cache_root)
         for idx, x in enumerate(modalities):
             split_modalities[idx].append(x)
         split_labels.append(y)
 
-    x_all = [torch.tensor(np.concatenate(parts, axis=0), dtype=torch.float32) for parts in split_modalities]
-    y_all = torch.tensor(np.concatenate(split_labels, axis=0), dtype=torch.long)
+    x_all = [torch.cat(parts, dim=0).to(dtype=torch.float32) for parts in split_modalities]
+    y_all = torch.cat(split_labels, dim=0).to(dtype=torch.long)
     return {"modalities": x_all, "labels": y_all}
 
 
@@ -490,8 +572,9 @@ def load_pamap2_dataset(cfg, project_root: Path):
     all_subjects = sorted(set(int(s) for s in train_subjects + test_subjects))
 
     protocol_dir = validate_pamap2_root(root, all_subjects)
-    train = _pamap2_build_split(protocol_dir, train_subjects, dataset_cfg)
-    test = _pamap2_build_split(protocol_dir, test_subjects, dataset_cfg)
+    cache_root = _pamap2_cache_root(root, dataset_cfg)
+    train = _pamap2_build_split(protocol_dir, train_subjects, dataset_cfg, cache_root)
+    test = _pamap2_build_split(protocol_dir, test_subjects, dataset_cfg, cache_root)
     train, test, label_mapping = _pamap2_remap_labels(train, test)
     if bool(dataset_cfg.get("normalize", True)):
         train, test = _normalize_from_train(train, test)

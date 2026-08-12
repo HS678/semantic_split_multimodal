@@ -4,12 +4,15 @@ from pathlib import Path
 import pytest
 import torch
 
+import MSL.data.datasets as datasets
 import MSL.data.partitioner as partitioner
 from MSL.data.partitioner import run_stage1_partition
 from MSL.data.registry import load_dataset
 from MSL.data.datasets import (
     PAMAP2_ACTIVITY_IDS,
     _normalize_from_train,
+    _pamap2_build_split,
+    _pamap2_cache_root,
     _pamap2_remap_labels,
     _validate_subject_splits,
 )
@@ -207,3 +210,38 @@ def test_pamap2_label_mapping_is_fixed_without_test_label_union():
     assert mapping == {activity_id: idx for idx, activity_id in enumerate(PAMAP2_ACTIVITY_IDS)}
     assert remapped_train["labels"].tolist() == [mapping[1], mapping[24]]
     assert remapped_test["labels"].tolist() == [mapping[17]]
+
+
+def test_pamap2_subject_window_cache_reuses_processed_payload(monkeypatch, tmp_path):
+    protocol = tmp_path / "PAMAP2_Dataset" / "Protocol"
+    protocol.mkdir(parents=True)
+    subject_path = protocol / "subject101.dat"
+    data = torch.zeros(220, 54, dtype=torch.float32)
+    data[:, 1] = 1
+    data[:, 4:7] = 1.0
+    data[:, 10:13] = 2.0
+    data[:, 13:16] = 3.0
+    data[:, 21:24] = 4.0
+    data[:, 27:30] = 5.0
+    data[:, 30:33] = 6.0
+    data[:, 38:41] = 7.0
+    data[:, 44:47] = 8.0
+    data[:, 47:50] = 9.0
+    lines = [" ".join(str(float(v)) for v in row.tolist()) for row in data]
+    subject_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    dataset_cfg = {}
+    cache_root = _pamap2_cache_root(tmp_path, dataset_cfg)
+    first = _pamap2_build_split(protocol, [101], dataset_cfg, cache_root)
+    assert (cache_root / "subject101.pt").is_file()
+    assert int(first["labels"].numel()) == 1
+
+    def fail_read(_path):
+        raise AssertionError("PAMAP2 raw subject file should not be reread when cache is valid.")
+
+    monkeypatch.setattr(datasets, "_pamap2_read_subject_file", fail_read)
+    second = _pamap2_build_split(protocol, [101], dataset_cfg, cache_root)
+
+    assert torch.equal(second["labels"], first["labels"])
+    for left, right in zip(second["modalities"], first["modalities"]):
+        assert torch.equal(left, right)
