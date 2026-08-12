@@ -15,7 +15,7 @@ from MSL.learning.models import ConcatMLPFusionServer, create_client_encoder
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = PROJECT_ROOT / "scripts" / "baseline_random_sl.py"
+SCRIPT_PATH = PROJECT_ROOT / "scripts" / "baseline" / "randomSL" / "stage3_train.py"
 CLIENT_IDS = ("client_000", "client_001", "client_002", "client_003")
 
 

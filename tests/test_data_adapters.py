@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 DATASET_CASES = [
-    ("uci_har", "configs/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
+    ("uci_har", "configs/MSL/uci_har.config", ["acc", "gyro"], [[6, 128], [3, 128]]),
     (
         "mhealth",
         "configs/mhealth/fold1.config",

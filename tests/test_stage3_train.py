@@ -10,7 +10,7 @@ from MSL.utils.config import write_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = PROJECT_ROOT / "scripts" / "stage3_train.py"
+SCRIPT_PATH = PROJECT_ROOT / "scripts" / "MSL" / "stage3_train.py"
 
 
 def _load_script():
@@ -191,7 +191,7 @@ def test_stage3_cli_rejects_removed_run_type_option():
         script.parse_args(
             [
                 "--config",
-                "configs/uci_har.config",
+                "configs/MSL/uci_har.config",
                 "--stage1-dir",
                 "stage1",
                 "--stage2-dir",

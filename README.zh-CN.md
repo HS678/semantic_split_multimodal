@@ -2,15 +2,15 @@
 
 未知模态环境下语义对齐的分布式分割多模态学习（Semantic-aligned Distributed Split Multimodal Learning）。
 
-英文说明见 [README.md](README.md)。完整设计决策见 [EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md)。
+英文说明见 [README.md](README.md)。
 
 ## 总览
 
 三阶段可复现实验框架：
 
-1. **Stage 1（数据划分）** — `scripts/stage1_partition.py` 把自然配对的多模态数据拆成单模态客户端。只有 train 被划分；test 保持自然配对（`test_multimodal.pt`）。
-2. **Stage 2（模态发现）** — `scripts/stage2_discovery.py` 为每个客户端预训练 encoder、提取 fingerprint、用 adaptive ISODATA 聚类，输出 `pred_cluster.csv`（另存 `true_cluster.csv` 供审计）。
-3. **Stage 3（训练）** — `scripts/stage3_train.py` 执行聚类感知调度、label-guided semantic pseudo binding、`ClusterAdapter` + concat fusion、Split Learning，固定轮数训练。无验证集：`global_rounds` 结束后直接用 `last_model.pt` 在 `test_multimodal.pt` 上评估一次。
+1. **Stage 1（数据划分）** — `scripts/MSL/stage1_partition.py` 把自然配对的多模态数据拆成单模态客户端。只有 train 被划分；test 保持自然配对（`test_multimodal.pt`）。
+2. **Stage 2（模态发现）** — `scripts/MSL/stage2_discovery.py` 为每个客户端预训练 encoder、提取 fingerprint、用 adaptive ISODATA 聚类，输出 `pred_cluster.csv`（另存 `true_cluster.csv` 供审计）。
+3. **Stage 3（训练）** — `scripts/MSL/stage3_train.py` 执行聚类感知调度、label-guided semantic pseudo binding、`ClusterAdapter` + concat fusion、Split Learning，固定轮数训练。无验证集：`global_rounds` 结束后直接用 `last_model.pt` 在 `test_multimodal.pt` 上评估一次。
 
 本项目不是联邦学习，不使用 FedAvg。客户端上传 detached 激活；服务器计算 loss、反向传播融合模型，并把激活梯度路由回客户端 encoder。
 
@@ -63,7 +63,7 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 
 ## 配置
 
-`configs/` 下每个数据集/折一份独立完整配置（约 14 行），统一分段结构：
+`configs/MSL/` 下每个数据集一份独立完整配置；多折数据集通过 `--fold N` 从数据集默认模板生成划分协议。配置统一分段结构：
 
 ```ini
 [config]      # experiment_name、base_dir（seed/device 已内置；--seed 覆盖）
@@ -79,17 +79,17 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 单阶段运行：
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
-python scripts/stage2_discovery.py --config configs/uci_har.config
-python scripts/stage3_train.py --config configs/uci_har.config --seed 101
+python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
+python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
 ```
 
 一键启动脚本（每个数据集完整执行 Stage1 → Stage2 → Stage3 → 汇总）：
 
 ```bash
-nohup bash tools/single/launch_msl_uci_har.sh > "tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash tools/serial/launch_msl_all.sh > "tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset all
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
 ```
 
 启动脚本对已存在的输出目录自动跳过（可断点续跑），日志写入 `local/results_msl/logs/`。
@@ -112,7 +112,7 @@ Stage 输出不覆盖已有非空目录；重复同一 fold/seed 会自动生成
 ## 汇总格式
 
 ```bash
-python scripts/summarize_results.py --results-root local/results_msl
+python scripts/MSL/summarize_results.py --results-root local/results_msl
 ```
 
 ```json

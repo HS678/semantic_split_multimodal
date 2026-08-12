@@ -17,7 +17,14 @@ from pathlib import Path
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "src" / "MSL").is_dir():
+            return parent
+    raise RuntimeError("Cannot locate project root containing src/MSL.")
+
+
+ROOT = _project_root()
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -33,7 +40,7 @@ from MSL.utils.seed import set_seed
 def _load_stage3_script():
     spec = importlib.util.spec_from_file_location(
         "stage3_train",
-        ROOT / "scripts" / "stage3_train.py",
+        ROOT / "scripts" / "MSL" / "stage3_train.py",
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -2,15 +2,15 @@
 
 Semantic-aligned Distributed Split Multimodal Learning in Unknown Modality Environments.
 
-中文说明见 [README.zh-CN.md](README.zh-CN.md)。完整设计决策见 [EXPERIMENT_DESIGN.md](EXPERIMENT_DESIGN.md)。
+中文说明见 [README.zh-CN.md](README.zh-CN.md)。
 
 ## Overview
 
 Three-stage reproducible experiment framework:
 
-1. **Stage 1 (partition)** — `scripts/stage1_partition.py` splits naturally paired multimodal data into single-modality clients. Only the train split is partitioned; the test split stays naturally paired (`test_multimodal.pt`).
-2. **Stage 2 (discovery)** — `scripts/stage2_discovery.py` pretrains one client encoder per client, extracts fingerprints, clusters them with adaptive ISODATA, and writes `pred_cluster.csv` (plus `true_cluster.csv` for audit).
-3. **Stage 3 (training)** — `scripts/stage3_train.py` runs cluster-aware scheduling, label-guided semantic pseudo binding, `ClusterAdapter` + concat fusion, and split learning with fixed rounds. There is no validation set: after `global_rounds`, `last_model.pt` is evaluated on `test_multimodal.pt` exactly once.
+1. **Stage 1 (partition)** — `scripts/MSL/stage1_partition.py` splits naturally paired multimodal data into single-modality clients. Only the train split is partitioned; the test split stays naturally paired (`test_multimodal.pt`).
+2. **Stage 2 (discovery)** — `scripts/MSL/stage2_discovery.py` pretrains one client encoder per client, extracts fingerprints, clusters them with adaptive ISODATA, and writes `pred_cluster.csv` (plus `true_cluster.csv` for audit).
+3. **Stage 3 (training)** — `scripts/MSL/stage3_train.py` runs cluster-aware scheduling, label-guided semantic pseudo binding, `ClusterAdapter` + concat fusion, and split learning with fixed rounds. There is no validation set: after `global_rounds`, `last_model.pt` is evaluated on `test_multimodal.pt` exactly once.
 
 This is not Federated Learning and does not use FedAvg. Clients upload detached activations; the server computes the loss, backpropagates through the fusion model, and routes activation gradients back to the client encoders.
 
@@ -63,7 +63,7 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 
 ## Config
 
-`configs/` contains one self-contained config per dataset/fold (about 14 lines). Every config uses the same sections:
+`configs/MSL/` contains one self-contained config per dataset. Multi-fold datasets use `--fold N` to derive the split protocol from dataset defaults. Every config uses the same sections:
 
 ```ini
 [config]      # experiment_name, base_dir (seed/device built-in; --seed overrides)
@@ -79,17 +79,17 @@ All output paths are generated automatically from `base_dir` + dataset + split p
 Run one stage:
 
 ```bash
-python scripts/stage1_partition.py --config configs/uci_har.config
-python scripts/stage2_discovery.py --config configs/uci_har.config
-python scripts/stage3_train.py --config configs/uci_har.config --seed 101
+python scripts/MSL/stage1_partition.py --config configs/MSL/uci_har.config
+python scripts/MSL/stage2_discovery.py --config configs/MSL/uci_har.config
+python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
 ```
 
 One-command launchers (each dataset runs its full Stage1 → Stage2 → Stage3 → summarize flow):
 
 ```bash
-nohup bash tools/single/launch_msl_uci_har.sh > "tools/single/uci_har_msl_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash tools/serial/launch_msl_all.sh > "tools/serial/msl_all_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
-nohup bash tools/parallel/launch_msl_parallel.sh > "tools/parallel/main_$(date '+%Y%m%d_%H%M%S').log" 2>&1 &
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset uci_har
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_msl.sh --dataset all
+PYTHON=/home/shuang/miniconda3/envs/mpsl/bin/python bash tools/launch_random_sl.sh --dataset all
 ```
 
 Launchers skip steps whose output directories already exist (resume-friendly) and write logs under `local/results_msl/logs/`.
@@ -112,7 +112,7 @@ Stage outputs never overwrite an existing non-empty directory. Re-running the sa
 ## Summary format
 
 ```bash
-python scripts/summarize_results.py --results-root local/results_msl
+python scripts/MSL/summarize_results.py --results-root local/results_msl
 ```
 
 ```json

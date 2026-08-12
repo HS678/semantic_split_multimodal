@@ -37,7 +37,7 @@ stage1() {
   fi
   local log_file="${log_dir}/stage1_${name}${fold_tag}_$(date '+%Y%m%d_%H%M%S').log"
   run_or_skip "$name Stage1" "$log_file" "$PYTHON" \
-    scripts/stage1_partition.py --config "$config" --clients "$clients" "${fold_args[@]}"
+    scripts/MSL/stage1_partition.py --config "$config" --clients "$clients" "${fold_args[@]}"
 }
 stage2() {
   local name="$1" config="$2" fold="${3:-}"
@@ -50,7 +50,7 @@ stage2() {
     fold_args=(--fold "$fold")
   fi
   local log_file="${log_dir}/stage2_${name}${fold_tag}_$(date '+%Y%m%d_%H%M%S').log"
-  run_or_skip "$name Stage2" "$log_file" "$PYTHON" scripts/stage2_discovery.py --config "$config" "${fold_args[@]}"
+  run_or_skip "$name Stage2" "$log_file" "$PYTHON" scripts/MSL/stage2_discovery.py --config "$config" "${fold_args[@]}"
 }
 stage3() {
   local name="$1" config="$2" seed="$3" fold="${4:-}"
@@ -63,11 +63,11 @@ stage3() {
     fold_args=(--fold "$fold")
   fi
   local log_file="${log_dir}/stage3_${name}${fold_tag}_seed${seed}_$(date '+%Y%m%d_%H%M%S').log"
-  run_or_skip "$name Stage3" "$log_file" "$PYTHON" scripts/stage3_train.py --config "$config" --seed "$seed" "${fold_args[@]}"
+  run_or_skip "$name Stage3" "$log_file" "$PYTHON" scripts/MSL/stage3_train.py --config "$config" --seed "$seed" "${fold_args[@]}"
 }
 
 summarize() {
-  "$PYTHON" scripts/summarize_results.py --results-root local/results_msl --dataset "$1"
+  "$PYTHON" scripts/MSL/summarize_results.py --results-root local/results_msl --dataset "$1"
 }
 
 # 固定划分数据集：Stage1/2 一次 + 多个 seed 的 Stage3，最后汇总。
@@ -86,7 +86,7 @@ run_fixed_dataset() {
 # 多折数据集：每折 Stage1/2/3（seed 固定），最后汇总。
 run_folds_dataset() {
   local name="$1" folds="$2" seed="$3" clients="$4"
-  local config="configs/${name}.config"
+  local config="configs/MSL/${name}.config"
   local fold
   for fold in $(seq 1 "$folds"); do
     stage1 "$name" "$config" "$clients" "$fold"
@@ -100,7 +100,7 @@ run_folds_dataset() {
 run_msl_dataset() {
   local dataset="$1" clients="${2:-10}"
   case "$dataset" in
-    uci_har) run_fixed_dataset uci_har configs/uci_har.config "$clients" 101 202 303 404 505 ;;
+    uci_har) run_fixed_dataset uci_har configs/MSL/uci_har.config "$clients" 101 202 303 404 505 ;;
     iemocap) run_folds_dataset iemocap 5 42 "$clients" ;;
     mhealth) run_folds_dataset mhealth 5 42 "$clients" ;;
     pamap2)  run_folds_dataset pamap2 9 42 "$clients" ;;

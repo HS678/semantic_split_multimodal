@@ -272,7 +272,7 @@ def test_unknown_q_configs_use_dataset_fixed_adaptive_parameters_without_true_in
 
 def test_MSL_configs_freeze_stage_boundaries_and_no_validation_selection():
     expected = {
-        "configs/uci_har.config": {
+        "configs/MSL/uci_har.config": {
             "lr": 0.0002,
             "split_protocol": "subject_disjoint_70_30",
             "global_rounds": 200,

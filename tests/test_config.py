@@ -21,10 +21,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
     paths = {
-        "uci_har": "configs/uci_har.config",
-        "mhealth": "configs/mhealth.config",
-        "pamap2": "configs/pamap2.config",
-        "iemocap": "configs/iemocap.config",
+        "uci_har": "configs/MSL/uci_har.config",
+        "mhealth": "configs/MSL/mhealth.config",
+        "pamap2": "configs/MSL/pamap2.config",
+        "iemocap": "configs/MSL/iemocap.config",
     }
     for dataset, relative_path in paths.items():
         path = PROJECT_ROOT / relative_path
@@ -78,7 +78,7 @@ def test_config_extends_deep_merges_relative_parent(tmp_path):
 
 
 def test_MSL_configs_resolve_expected_protocols_and_objective():
-    config_dir = PROJECT_ROOT / "configs"
+    config_dir = PROJECT_ROOT / "configs" / "MSL"
     for dataset in ["uci_har", "mhealth", "pamap2"]:
         cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
         assert cfg["dataset"]["type"] == dataset
@@ -106,7 +106,7 @@ def test_fold_override_generates_dataset_protocols_without_fold_configs():
         "iemocap": (5, "session_5fold_loso_fold5"),
     }
     for dataset, (fold, expected_protocol) in cases.items():
-        cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / f"{dataset}.config"))
+        cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "MSL" / f"{dataset}.config"))
         overridden = apply_experiment_overrides(cfg, fold=fold)
         assert split_protocol_for_fold(dataset, fold) == expected_protocol
         assert overridden["dataset"]["split_protocol"] == expected_protocol
@@ -131,7 +131,7 @@ def test_config_artifacts_preserve_source_bytes_and_resolved_snapshot(tmp_path):
 
 
 def test_signature_excludes_seed_attempt_and_paths_but_tracks_training_changes():
-    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "uci_har.config"))
+    cfg = normalize_experiment_config(load_config(PROJECT_ROOT / "configs" / "MSL" / "uci_har.config"))
     signature = experiment_config_signature(cfg)
     changed_runtime = {**cfg, "seed": 505, "base_dir": "/tmp/elsewhere"}
     assert experiment_config_signature(changed_runtime) == signature

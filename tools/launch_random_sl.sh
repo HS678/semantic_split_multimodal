@@ -39,7 +39,7 @@ run_stage3() {
     fold_args=(--fold "$fold")
   fi
   echo "[$(date '+%F %T')] randomSL stage3 dataset=${name} config=${config} seed=${seed}${fold:+ fold=${fold}}"
-  "$PYTHON" scripts/baseline_random_sl.py --config "$config" --seed "$seed" "${fold_args[@]}"
+  "$PYTHON" scripts/baseline/randomSL/stage3_train.py --config "$config" --seed "$seed" "${fold_args[@]}"
 }
 
 run_dataset() {
@@ -80,5 +80,5 @@ else
   run_dataset "$dataset"
 fi
 
-"$PYTHON" scripts/summarize_results.py --results-root "$RESULTS_ROOT"
+"$PYTHON" scripts/MSL/summarize_results.py --results-root "$RESULTS_ROOT"
 echo "[$(date '+%F %T')] randomSL launcher finished."
