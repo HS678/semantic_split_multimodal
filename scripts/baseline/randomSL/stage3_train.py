@@ -31,8 +31,9 @@ if str(SRC) not in sys.path:
 
 from baseline.randomSL.training import run_random_sl_stage3_split_training
 from MSL.evaluation.plot_training_curves import write_training_curves
-from MSL.utils.config import apply_experiment_overrides, load_config, normalize_experiment_config, save_config_artifacts
+from MSL.utils.config import save_config_artifacts
 from MSL.utils.device import select_device
+from MSL.utils.experiment_args import add_experiment_args, load_experiment_config_from_args, print_resolved_config
 from MSL.utils.results import resolve_stage_paths
 from MSL.utils.seed import set_seed
 
@@ -70,19 +71,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Stage 3 baseline: random-scheduling Split Learning (randomSL)."
     )
-    parser.add_argument("--config", required=True, help="Path to INI-style .config file")
-    parser.add_argument("--fold", type=int, help="Override dataset.split_protocol from the dataset fold template.")
-    parser.add_argument("--split-protocol", help="Override dataset.split_protocol directly.")
-    parser.add_argument(
-        "--seed",
-        type=int,
-        help="Override the Stage3 experiment seed in memory; does not modify the source .config or affect Stage1/Stage2",
-    )
-    parser.add_argument(
-        "--fusion-training-objective",
-        choices=["label_random_ce", "mmbind_weighted_contrastive"],
-        help="Override fusion.training_objective in memory and record it in resolved_config.config",
-    )
+    add_experiment_args(parser, baseline=True, include_seed=True)
     parser.add_argument("--stage1-dir", help="Optional override for stage3.stage1_dir")
     parser.add_argument("--stage2-dir", help="Optional override for stage3.stage2_dir")
     parser.add_argument("--output-root", help="Optional override for stage3.output_root")
@@ -97,8 +86,10 @@ def parse_args(argv=None):
 def main(argv=None):
     stage3 = _load_stage3_script()
     args = parse_args(argv)
-    cfg = normalize_experiment_config(load_config(args.config))
-    cfg = apply_experiment_overrides(cfg, fold=args.fold, split_protocol=args.split_protocol)
+    cfg, source_path = load_experiment_config_from_args(args, baseline=True)
+    if args.print_config:
+        print_resolved_config(cfg)
+        return
     msl_cfg = {**cfg, "base_dir": str(ROOT / "results" / "MSL")}
     stage3_cfg = cfg.get("stage3", {})
     stage1_dir = args.stage1_dir or stage3_cfg.get("stage1_dir")
@@ -115,13 +106,7 @@ def main(argv=None):
             "Set stage3.stage1_dir and stage3.stage2_dir in the .config file or pass CLI overrides."
         )
     attempt = args.attempt if args.attempt is not None else int(stage3_cfg.get("attempt", 1))
-    resolved_seed = int(args.seed) if args.seed is not None else int(cfg.get("seed", 42))
-    cfg = {**cfg, "seed": resolved_seed}
-    if args.fusion_training_objective is not None:
-        cfg["fusion"] = {
-            **cfg.get("fusion", {}),
-            "training_objective": args.fusion_training_objective,
-        }
+    resolved_seed = int(cfg.get("seed", 42))
     # attempt 自动递增：同 loss 目录已存在时自动尝试下一个 attempt，避免覆盖旧结果。
     run_cfg = None
     paths = None
@@ -143,7 +128,7 @@ def main(argv=None):
     audit = stage3.audit_stage3_inputs(run_cfg, paths["stage1_dir"], paths["stage2_dir"])
 
     paths["run_dir"].mkdir(parents=True, exist_ok=True)
-    save_config_artifacts(args.config, run_cfg, paths["run_dir"])
+    save_config_artifacts(source_path, run_cfg, paths["run_dir"])
 
     start = stage3._utc_now()
     stage3._metadata.start_monotonic = time.time()

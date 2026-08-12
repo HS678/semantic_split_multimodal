@@ -63,7 +63,20 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 
 ## 配置
 
-`configs/MSL/` 下每个数据集一份独立完整配置；多折数据集通过 `--fold N` 从数据集默认模板生成划分协议。配置统一分段结构：
+每个脚本都可以直接通过 `--dataset` 加载数据集默认参数。用 `--print-config` 可以查看某个数据集的完整 resolved 参数：
+
+```bash
+python scripts/MSL/stage3_train.py --dataset mhealth --fold 1 --print-config
+python scripts/baseline/randomSL/stage3_train.py --dataset pamap2 --fold 2 --print-config
+```
+
+命令行参数会覆盖数据集默认参数：
+
+```bash
+python scripts/MSL/stage3_train.py --dataset uci_har --seed 101 --global-rounds 50 --client-lr 0.0001
+```
+
+`configs/MSL/` 和 `configs/baseline/` 保留正式设置的可读快照；多折数据集通过 `--fold N` 从数据集默认模板生成划分协议。配置统一分段结构：
 
 ```ini
 [config]      # experiment_name、base_dir（seed/device 已内置；--seed 覆盖）
@@ -97,7 +110,7 @@ bash tools/dataset/iemocap/stage2.sh
 Stage1 和 Stage2 都存在后，Stage3 可以反复使用这两个公共产物运行不同 seed、loss 或 attempt：
 
 ```bash
-python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
+python scripts/MSL/stage3_train.py --dataset uci_har --seed 101
 ```
 
 Stage3 启动脚本只复用已有 Stage1/Stage2 产物并写入 Stage3 结果：

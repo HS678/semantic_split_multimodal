@@ -63,7 +63,20 @@ PYTHONPATH=src python -m MSL.data.prepare_iemocap --device cuda
 
 ## Config
 
-`configs/MSL/` contains one self-contained config per dataset. Multi-fold datasets use `--fold N` to derive the split protocol from dataset defaults. Every config uses the same sections:
+Each script can load dataset defaults directly with `--dataset`. Use `--print-config` to inspect the complete resolved parameters for a dataset:
+
+```bash
+python scripts/MSL/stage3_train.py --dataset mhealth --fold 1 --print-config
+python scripts/baseline/randomSL/stage3_train.py --dataset pamap2 --fold 2 --print-config
+```
+
+Command-line options override dataset defaults:
+
+```bash
+python scripts/MSL/stage3_train.py --dataset uci_har --seed 101 --global-rounds 50 --client-lr 0.0001
+```
+
+`configs/MSL/` and `configs/baseline/` keep readable config snapshots for the official settings. Multi-fold datasets use `--fold N` to derive the split protocol from dataset defaults. Every config uses the same sections:
 
 ```ini
 [config]      # experiment_name, base_dir (seed/device built-in; --seed overrides)
@@ -97,7 +110,7 @@ bash tools/dataset/iemocap/stage2.sh
 After Stage1 and Stage2 exist, Stage3 can be run repeatedly with different seeds, losses, or attempts:
 
 ```bash
-python scripts/MSL/stage3_train.py --config configs/MSL/uci_har.config --seed 101
+python scripts/MSL/stage3_train.py --dataset uci_har --seed 101
 ```
 
 Stage3 launchers reuse existing Stage1/Stage2 artifacts and write only Stage3 results:

@@ -10,6 +10,7 @@ from MSL.utils.config import (
     split_protocol_for_fold,
     write_config,
 )
+from MSL.utils.experiment_args import load_experiment_config_from_args
 from MSL.utils.results import (
     cluster_assignment_scope,
     experiment_config_signature,
@@ -17,6 +18,33 @@ from MSL.utils.results import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class Args:
+    def __init__(self, **kwargs):
+        defaults = {
+            "config": None,
+            "dataset": "mhealth",
+            "fold": None,
+            "split_protocol": None,
+            "clients": None,
+            "global_rounds": None,
+            "client_lr": None,
+            "server_lr": None,
+            "batch_size": None,
+            "eval_batch_size": None,
+            "clients_per_cluster_per_round": None,
+            "pretrain_epochs": None,
+            "pretrain_lr": None,
+            "fingerprint_type": None,
+            "fusion_training_objective": None,
+            "cluster_assignment_source": None,
+            "scheduler": None,
+            "seed": None,
+            "print_config": False,
+        }
+        defaults.update(kwargs)
+        self.__dict__.update(defaults)
 
 
 def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
@@ -32,6 +60,7 @@ def test_all_dataset_configs_are_ini_style_and_use_pred_cluster_for_mainline():
         assert cfg["dataset"]["type"] == dataset
         assert cfg["base_dir"] == "./results/MSL"
         assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
+        assert "global_rounds" in cfg["training"]
         assert cfg["partition"]["clients_per_modality"] == 10
         assert cfg["cluster"]["method"] == "adaptive_isodata"
         assert cfg["evaluation"]["run_test"] is True
@@ -151,4 +180,33 @@ def test_baseline_configs_write_under_results_and_reuse_msl_artifacts_by_default
         cfg = normalize_experiment_config(load_config(config_dir / f"{dataset}.config"))
         assert cfg["base_dir"] == "./results/baseline/randomSL"
         assert cfg["training"]["cluster_assignment_source"] == "pred_cluster"
+        assert "global_rounds" in cfg["training"]
         assert "stage3" not in cfg
+
+
+def test_dataset_arg_loads_full_defaults_and_cli_overrides():
+    args = Args(
+        dataset="mhealth",
+        fold=3,
+        clients=20,
+        global_rounds=50,
+        client_lr=0.0007,
+        fusion_training_objective="label_random_ce",
+    )
+    cfg, source_path = load_experiment_config_from_args(args)
+    assert source_path is None
+    assert cfg["dataset"]["type"] == "mhealth"
+    assert cfg["dataset"]["split_protocol"] == "subject_5fold_fold3"
+    assert cfg["partition"]["clients_per_modality"] == 20
+    assert cfg["training"]["global_rounds"] == 50
+    assert cfg["training"]["client_lr"] == 0.0007
+    assert cfg["fusion"]["training_objective"] == "label_random_ce"
+    assert cfg["model"]["encoder"]["type"] == "temporal_conv_gru"
+
+
+def test_baseline_dataset_arg_defaults_to_random_scheduler():
+    cfg, source_path = load_experiment_config_from_args(Args(dataset="pamap2", fold=2), baseline=True)
+    assert source_path is None
+    assert cfg["base_dir"] == "./results/baseline/randomSL"
+    assert cfg["dataset"]["split_protocol"] == "subject_9fold_loso_fold2"
+    assert cfg["training"]["scheduler"] == "random"

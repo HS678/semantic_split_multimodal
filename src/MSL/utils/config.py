@@ -348,15 +348,18 @@ def write_config(cfg: dict, path: str | Path) -> Path:
     return output_path
 
 
-def save_config_artifacts(source_path: str | Path, resolved_cfg: dict, output_dir: str | Path) -> dict:
-    source = Path(source_path).resolve()
-    if source.suffix.lower() != ".config" or not source.is_file():
-        raise ValueError(f"Source config must be an existing .config file: {source}")
+def save_config_artifacts(source_path: str | Path | None, resolved_cfg: dict, output_dir: str | Path) -> dict:
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     source_copy = destination / "source_config.config"
     resolved_snapshot = destination / "resolved_config.config"
-    shutil.copy2(source, source_copy)
+    if source_path is None:
+        write_config(resolved_cfg, source_copy)
+    else:
+        source = Path(source_path).resolve()
+        if source.suffix.lower() != ".config" or not source.is_file():
+            raise ValueError(f"Source config must be an existing .config file: {source}")
+        shutil.copy2(source, source_copy)
     write_config(resolved_cfg, resolved_snapshot)
     return {
         "source_config": str(source_copy),
