@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -118,6 +119,12 @@ def runtime_metadata(root: Path, dataset: str, fold: int | None, seed: int, meth
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git_commit": git_commit(root),
     }
+
+
+# 对配置快照计算稳定 hash，供 resume 校验。
+def stable_config_hash(payload: dict) -> str:
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 # 检查正式实验入口没有导入 mock/synthetic/dummy 数据模块。

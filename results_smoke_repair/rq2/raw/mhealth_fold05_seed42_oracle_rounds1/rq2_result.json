@@ -1,0 +1,997 @@
+{
+  "Q_hat": 4,
+  "accuracy": 0.0903954802259887,
+  "candidate_labels_per_round": [
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ]
+  ],
+  "checkpoint_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke_repair/rq2/checkpoints/mhealth_fold05_seed42_oracle_rounds1",
+  "cluster_metadata_path": "/home/shuang/testWorkspace/semantic_split_multimodal/local/results_msl/cluster/mhealth/acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold5/adaptive_isodata/feasibility_metadata.json",
+  "cluster_sizes_after": {
+    "0": 10,
+    "1": 10,
+    "2": 10,
+    "3": 10
+  },
+  "cluster_sizes_before": {
+    "0": 10,
+    "1": 10,
+    "2": 10,
+    "3": 10
+  },
+  "config_hash": "01730b53347e8aa3",
+  "config_snapshot": {
+    "base_dir": "./results/MSL",
+    "binding": {
+      "batch_size": 64,
+      "type": "label_random"
+    },
+    "cluster": {
+      "adaptive": {
+        "bic_improvement_min": 30.0,
+        "max_iter": 20,
+        "min_cluster_size": 2,
+        "min_cluster_size_fraction": null,
+        "min_split_silhouette": 0.2,
+        "pca_variance": 0.95,
+        "q_max": 8,
+        "seeds": [
+          11,
+          23,
+          37,
+          53,
+          71
+        ],
+        "silhouette_patience": 2,
+        "split_kmeans_restarts": 50,
+        "stability_min_ari": 0.75,
+        "variance_epsilon": 1e-08
+      },
+      "known_k": null,
+      "method": "adaptive_isodata",
+      "output_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/local/results_msl/cluster/mhealth/acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold5/adaptive_isodata"
+    },
+    "d2d": {
+      "enabled": false
+    },
+    "dataset": {
+      "normalize": true,
+      "root": "./local/datasets/MHEALTH",
+      "split_protocol": "subject_5fold_fold5",
+      "split_protocol_template": "subject_5fold_fold{fold}",
+      "type": "mhealth"
+    },
+    "device": "auto",
+    "encoder_hidden_dim": 128,
+    "evaluation": {
+      "run_test": true
+    },
+    "experiment_name": "mhealth_msl",
+    "fingerprint": {
+      "batch_size": 64,
+      "max_batches": 4,
+      "type": "signal"
+    },
+    "fingerprint_visualization": {
+      "ellipse_confidence": 0.95,
+      "enabled": true,
+      "method": "pca",
+      "png_dpi": 600,
+      "show_client_ids": false,
+      "show_ellipses": true,
+      "standardize": true
+    },
+    "fusion": {
+      "adapter_dim": 128,
+      "dropout": 0.15,
+      "hidden_dim": 256,
+      "mmbind": {
+        "contrastive_weight": 0.1,
+        "heterogeneous_ce_weight": 0.5,
+        "temperature": 0.1
+      },
+      "num_layers": 2,
+      "training_objective": "mmbind_weighted_contrastive",
+      "type": "concat_mlp"
+    },
+    "model": {
+      "encoder": {
+        "bidirectional": true,
+        "conv_channels": [
+          64,
+          128,
+          128
+        ],
+        "dropout": 0.15,
+        "gru_hidden_dim": 128,
+        "gru_layers": 2,
+        "kernel_sizes": [
+          7,
+          5,
+          3
+        ],
+        "pooling": "attention",
+        "type": "temporal_conv_gru"
+      },
+      "encoders": {}
+    },
+    "num_classes": 12,
+    "partition": {
+      "clients_per_modality": 10,
+      "output_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/local/results_msl/partition/mhealth/acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold5"
+    },
+    "pretrain": {
+      "batch_size": 64,
+      "class_weighting": "inverse_sqrt",
+      "epochs": 5,
+      "lr": 0.0005,
+      "max_grad_norm": 5.0,
+      "objective": "classification",
+      "weight_decay": 0.0001
+    },
+    "result": {
+      "output_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke_repair/rq2/raw/mhealth_fold05_seed42_oracle_rounds1"
+    },
+    "result_model": {
+      "output_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke_repair/rq2/checkpoints/mhealth_fold05_seed42_oracle_rounds1"
+    },
+    "rq2_method": "oracle",
+    "runtime_overrides": {
+      "fold": 5,
+      "split_protocol": "subject_5fold_fold5"
+    },
+    "seed": 42,
+    "training": {
+      "batch_size": 64,
+      "class_weighting": "inverse_sqrt",
+      "client_lr": 0.0002,
+      "client_weight_decay": 0.0001,
+      "clients_per_cluster_per_round": 2,
+      "cluster_assignment_source": "true_cluster",
+      "eval_batch_size": 128,
+      "global_rounds": 1,
+      "local_steps": 1,
+      "max_grad_norm": 5.0,
+      "scheduler": "balanced_cluster_round_robin",
+      "server_lr": 0.0002,
+      "server_weight_decay": 0.0001
+    }
+  },
+  "coverage_per_round": [
+    1.0
+  ],
+  "curve_path": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke_repair/rq2/raw/mhealth_fold05_seed42_oracle_rounds1/train_log.csv",
+  "dataset": "mhealth",
+  "device": "cpu",
+  "empty_binding_per_round": [
+    false
+  ],
+  "empty_cluster_count_per_round": [
+    0
+  ],
+  "feasibility_checked": true,
+  "feasibility_repair_applied": false,
+  "fingerprint_type": "signal",
+  "fold": 5,
+  "git_commit": "911e70458ddc92f5c8af8d8c5074ada3c5bf7cd7",
+  "loss_mean": 4.163578033447266,
+  "loss_std": 0.0,
+  "loss_variance": 0.0,
+  "macro_f1": 0.01381692573402418,
+  "method": "oracle",
+  "metrics": {
+    "best_round": 1,
+    "binding": "label_random",
+    "binding_success_rate": 1.0,
+    "checkpoint": "last_model.pt",
+    "class_weighting": "inverse_sqrt",
+    "class_weights": [
+      0.9352625608444214,
+      0.9352625608444214,
+      0.9352625608444214,
+      0.9352625608444214,
+      0.9415438771247864,
+      0.9777960181236267,
+      0.9584864377975464,
+      0.9544954895973206,
+      0.9340213537216187,
+      0.9352625608444214,
+      0.9352625608444214,
+      1.6220808029174805
+    ],
+    "clients_per_cluster_per_round": 2,
+    "clients_per_round": 8,
+    "cluster_assignment_path": "/home/shuang/testWorkspace/semantic_split_multimodal/local/results_msl/cluster/mhealth/acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold5/adaptive_isodata/true_cluster.csv",
+    "cluster_assignment_source": "true_cluster",
+    "cluster_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "cluster_to_slot": {
+      "0": 0,
+      "1": 1,
+      "2": 2,
+      "3": 3
+    },
+    "configured_global_rounds": 1,
+    "configured_local_steps": 1,
+    "device": "cpu",
+    "effective_global_rounds": 1,
+    "empty_binding_rounds": 0,
+    "estimated_num_clusters": 4,
+    "evaluation_mode": "formal_test",
+    "executed_global_rounds": 1,
+    "fusion": "concat_mlp",
+    "fusion_training": {
+      "contrastive_weight": 0.1,
+      "heterogeneous_ce_weight": 0.5,
+      "objective": "mmbind_weighted_contrastive",
+      "temperature": 0.1
+    },
+    "local_step_binding_success_rate": 1.0,
+    "official_result": {
+      "metrics_file": "final_metrics.json",
+      "model_file": "last_model.pt",
+      "selection": "fixed_rounds_no_validation"
+    },
+    "oracle_eval_mapping": {
+      "N_mq": {
+        "0": {
+          "0": 10,
+          "1": 0,
+          "2": 0,
+          "3": 0
+        },
+        "1": {
+          "0": 0,
+          "1": 10,
+          "2": 0,
+          "3": 0
+        },
+        "2": {
+          "0": 0,
+          "1": 0,
+          "2": 10,
+          "3": 0
+        },
+        "3": {
+          "0": 0,
+          "1": 0,
+          "2": 0,
+          "3": 10
+        }
+      },
+      "P_mq": {
+        "0": {
+          "0": 1.0,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 0.0
+        },
+        "1": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0,
+          "3": 0.0
+        },
+        "2": {
+          "0": 0.0,
+          "1": 0.0,
+          "2": 1.0,
+          "3": 0.0
+        },
+        "3": {
+          "0": 0.0,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 1.0
+        }
+      },
+      "client_rows": [
+        {
+          "client_id": "client_000",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_001",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_002",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_003",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_004",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_005",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_006",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_007",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_008",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_009",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 0,
+          "hidden_modality_name": "acc",
+          "pred_cluster": 0
+        },
+        {
+          "client_id": "client_010",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_011",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_012",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_013",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_014",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_015",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_016",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_017",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_018",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_019",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 1,
+          "hidden_modality_name": "gyro",
+          "pred_cluster": 1
+        },
+        {
+          "client_id": "client_020",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_021",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_022",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_023",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_024",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_025",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_026",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_027",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_028",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_029",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 2,
+          "hidden_modality_name": "mag",
+          "pred_cluster": 2
+        },
+        {
+          "client_id": "client_030",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_031",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_032",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_033",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_034",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_035",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_036",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_037",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_038",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        },
+        {
+          "client_id": "client_039",
+          "encoder_type": "temporal_conv_gru",
+          "hidden_modality_id": 3,
+          "hidden_modality_name": "ecg",
+          "pred_cluster": 3
+        }
+      ],
+      "cluster_to_modalities": {
+        "0": [
+          0
+        ],
+        "1": [
+          1
+        ],
+        "2": [
+          2
+        ],
+        "3": [
+          3
+        ]
+      },
+      "estimated_Q": 4,
+      "failure_reason": null,
+      "mapping_type": "tolerant_evaluation_only",
+      "modality_to_clusters": {
+        "0": [
+          0
+        ],
+        "1": [
+          1
+        ],
+        "2": [
+          2
+        ],
+        "3": [
+          3
+        ]
+      },
+      "pred_clusters": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "status": "success",
+      "true_Q": 4,
+      "true_modalities": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "uses_hidden_modality_id": true
+    },
+    "scheduler": "balanced_cluster_round_robin",
+    "selected_by": "fixed_rounds_no_validation",
+    "stop_reason": "max_global_rounds",
+    "stop_round": 1,
+    "test_accuracy": 0.0903954802259887,
+    "test_balanced_accuracy": 0.08333333333333333,
+    "test_binary_f1": null,
+    "test_confusion_matrix": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        93,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        96,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        91,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        94,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        30,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "test_eval_failure_reason": null,
+    "test_eval_status": "success",
+    "test_evaluation_count": 1,
+    "test_loss": 2.483371899850849,
+    "test_macro_f1": 0.01381692573402418,
+    "test_macro_recall": 0.08333333333333333,
+    "test_num_eval_batches": 9,
+    "test_num_eval_samples": 1062,
+    "test_per_class_f1": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.16580310880829016,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "test_per_class_precision": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0903954802259887,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "test_per_class_recall": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "test_per_class_support": [
+      94,
+      94,
+      94,
+      94,
+      94,
+      93,
+      96,
+      91,
+      94,
+      94,
+      94,
+      30
+    ],
+    "test_weighted_f1": 0.014987851643687246,
+    "total_attempted_local_steps": 1,
+    "total_effective_local_steps": 1,
+    "total_empty_binding_local_steps": 0
+  },
+  "normalized_pseudo_yield_per_round": [
+    1.0
+  ],
+  "num_reassigned_clients": 0,
+  "pseudo_batch_size_per_round": [
+    64
+  ],
+  "r": 2,
+  "raw_cluster_assignment": {
+    "client_000": 0,
+    "client_001": 0,
+    "client_002": 0,
+    "client_003": 0,
+    "client_004": 0,
+    "client_005": 0,
+    "client_006": 0,
+    "client_007": 0,
+    "client_008": 0,
+    "client_009": 0,
+    "client_010": 1,
+    "client_011": 1,
+    "client_012": 1,
+    "client_013": 1,
+    "client_014": 1,
+    "client_015": 1,
+    "client_016": 1,
+    "client_017": 1,
+    "client_018": 1,
+    "client_019": 1,
+    "client_020": 2,
+    "client_021": 2,
+    "client_022": 2,
+    "client_023": 2,
+    "client_024": 2,
+    "client_025": 2,
+    "client_026": 2,
+    "client_027": 2,
+    "client_028": 2,
+    "client_029": 2,
+    "client_030": 3,
+    "client_031": 3,
+    "client_032": 3,
+    "client_033": 3,
+    "client_034": 3,
+    "client_035": 3,
+    "client_036": 3,
+    "client_037": 3,
+    "client_038": 3,
+    "client_039": 3
+  },
+  "run_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke_repair/rq2/raw/mhealth_fold05_seed42_oracle_rounds1",
+  "runtime_seconds": 4.073632478713989,
+  "seed": 42,
+  "selected_client_count_per_round": [
+    8
+  ],
+  "selected_cluster_counts_per_round": [
+    {
+      "0": 2,
+      "1": 2,
+      "2": 2,
+      "3": 2
+    }
+  ],
+  "status": "success",
+  "timestamp": "2026-08-16T23:09:44+0800",
+  "training_cluster_assignment": {
+    "client_000": 0,
+    "client_001": 0,
+    "client_002": 0,
+    "client_003": 0,
+    "client_004": 0,
+    "client_005": 0,
+    "client_006": 0,
+    "client_007": 0,
+    "client_008": 0,
+    "client_009": 0,
+    "client_010": 1,
+    "client_011": 1,
+    "client_012": 1,
+    "client_013": 1,
+    "client_014": 1,
+    "client_015": 1,
+    "client_016": 1,
+    "client_017": 1,
+    "client_018": 1,
+    "client_019": 1,
+    "client_020": 2,
+    "client_021": 2,
+    "client_022": 2,
+    "client_023": 2,
+    "client_024": 2,
+    "client_025": 2,
+    "client_026": 2,
+    "client_027": 2,
+    "client_028": 2,
+    "client_029": 2,
+    "client_030": 3,
+    "client_031": 3,
+    "client_032": 3,
+    "client_033": 3,
+    "client_034": 3,
+    "client_035": 3,
+    "client_036": 3,
+    "client_037": 3,
+    "client_038": 3,
+    "client_039": 3
+  },
+  "training_loss_per_round": [
+    4.163578033447266
+  ],
+  "violating_clusters_before": [],
+  "yield_definition": {
+    "denominator": "configured requested pseudo tuple budget for that round",
+    "formula": "pseudo_batch_size_per_round / (binding.batch_size * attempted_local_steps)",
+    "name": "pseudo_samples_over_requested_tuple_budget",
+    "numerator": "actual complete same-label pseudo multimodal tuples built in the round"
+  }
+}

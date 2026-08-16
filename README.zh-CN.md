@@ -138,8 +138,24 @@ RQ2 支持 `ours`、`randomsl`、`kmeans2`、`kmeans3`、`kmeans5`、`oracle`。
 完整 RQ2：
 
 ```bash
-python experiments/run_all_rq2.py
+python experiments/run_all_rq2.py --results-root results
 ```
+
+如果当前机器不能使用 CUDA，且不希望误用 CPU 跑完整正式实验：
+
+```bash
+conda run -n mpsl python experiments/run_all_rq2.py --results-root results --device auto --require-cuda
+```
+
+正式 RQ2 runner 使用 deterministic run key，支持 resume：已有 `status=success` 且 `config_hash` 匹配的 run 会跳过；已有 `status=failed` 默认作为失败记录进入 summary，显式 `--retry-failed` 才重跑失败 run。中断留下但没有 `rq2_result.json` / `failed_run.json` 的目录不会被当成完成。
+
+Normalized pseudo yield 固定为：
+
+```text
+pseudo_batch_size_per_round / (binding.batch_size * attempted_local_steps)
+```
+
+分子是本轮实际构造出的完整 same-label pseudo multimodal tuple 数，分母是该轮按配置请求构造的 tuple budget。该定义写入每个 RQ2 result 的 `yield_definition`。
 
 旧 Stage3 入口仍可用于兼容运行：
 
