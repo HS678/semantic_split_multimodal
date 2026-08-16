@@ -1,0 +1,8 @@
+formal_seeds: [42, 123, 2025, 3407, 7777]
+clients_per_modality: 10
+clients_per_cluster_per_round: 2
+rq1_methods: [adaptive_isodata, kmeans2, kmeans3, kmeans5]
+rq2_methods: [ours, randomsl, kmeans2, kmeans3, kmeans5, oracle]
+acceleration:
+  enabled: false
+  note: "fast-client / slow-client acceleration is reserved for RQ3 and is not part of RQ1/RQ2."

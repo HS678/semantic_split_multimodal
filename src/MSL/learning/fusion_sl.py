@@ -346,11 +346,6 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
     expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
     selected_clusters = sorted({int(client.pred_cluster) for client in selected})
     missing_clusters = sorted(set(expected_clusters) - set(selected_clusters))
-    if missing_clusters:
-        raise RuntimeError(
-            "Scheduler failed to cover all predicted clusters: "
-            f"expected={expected_clusters}, selected={selected_clusters}, missing={missing_clusters}"
-        )
 
     configured_local_steps = int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1)))
     if configured_local_steps <= 0:
@@ -418,6 +413,12 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         weighted_f1 = 0.0
     binding_success_rate = float(effective_local_steps / max(1, attempted_local_steps))
     round_status = "empty_binding_round" if empty_binding_round else "effective"
+    if missing_clusters:
+        empty_binding_reason = "missing_cluster"
+    elif empty_binding_round:
+        empty_binding_reason = "no_common_label"
+    else:
+        empty_binding_reason = None
 
     return {
         "loss": mean_loss,
@@ -447,6 +448,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         "client_update_l1": float(client_update_l1),
         "fusion_training_objective": _fusion_training_spec(cfg)["objective"],
         "binding_confidence_mean": float(sum(binding_confidences) / max(1, len(binding_confidences))) if binding_confidences else 0.0,
+        "missing_cluster_ids": missing_clusters,
+        "empty_binding_reason": empty_binding_reason,
     }
 
 
@@ -479,6 +482,13 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
     cluster_assignment_source, cluster_assignment_path, cluster_assignment_column = _cluster_assignment_spec(
         cfg, cluster_dir
     )
+    cfg = dict(cfg)
+    cfg["evaluation"] = {
+        **dict(cfg.get("evaluation", {})),
+        "client_meta_path": str(partition_dir / "client_meta.csv"),
+        "cluster_assignment_path": str(cluster_assignment_path),
+        "cluster_assignment_column": str(cluster_assignment_column),
+    }
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}

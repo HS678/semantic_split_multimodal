@@ -10,7 +10,7 @@
 
 1. **Stage 1（数据划分）** — `scripts/MSL/stage1_partition.py` 把自然配对的多模态数据拆成单模态客户端。只有 train 被划分；test 保持自然配对（`test_multimodal.pt`）。
 2. **Stage 2（模态发现）** — `scripts/MSL/stage2_discovery.py` 为每个客户端预训练 encoder、提取 fingerprint、用 adaptive ISODATA 聚类，输出 `pred_cluster.csv`（另存 `true_cluster.csv` 供审计）。
-3. **Stage 3（训练）** — `scripts/MSL/stage3_train.py` 执行聚类感知调度、label-guided semantic pseudo binding、`ClusterAdapter` + concat fusion、Split Learning，固定轮数训练。无验证集：`global_rounds` 结束后直接用 `last_model.pt` 在 `test_multimodal.pt` 上评估一次。
+3. **RQ2 / Stage 3（训练）** — `experiments/run_rq2_training.py` 使用共享 Split Learning trainer，通过 policy 切换 Ours、RandomSL、KMeans-2/3/5-SL 和 Oracle-SL。无验证集：`global_rounds` 结束后直接用 `last_model.pt` 在 `test_multimodal.pt` 上评估一次。
 
 本项目不是联邦学习，不使用 FedAvg。客户端上传 detached 激活；服务器计算 loss、反向传播融合模型，并把激活梯度路由回客户端 encoder。
 
@@ -34,6 +34,8 @@ python -m pip install -e .
 - 正式指标：`acc` / `macro_f1` / `weighted_f1`。
 - 配置项 `training.cluster_assignment_source=true_cluster` 用于 oracle 上限对比；正式无泄漏主线为 `pred_cluster`。
 - D2D 尚未实现，`d2d.enabled=false` 仅保留扩展口。
+- RandomSL 每轮从所有客户端中完全随机选择 `r * Q_hat` 个不同客户端；`pred_cluster` 只在选择后用于 slot organization 和 coverage 统计，不用于补齐或重抽。
+- 测试使用 tolerant evaluation routing：仅在 evaluation layer 读取 `hidden_modality_id` 和 `pred_cluster`，构造 `N_mq/P_mq`，对每个 `(true modality, pred cluster)` 的训练后 client encoders 做参数平均，并支持 correct、split、merge、split+merge。
 
 ## 数据集
 
@@ -41,10 +43,10 @@ python -m pip install -e .
 
 | 数据集 | 划分协议 | 说明 |
 | --- | --- | --- |
-| UCI-HAR | `subject_disjoint_70_30` | 官方 70/30 固定划分；5 个 seed |
-| MHEALTH | `subject_5fold_foldN` | subject 级 5 折；1 个 seed |
-| PAMAP2 | `subject_8fold_loso_foldN` | subject 101-108 的 8 折 LOSO，因所选活动覆盖不足排除 subject 109；12 类活动，不含心率；1 个 seed |
-| IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；1 个 seed |
+| UCI-HAR | `subject_disjoint_70_30` | 官方 train/test；正式 seeds 为 `42,123,2025,3407,7777` |
+| MHEALTH | `subject_5fold_foldN` | subject 级 5 折；正式 seeds 为 `42,123,2025,3407,7777` |
+| PAMAP2 | `subject_9fold_loso_foldN` | subject 级 9 折 LOSO；12 类活动，不含心率；正式 seeds 为 `42,123,2025,3407,7777` |
+| IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；正式 seeds 为 `42,123,2025,3407,7777` |
 
 每个数据集的固定参数（num_classes、root、encoder、预训练/训练 lr、mmbind 权重、聚类默认参数）内置在 `src/MSL/data/dataset_defaults.py`，不重复写入配置文件。
 
@@ -106,7 +108,40 @@ bash tools/dataset/iemocap/stage1.sh
 bash tools/dataset/iemocap/stage2.sh
 ```
 
-Stage1 和 Stage2 都存在后，Stage3 可以反复使用这两个公共产物运行不同 seed、loss 或 attempt：
+Stage1 和 Stage2 都存在后，可以运行 RQ1 discovery：
+
+```bash
+python experiments/run_rq1_discovery.py \
+  --dataset pamap2 \
+  --fold 1 \
+  --seed 42 \
+  --method adaptive_isodata
+
+python experiments/run_rq1_discovery.py --dataset pamap2 --fold 1 --seed 42 --method kmeans2
+python experiments/run_all_rq1.py
+```
+
+RQ1 支持 `adaptive_isodata`、`kmeans2`、`kmeans3`、`kmeans5`。KMeans 方法复用同一套 Stage2 pretrained encoders 和 fingerprints，不重新预训练。
+
+RQ2 单方法运行：
+
+```bash
+python experiments/run_rq2_training.py \
+  --dataset pamap2 \
+  --fold 1 \
+  --seed 42 \
+  --method ours
+```
+
+RQ2 支持 `ours`、`randomsl`、`kmeans2`、`kmeans3`、`kmeans5`、`oracle`。全部方法共享 trainer、binding、server、loss 和 evaluator；只切换 discovery topology、scheduler policy 和 slot number。
+
+完整 RQ2：
+
+```bash
+python experiments/run_all_rq2.py
+```
+
+旧 Stage3 入口仍可用于兼容运行：
 
 ```bash
 python scripts/MSL/stage3_train.py --dataset uci_har --seed 101
@@ -124,15 +159,19 @@ Stage3 启动脚本默认 `MAX_JOBS=2` 并行运行。资源不够时用 `MAX_JO
 ## 结果目录
 
 ```text
-results/MSL/
-├── partition/<dataset>/<partition_signature>/   # Stage 1（train_clients/、test_multimodal.pt 等）
-├── cluster/<dataset>/<partition_signature>/adaptive_isodata/   # Stage 2（含 visualization/）
-├── experiments/<scope>/<dataset>/<loss>/attempt-<nn>/   # Stage 3 运行
-│   ├── seed-<ss>/          # 固定划分数据集（如 UCI-HAR，每个 seed 一个目录）
-│   ├── fold-<n>/           # 多折数据集（每折一个目录）
-│   └── summary.json        # 汇总该 attempt 下所有 seed/fold
-└── summary/<loss>/<dataset>.json  # 数据集级汇总（按 loss 分组）
+results/
+├── rq1/
+│   ├── raw/
+│   ├── aggregated/
+│   └── artifacts/
+└── rq2/
+    ├── raw/
+    ├── aggregated/
+    ├── checkpoints/
+    └── topologies/
 ```
+
+Stage1/Stage2 公共产物仍保留在 `results/MSL/` 或既有的 `local/results_msl/` 下。新 `experiments/` 入口会优先查找真实 Stage1/Stage2 产物，找不到会明确报错，不生成 mock 数据。
 
 Stage 输出不覆盖已有非空目录；重复同一 fold/seed 会自动生成下一个 `attempt-<nn>`。
 
@@ -153,5 +192,12 @@ python scripts/MSL/summarize_results.py --results-root results/MSL
 ## 测试
 
 ```bash
-PYTHONPATH=src python -m pytest tests -q
+conda run -n mpsl python -m pytest tests -q
+```
+
+最小真实 smoke 示例：
+
+```bash
+conda run -n mpsl python experiments/run_rq1_discovery.py --dataset mhealth --fold 1 --seed 42 --method kmeans2 --results-root results_smoke
+conda run -n mpsl python experiments/run_rq2_training.py --dataset mhealth --fold 1 --seed 42 --method randomsl --global-rounds 1 --device cpu --results-root results_smoke
 ```

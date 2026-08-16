@@ -1,0 +1,13 @@
+{
+  "checkpoint_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke/rq2/checkpoints/mhealth_fold04_seed42_kmeans5_20260816_224326",
+  "dataset": "mhealth",
+  "error_message": "clients_per_cluster_per_round cannot exceed the number of clients in pred_cluster 4: r=2, num_clients=1",
+  "error_type": "ValueError",
+  "fold": 4,
+  "git_commit": "6cd674a30357f059bd7e70ee5296634ccc336b8c",
+  "method": "kmeans5",
+  "run_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke/rq2/raw/mhealth_fold04_seed42_kmeans5_20260816_224326",
+  "seed": 42,
+  "status": "failed",
+  "timestamp": "2026-08-16T22:43:26+0800"
+}

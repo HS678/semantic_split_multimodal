@@ -19,6 +19,8 @@ DEFAULT_ADAPTIVE = {
     "split_kmeans_restarts": 50,
 }
 
+FORMAL_SEEDS = [42, 123, 2025, 3407, 7777]
+
 
 DATASET_DEFAULTS = {
     "uci_har": {
@@ -187,9 +189,9 @@ DATASET_DEFAULTS = {
         "num_classes": 12,
         "dataset": {
             "root": "./local/datasets/PAMAP2",
-            "split_protocol_template": "subject_8fold_loso_fold{fold}",
+            "split_protocol_template": "subject_9fold_loso_fold{fold}",
         },
-        "fold_count": 8,
+        "fold_count": 9,
         "default_global_rounds": 300,
         "pretrain": {
             "objective": "classification",

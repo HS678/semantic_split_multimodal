@@ -6,8 +6,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from MSL.evaluation.metrics import learning_metrics
 from MSL.evaluation.oracle_mapping import SUCCESS
+from MSL.evaluation.routing import build_tolerant_evaluation_routing, route_paired_batch
 
 
+# 使用 naturally paired test 数据执行 tolerant fusion evaluation。
 def evaluate_naturally_paired_fusion(
     server,
     clients_by_id,
@@ -31,19 +33,12 @@ def evaluate_naturally_paired_fusion(
     modality_names = list(payload["modality_names"])
     modalities = payload["modalities"]
     modality_lengths = payload.get("modality_lengths")
-    modality_to_cluster = {int(k): int(v) for k, v in oracle_mapping["modality_to_cluster"].items()}
-    representative_clients = {int(k): v for k, v in oracle_mapping["representative_clients"].items()}
-
-    missing_modalities = [idx for idx in range(len(modality_names)) if idx not in modality_to_cluster]
-    if missing_modalities:
-        return {
-            "eval_status": "failed",
-            "eval_failure_reason": "evaluation_mapping_incomplete",
-            "loss": None,
-            "accuracy": None,
-            "macro_f1": None,
-            "weighted_f1": None,
-        }
+    routing = build_tolerant_evaluation_routing(
+        Path(cfg["evaluation"]["client_meta_path"]),
+        Path(cfg["evaluation"]["cluster_assignment_path"]),
+        clients_by_id,
+        cfg["evaluation"].get("cluster_assignment_column", "pred_cluster"),
+    )
 
     tensors = [modalities[name] for name in modality_names]
     length_tensors = None
@@ -61,14 +56,12 @@ def evaluate_naturally_paired_fusion(
     total = 0
     num_eval_batches = 0
     eval_modality_ids = list(range(len(tensors)))
-    eval_cluster_ids = sorted(modality_to_cluster.values())
+    eval_cluster_ids = routing.pred_clusters
 
     server.eval()
-    used_clients = []
-    for client_id in representative_clients.values():
-        client = clients_by_id[client_id]
+    used_clients = list(clients_by_id.values())
+    for client in used_clients:
         client.encoder.eval()
-        used_clients.append(client)
 
     with torch.no_grad():
         for batch in loader:
@@ -79,18 +72,7 @@ def evaluate_naturally_paired_fusion(
                 xs = list(batch[: len(tensors)])
                 batch_lengths = list(batch[len(tensors) : 2 * len(tensors)])
             yb = batch[-1]
-            slot_activations = {}
-            for modality_id, xb in enumerate(xs):
-                client_id = representative_clients[modality_id]
-                cluster_id = modality_to_cluster[modality_id]
-                client = clients_by_id[client_id]
-                lengths = batch_lengths[modality_id]
-                if lengths is not None:
-                    lengths = lengths.to(device)
-                xb = xb.to(device)
-                slot_activations[cluster_id] = (
-                    client.encoder(xb) if lengths is None else client.encoder(xb, lengths)
-                )
+            slot_activations = route_paired_batch(xs, batch_lengths, routing, device)
             logits, _ = server(slot_activations)
             pred = logits.argmax(dim=1)
             y_true.extend(yb.tolist())
@@ -113,7 +95,8 @@ def evaluate_naturally_paired_fusion(
             "num_eval_batches": int(num_eval_batches),
             "eval_modality_ids": eval_modality_ids,
             "eval_cluster_ids": eval_cluster_ids,
-            "oracle_mapping_type": oracle_mapping.get("mapping_type", "oracle_evaluation_only"),
+            "oracle_mapping_type": oracle_mapping.get("mapping_type", "tolerant_evaluation_only"),
+            "tolerant_routing": routing.to_metadata(),
         }
     )
     return metrics

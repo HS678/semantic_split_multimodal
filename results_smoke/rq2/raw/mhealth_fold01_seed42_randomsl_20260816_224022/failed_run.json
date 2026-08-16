@@ -1,0 +1,13 @@
+{
+  "checkpoint_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke/rq2/checkpoints/mhealth_fold01_seed42_randomsl_20260816_224022",
+  "dataset": "mhealth",
+  "error_message": "Non-floating encoder buffer differs for key conv.1.num_batches_tracked.",
+  "error_type": "ValueError",
+  "fold": 1,
+  "git_commit": "6cd674a30357f059bd7e70ee5296634ccc336b8c",
+  "method": "randomsl",
+  "run_dir": "/home/shuang/testWorkspace/semantic_split_multimodal/results_smoke/rq2/raw/mhealth_fold01_seed42_randomsl_20260816_224022",
+  "seed": 42,
+  "status": "failed",
+  "timestamp": "2026-08-16T22:40:22+0800"
+}

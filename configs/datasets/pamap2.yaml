@@ -1,0 +1,3 @@
+dataset: pamap2
+folds: 9
+split_protocol_template: subject_9fold_loso_fold{fold}

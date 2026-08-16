@@ -29,7 +29,7 @@ def add_experiment_args(parser: argparse.ArgumentParser, *, baseline: bool = Fal
 
     parser.add_argument("--pretrain-epochs", type=int, help="Stage2 client pretraining epochs.")
     parser.add_argument("--pretrain-lr", type=float, help="Stage2 pretraining learning rate.")
-    parser.add_argument("--fingerprint-type", choices=["signal", "logit", "hybrid"], help="Stage2 fingerprint type.")
+    parser.add_argument("--fingerprint-type", choices=["encoder", "signal", "hybrid"], help="Stage2 fingerprint type.")
 
     parser.add_argument(
         "--cluster-assignment-source",

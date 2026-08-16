@@ -166,6 +166,13 @@ def run_random_sl_stage3_split_training(cfg: dict, project_root: Path, device: t
     cluster_assignment_source, cluster_assignment_path, cluster_assignment_column = _cluster_assignment_spec(
         cfg, cluster_dir
     )
+    cfg = dict(cfg)
+    cfg["evaluation"] = {
+        **dict(cfg.get("evaluation", {})),
+        "client_meta_path": str(partition_dir / "client_meta.csv"),
+        "cluster_assignment_path": str(cluster_assignment_path),
+        "cluster_assignment_column": str(cluster_assignment_column),
+    }
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}
