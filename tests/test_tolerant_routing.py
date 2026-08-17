@@ -4,7 +4,6 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from MSL.evaluation.encoder_aggregation import average_encoder_state_dicts
 from MSL.evaluation.routing import (
     build_count_matrix,
     build_tolerant_evaluation_routing,
@@ -114,12 +113,29 @@ def test_routing_split_and_merge(tmp_path):
     assert_routing_case(tmp_path, rows, [0, 1])
 
 
-# 验证代表 encoder 参数平均 deterministic。
-def test_average_encoder_state_dicts():
-    e1 = TinyEncoder(1.0)
-    e2 = TinyEncoder(3.0)
-    averaged = average_encoder_state_dicts([e1.state_dict(), e2.state_dict()])
-    assert torch.allclose(averaged["linear.weight"], torch.full((2, 2), 2.0))
+# 验证同一 (true modality, predicted cluster) 下使用 activation mean。
+def test_route_paired_batch_uses_activation_mean_for_same_mq(tmp_path):
+    rows = [
+        {"client_id": "c0", "m": 0, "q": 0, "value": 1.0},
+        {"client_id": "c1", "m": 0, "q": 0, "value": 3.0},
+    ]
+    clients = {row["client_id"]: TinyClient(row["client_id"], row["value"]) for row in rows}
+    meta_path, assign_path = write_fixture_files(tmp_path, rows)
+    routing = build_tolerant_evaluation_routing(meta_path, assign_path, clients)
+
+    xs = [torch.ones(2, 2)]
+    slots = route_paired_batch(xs, [None], routing, torch.device("cpu"))
+
+    encoder1_output = torch.full((2, 2), 2.0)
+    encoder2_output = torch.full((2, 2), 6.0)
+    expected = torch.stack([encoder1_output, encoder2_output], dim=0).mean(dim=0)
+    assert torch.allclose(slots[0], expected)
+
+    metadata = routing.to_metadata()
+    assert metadata["evaluation_encoder_aggregation"] == "activation_mean"
+    assert metadata["activation_ensemble_keys"] == [
+        {"true_modality": 0, "pred_cluster": 0, "num_client_encoders": 2, "client_ids": ["c0", "c1"]}
+    ]
 
 
 # 验证 N_mq 与 P_mq 的列归一化逻辑。

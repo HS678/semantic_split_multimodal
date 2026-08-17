@@ -189,9 +189,9 @@ DATASET_DEFAULTS = {
         "num_classes": 12,
         "dataset": {
             "root": "./local/datasets/PAMAP2",
-            "split_protocol_template": "subject_9fold_loso_fold{fold}",
+            "split_protocol_template": "subject_8fold_loso_fold{fold}",
         },
-        "fold_count": 9,
+        "fold_count": 8,
         "default_global_rounds": 300,
         "pretrain": {
             "objective": "classification",

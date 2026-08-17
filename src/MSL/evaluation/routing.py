@@ -3,9 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from torch import nn
-
-from MSL.evaluation.encoder_aggregation import build_representative_encoder
 
 
 SUCCESS = "success"
@@ -17,7 +14,7 @@ class EvaluationRouting:
     pred_clusters: list[int]
     n_mq: dict[int, dict[int, int]]
     p_mq: dict[int, dict[int, float]]
-    representative_encoders: dict[tuple[int, int], nn.Module]
+    activation_ensemble_groups: dict[tuple[int, int], list[object]]
     client_rows: list[dict]
 
     # 返回可写入 JSON 的 routing 元数据。
@@ -26,6 +23,7 @@ class EvaluationRouting:
             "status": SUCCESS,
             "failure_reason": None,
             "mapping_type": "tolerant_evaluation_only",
+            "evaluation_encoder_aggregation": "activation_mean",
             "uses_hidden_modality_id": True,
             "true_modalities": [int(value) for value in self.true_modalities],
             "pred_clusters": [int(value) for value in self.pred_clusters],
@@ -37,11 +35,16 @@ class EvaluationRouting:
             },
             "P_mq": {
                 str(modality_id): {str(cluster_id): float(weight) for cluster_id, weight in row.items()}
-                for modality_id, row in self.p_mq.items()
+                    for modality_id, row in self.p_mq.items()
             },
-            "representative_encoder_keys": [
-                {"true_modality": int(modality_id), "pred_cluster": int(cluster_id)}
-                for modality_id, cluster_id in sorted(self.representative_encoders)
+            "activation_ensemble_keys": [
+                {
+                    "true_modality": int(modality_id),
+                    "pred_cluster": int(cluster_id),
+                    "num_client_encoders": int(len(clients)),
+                    "client_ids": [str(getattr(client, "client_id", "")) for client in clients],
+                }
+                for (modality_id, cluster_id), clients in sorted(self.activation_ensemble_groups.items())
             ],
             "client_rows": self.client_rows,
         }
@@ -103,8 +106,8 @@ def validate_probability_matrix(p_mq: dict[int, dict[int, float]], pred_clusters
             raise ValueError(f"P_mq column {cluster_id} is not normalized: sum={column_sum}")
 
 
-# 为每个非空 (true modality, predicted cluster) 组合平均训练后 client encoder。
-def build_representative_encoders(client_rows: list[dict], clients_by_id: dict[str, object]) -> dict[tuple[int, int], nn.Module]:
+# 为每个非空 (true modality, predicted cluster) 组合保存训练后的 client objects。
+def build_activation_ensemble_groups(client_rows: list[dict], clients_by_id: dict[str, object]) -> dict[tuple[int, int], list[object]]:
     grouped: dict[tuple[int, int], list[object]] = {}
     for row in sorted(client_rows, key=lambda item: str(item["client_id"])):
         client_id = str(row["client_id"])
@@ -113,15 +116,10 @@ def build_representative_encoders(client_rows: list[dict], clients_by_id: dict[s
         key = (int(row["hidden_modality_id"]), int(row["pred_cluster"]))
         grouped.setdefault(key, []).append(clients_by_id[client_id])
 
-    representatives = {}
-    for key, clients in sorted(grouped.items()):
-        encoders = [client.encoder for client in clients]
-        state_dicts = [encoder.state_dict() for encoder in encoders]
-        representative = build_representative_encoder(encoders[0], state_dicts)
-        representative.to(next(encoders[0].parameters()).device)
-        representative.eval()
-        representatives[key] = representative
-    return representatives
+    for clients in grouped.values():
+        for client in clients:
+            client.encoder.eval()
+    return grouped
 
 
 # 从 metadata、assignment 和训练后 client 构建 tolerant evaluation routing。
@@ -149,13 +147,13 @@ def build_tolerant_evaluation_routing(
     true_modalities, pred_clusters, n_mq = build_count_matrix(client_rows)
     p_mq = normalize_count_matrix(n_mq, pred_clusters)
     validate_probability_matrix(p_mq, pred_clusters)
-    representatives = build_representative_encoders(client_rows, clients_by_id)
+    activation_ensemble_groups = build_activation_ensemble_groups(client_rows, clients_by_id)
     return EvaluationRouting(
         true_modalities=true_modalities,
         pred_clusters=pred_clusters,
         n_mq=n_mq,
         p_mq=p_mq,
-        representative_encoders=representatives,
+        activation_ensemble_groups=activation_ensemble_groups,
         client_rows=client_rows,
     )
 
@@ -170,14 +168,19 @@ def route_paired_batch(xs, batch_lengths, routing: EvaluationRouting, device) ->
             weight = float(routing.p_mq[modality_id].get(cluster_id, 0.0))
             if count <= 0 or weight <= 0.0:
                 continue
-            encoder = routing.representative_encoders[(modality_id, cluster_id)]
+            clients = routing.activation_ensemble_groups[(modality_id, cluster_id)]
             xb = xs[modality_id].to(device)
             lengths = batch_lengths[modality_id]
             if lengths is not None:
                 lengths = lengths.to(device)
-            z = encoder(xb) if lengths is None else encoder(xb, lengths)
+            activations = []
+            for client in clients:
+                encoder = client.encoder
+                z = encoder(xb) if lengths is None else encoder(xb, lengths)
+                activations.append(z)
+            z = torch.stack(activations, dim=0).mean(dim=0)
             weighted_parts.append(z * weight)
         if not weighted_parts:
-            raise ValueError(f"No representative encoder available for predicted cluster {cluster_id}.")
+            raise ValueError(f"No activation ensemble available for predicted cluster {cluster_id}.")
         slot_activations[int(cluster_id)] = torch.stack(weighted_parts, dim=0).sum(dim=0)
     return slot_activations

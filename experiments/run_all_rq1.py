@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, FORMAL_SEEDS, RQ1_METHODS, formal_folds, write_json
+from experiments.common import DATASET_DEFAULTS, RQ1_METHODS, formal_result_dir, formal_run_grid, write_json
 from experiments.run_rq1_discovery import run_one
 
 
@@ -36,7 +36,7 @@ def aggregate(records: list[dict]) -> dict:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run all RQ1 discovery jobs on available real artifacts.")
     parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_DEFAULTS), default=list(DATASET_DEFAULTS))
-    parser.add_argument("--seeds", nargs="*", type=int, default=FORMAL_SEEDS)
+    parser.add_argument("--seeds", nargs="*", type=int)
     parser.add_argument("--results-root", default="results")
     return parser.parse_args(argv)
 
@@ -47,26 +47,25 @@ def main(argv=None):
     results_root = (ROOT / args.results_root).resolve()
     records = []
     for dataset in args.datasets:
-        for fold in formal_folds(dataset):
-            for seed in args.seeds:
-                for method in RQ1_METHODS:
-                    try:
-                        records.append(run_one(dataset, fold, int(seed), method, results_root))
-                    except Exception as exc:
-                        failed = {
-                            "dataset": dataset,
-                            "fold": fold,
-                            "seed": int(seed),
-                            "method": method,
-                            "status": "failed",
-                            "error_type": type(exc).__name__,
-                            "error_message": str(exc),
-                        }
-                        records.append(failed)
-                        write_json(
-                            results_root / "rq1" / "raw" / f"{dataset}_fold{fold or 0:02d}_seed{seed}_{method}_failed.json",
-                            failed,
-                        )
+        for fold, seed in formal_run_grid(dataset, args.seeds):
+            for method in RQ1_METHODS:
+                try:
+                    records.append(run_one(dataset, fold, int(seed), method, results_root))
+                except Exception as exc:
+                    failed = {
+                        "dataset": dataset,
+                        "fold": fold,
+                        "seed": int(seed),
+                        "method": method,
+                        "status": "failed",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    }
+                    records.append(failed)
+                    write_json(
+                        formal_result_dir(results_root, "rq1", dataset, method, fold, seed) / "failed_run.json",
+                        failed,
+                    )
     write_json(results_root / "rq1" / "aggregated" / "summary.json", aggregate(records))
     print(f"RQ1 all finished: total={len(records)} failed={sum(1 for row in records if row.get('status') == 'failed')}")
 

@@ -35,7 +35,7 @@ python -m pip install -e .
 - 配置项 `training.cluster_assignment_source=true_cluster` 用于 oracle 上限对比；正式无泄漏主线为 `pred_cluster`。
 - D2D 尚未实现，`d2d.enabled=false` 仅保留扩展口。
 - RandomSL 每轮从所有客户端中完全随机选择 `r * Q_hat` 个不同客户端；`pred_cluster` 只在选择后用于 slot organization 和 coverage 统计，不用于补齐或重抽。
-- 测试使用 tolerant evaluation routing：仅在 evaluation layer 读取 `hidden_modality_id` 和 `pred_cluster`，构造 `N_mq/P_mq`，对每个 `(true modality, pred cluster)` 的训练后 client encoders 做参数平均，并支持 correct、split、merge、split+merge。
+- 测试使用 tolerant evaluation routing：仅在 evaluation layer 读取 `hidden_modality_id` 和 `pred_cluster`，构造 `N_mq/P_mq`，对每个 `(true modality, pred cluster)` 的训练后 client encoders 做 activation-level ensemble，并支持 correct、split、merge、split+merge。
 
 ## 数据集
 
@@ -43,10 +43,10 @@ python -m pip install -e .
 
 | 数据集 | 划分协议 | 说明 |
 | --- | --- | --- |
-| UCI-HAR | `subject_disjoint_70_30` | 官方 train/test；正式 seeds 为 `42,123,2025,3407,7777` |
-| MHEALTH | `subject_5fold_foldN` | subject 级 5 折；正式 seeds 为 `42,123,2025,3407,7777` |
-| PAMAP2 | `subject_9fold_loso_foldN` | subject 级 9 折 LOSO；12 类活动，不含心率；正式 seeds 为 `42,123,2025,3407,7777` |
-| IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；正式 seeds 为 `42,123,2025,3407,7777` |
+| UCI-HAR | `subject_disjoint_70_30_seedS` | 官方 train/test；无交叉验证，正式 seeds 为 `42,123,2025,3407,7777` |
+| MHEALTH | `subject_5fold_foldN` | subject 级 5 折；每折使用固定 seed `42` 执行一次 |
+| PAMAP2 | `subject_8fold_loso_foldN` | subject 级 8 折 LOSO，排除 subject 109；12 类活动，不含心率；每折使用固定 seed `42` 执行一次 |
+| IEMOCAP | `session_5fold_loso_foldN` | 5 折 session-LOSO，audio/video/text；每折使用固定 seed `42` 执行一次 |
 
 每个数据集的固定参数（num_classes、root、encoder、预训练/训练 lr、mmbind 权重、聚类默认参数）内置在 `src/MSL/data/dataset_defaults.py`，不重复写入配置文件。
 
@@ -177,14 +177,24 @@ Stage3 启动脚本默认 `MAX_JOBS=2` 并行运行。资源不够时用 `MAX_JO
 ```text
 results/
 ├── rq1/
-│   ├── raw/
+│   ├── <dataset>/
+│   │   └── <method>/
+│   │       └── fold_NN/
+│   │           └── seed_S/
+│   │               ├── rq1_result.json
+│   │               └── artifacts/
 │   ├── aggregated/
-│   └── artifacts/
 └── rq2/
-    ├── raw/
+    ├── <dataset>/
+    │   └── <method>/
+    │       └── fold_NN/
+    │           └── seed_S/
+    │               ├── rq2_result.json
+    │               ├── final_metrics.json
+    │               ├── train_log.csv
+    │               ├── checkpoints/
+    │               └── topology/
     ├── aggregated/
-    ├── checkpoints/
-    └── topologies/
 ```
 
 Stage1/Stage2 公共产物仍保留在 `results/MSL/` 或既有的 `local/results_msl/` 下。新 `experiments/` 入口会优先查找真实 Stage1/Stage2 产物，找不到会明确报错，不生成 mock 数据。

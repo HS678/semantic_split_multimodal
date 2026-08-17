@@ -14,8 +14,8 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, FORMAL_SEEDS, RQ2_METHODS, formal_folds, write_json
-from experiments.run_rq2_training import expected_rq2_config_hash, rq2_run_key, run_one
+from experiments.common import DATASET_DEFAULTS, RQ2_METHODS, formal_run_grid, write_json
+from experiments.run_rq2_training import expected_rq2_config_hash, rq2_run_dir, run_one
 
 
 # 从 RQ2 record 中取最终测试指标。
@@ -85,14 +85,14 @@ def write_summary_csv(path: Path, summary: dict) -> None:
 def build_plan(datasets, seeds, methods) -> list[dict]:
     plan = []
     for dataset in datasets:
-        folds = formal_folds(dataset)
+        runs = formal_run_grid(dataset, seeds)
         plan.append(
             {
                 "dataset": dataset,
-                "folds": folds,
-                "seeds": [int(seed) for seed in seeds],
+                "folds": sorted({fold for fold, _ in runs}, key=lambda value: -1 if value is None else int(value)),
+                "seeds": sorted({int(seed) for _, seed in runs}),
                 "methods": list(methods),
-                "runs": int(len(folds) * len(seeds) * len(methods)),
+                "runs": int(len(runs) * len(methods)),
             }
         )
     return plan
@@ -114,7 +114,7 @@ def print_plan(plan: list[dict]) -> None:
 
 # 读取已存在的 run result 以支持 success resume 和 failed 记录。
 def load_existing_result(results_root: Path, dataset: str, fold: int | None, seed: int, method: str, global_rounds: int | None, retry_failed: bool):
-    run_dir = results_root / "rq2" / "raw" / rq2_run_key(dataset, fold, seed, method, global_rounds)
+    run_dir = rq2_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     success_path = run_dir / "rq2_result.json"
     failed_path = run_dir / "failed_run.json"
     path = success_path if success_path.exists() else failed_path
@@ -144,7 +144,7 @@ def require_cuda_if_requested(require_cuda: bool) -> None:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run all RQ2 methods on available real artifacts.")
     parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_DEFAULTS), default=list(DATASET_DEFAULTS))
-    parser.add_argument("--seeds", nargs="*", type=int, default=FORMAL_SEEDS)
+    parser.add_argument("--seeds", nargs="*", type=int)
     parser.add_argument("--methods", nargs="*", choices=RQ2_METHODS, default=RQ2_METHODS)
     parser.add_argument("--results-root", default="results")
     parser.add_argument("--device", default="auto")
@@ -163,29 +163,28 @@ def main(argv=None):
     print_plan(plan)
     records = []
     for dataset in args.datasets:
-        for fold in formal_folds(dataset):
-            for seed in args.seeds:
-                for method in args.methods:
-                    record = load_existing_result(
-                        results_root,
+        for fold, seed in formal_run_grid(dataset, args.seeds):
+            for method in args.methods:
+                record = load_existing_result(
+                    results_root,
+                    dataset,
+                    fold,
+                    int(seed),
+                    method,
+                    args.global_rounds,
+                    args.retry_failed,
+                )
+                if record is None:
+                    record = run_one(
                         dataset,
                         fold,
                         int(seed),
                         method,
+                        results_root,
+                        args.device,
                         args.global_rounds,
-                        args.retry_failed,
                     )
-                    if record is None:
-                        record = run_one(
-                            dataset,
-                            fold,
-                            int(seed),
-                            method,
-                            results_root,
-                            args.device,
-                            args.global_rounds,
-                        )
-                    records.append(record)
+                records.append(record)
     summary = aggregate(records)
     write_json(results_root / "rq2" / "aggregated" / "summary.json", summary)
     write_summary_csv(results_root / "rq2" / "aggregated" / "summary.csv", summary)

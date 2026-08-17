@@ -20,6 +20,7 @@ from experiments.common import (
     load_fingerprint_npz,
     project_root,
     resolved_cfg,
+    formal_result_dir,
     runtime_metadata,
     write_json,
 )
@@ -75,15 +76,18 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         "diagnostics": metrics,
         "status": "success",
     }
-    raw_path = results_root / "rq1" / "raw" / f"{dataset}_fold{fold or 0:02d}_seed{seed}_{method}.json"
+    run_dir = formal_result_dir(results_root, "rq1", dataset, method, fold, seed)
+    raw_path = run_dir / "rq1_result.json"
     write_json(raw_path, raw)
 
     if method.startswith("kmeans"):
-        artifact_dir = results_root / "rq1" / "artifacts" / dataset / stage1_dir.name / method
+        artifact_dir = run_dir / "artifacts"
         write_assignment_csv(artifact_dir / "pred_cluster.csv", client_ids, pred, "pred_cluster")
         write_assignment_csv(artifact_dir / "true_cluster.csv", client_ids, true, "true_cluster")
         raw["artifact_dir"] = str(artifact_dir)
         write_json(raw_path, raw)
+    raw["run_dir"] = str(run_dir)
+    write_json(raw_path, raw)
     return raw
 
 

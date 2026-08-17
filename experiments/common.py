@@ -9,12 +9,12 @@ from pathlib import Path
 import numpy as np
 
 from MSL.data.dataset_defaults import DATASET_DEFAULTS
-from MSL.evaluation.metrics import discovery_metrics
 from MSL.utils.experiment_args import build_experiment_config, apply_experiment_overrides
-from MSL.utils.results import dataset_result_name, partition_signature, safe_result_component
+from MSL.utils.results import dataset_result_name, safe_result_component
 
 
 FORMAL_SEEDS = [42, 123, 2025, 3407, 7777]
+FORMAL_CV_SEED = 42
 RQ1_METHODS = ["adaptive_isodata", "kmeans2", "kmeans3", "kmeans5"]
 RQ2_METHODS = ["ours", "randomsl", "kmeans2", "kmeans3", "kmeans5", "oracle"]
 
@@ -44,6 +44,8 @@ def git_commit(root: Path) -> str:
 def resolved_cfg(dataset: str, fold: int | None, seed: int) -> dict:
     cfg = build_experiment_config(dataset_type=dataset, seed=seed)
     cfg = apply_experiment_overrides(cfg, fold=fold)
+    if fold is None and DATASET_DEFAULTS[str(dataset)]["fold_count"] is None:
+        cfg = with_repeated_seed_split_signature(cfg, seed)
     return cfg
 
 
@@ -53,6 +55,62 @@ def formal_folds(dataset: str) -> list[int | None]:
     if fold_count is None:
         return [None]
     return list(range(1, int(fold_count) + 1))
+
+
+# 返回正式交叉验证协议下的 (fold, seed) 运行组合。
+def formal_run_grid(dataset: str, seeds: list[int] | None = None) -> list[tuple[int | None, int]]:
+    folds = formal_folds(dataset)
+    if DATASET_DEFAULTS[str(dataset)]["fold_count"] is None:
+        run_seeds = FORMAL_SEEDS if seeds is None else [int(seed) for seed in seeds]
+        return [(None, int(seed)) for seed in run_seeds]
+    if seeds is None:
+        return [(fold, FORMAL_CV_SEED) for fold in folds]
+    return [(fold, int(seed)) for fold in folds for seed in seeds]
+
+
+# 无 CV 数据集用多个随机种子重复实验时，把 seed 写入 split signature 以避免 Stage 产物互相覆盖。
+def repeated_seed_split_protocol(dataset: str, seed: int) -> str:
+    dataset_cfg = DATASET_DEFAULTS[str(dataset)]["dataset"]
+    base_protocol = str(dataset_cfg.get("split_protocol", "subject_disjoint"))
+    return f"{base_protocol}_seed{int(seed)}"
+
+
+# 为无 CV 数据集写入带 seed 的正式结果签名。
+def with_repeated_seed_split_signature(cfg: dict, seed: int) -> dict:
+    cfg = dict(cfg)
+    dataset = dict(cfg.get("dataset", {}))
+    dataset_type = str(dataset.get("type"))
+    dataset["split_protocol"] = repeated_seed_split_protocol(dataset_type, int(seed))
+    cfg["dataset"] = dataset
+    cfg["runtime_overrides"] = {
+        **dict(cfg.get("runtime_overrides", {})),
+        "fold": None,
+        "split_protocol": dataset["split_protocol"],
+        "repeated_seed": int(seed),
+    }
+    return cfg
+
+
+# 返回结果目录中的 fold 层级名。
+def fold_result_component(fold: int | None) -> str:
+    return "fold_00" if fold is None else f"fold_{int(fold):02d}"
+
+
+# 返回结果目录中的 seed 层级名。
+def seed_result_component(seed: int) -> str:
+    return f"seed_{int(seed)}"
+
+
+# 返回单次 RQ 运行的层级结果目录。
+def formal_result_dir(results_root: Path, rq: str, dataset: str, method: str, fold: int | None, seed: int) -> Path:
+    return (
+        Path(results_root)
+        / str(rq)
+        / safe_result_component(dataset)
+        / safe_result_component(method)
+        / fold_result_component(fold)
+        / seed_result_component(seed)
+    )
 
 
 # 尝试从已有真实 Stage1 目录中定位数据划分产物。
@@ -66,7 +124,8 @@ def find_stage1_dir(root: Path, cfg: dict) -> Path:
             continue
         if split_protocol:
             candidates.extend(sorted(partition_root.glob(f"*__{safe_result_component(split_protocol)}")))
-        candidates.extend(sorted(partition_root.glob("*")))
+        else:
+            candidates.extend(sorted(partition_root.glob("*")))
     for candidate in candidates:
         if (candidate / "train_clients").is_dir() and (candidate / "test_multimodal.pt").exists():
             return candidate.resolve()

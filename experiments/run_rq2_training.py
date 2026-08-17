@@ -18,7 +18,6 @@ if str(SRC) not in sys.path:
 
 from MSL.discovery.clustering import run_kmeans
 from MSL.learning.cluster_feasibility import (
-    InfeasibleClusterSchedulingError,
     repair_cluster_feasibility,
     validate_cluster_feasibility,
 )
@@ -31,6 +30,7 @@ from experiments.common import (
     assert_no_mock_pipeline_imports,
     find_stage1_dir,
     find_stage2_dir,
+    formal_result_dir,
     load_fingerprint_npz,
     project_root,
     resolved_cfg,
@@ -40,21 +40,18 @@ from experiments.common import (
 )
 
 
-# 为正式 run 生成不覆盖旧结果的目录。
-def unique_run_dir(base: Path) -> Path:
-    if not base.exists():
-        return base
-    for attempt in range(2, 10000):
-        candidate = base.with_name(f"{base.name}_attempt{attempt:03d}")
-        if not candidate.exists():
-            return candidate
-    raise RuntimeError(f"Cannot allocate unique result directory under {base.parent}")
-
-
-# 构建 RQ2 run 的 deterministic unique key。
+# 构建 RQ2 run 的 deterministic key，保留给 metadata 和兼容调用使用。
 def rq2_run_key(dataset: str, fold: int | None, seed: int, method: str, global_rounds: int | None) -> str:
     round_part = "formal" if global_rounds is None else f"rounds{int(global_rounds)}"
     return f"{dataset}_fold{fold or 0:02d}_seed{int(seed)}_{method}_{round_part}"
+
+
+# 返回层级化的 RQ2 运行目录。
+def rq2_run_dir(results_root: Path, dataset: str, fold: int | None, seed: int, method: str, global_rounds: int | None) -> Path:
+    run_dir = formal_result_dir(results_root, "rq2", dataset, method, fold, seed)
+    if global_rounds is not None:
+        run_dir = run_dir / f"rounds_{int(global_rounds)}"
+    return run_dir
 
 
 # 写入 KMeans 或 oracle topology assignment 文件。
@@ -81,7 +78,7 @@ def link_pretrained_encoders(adaptive_dir: Path, target_dir: Path) -> None:
 
 
 # 为 RQ2 方法解析 cluster_dir 和 assignment source。
-def prepare_method_topology(method: str, stage1_dir: Path, adaptive_dir: Path, results_root: Path, seed: int, r: int) -> tuple[Path, str, dict]:
+def prepare_method_topology(method: str, stage1_dir: Path, adaptive_dir: Path, topology_dir: Path, seed: int, r: int) -> tuple[Path, str, dict]:
     payload = load_fingerprint_npz(adaptive_dir)
     client_ids = payload["client_ids"]
     if method == "randomsl":
@@ -103,7 +100,7 @@ def prepare_method_topology(method: str, stage1_dir: Path, adaptive_dir: Path, r
             method,
             stage1_dir,
             adaptive_dir,
-            results_root,
+            topology_dir,
             payload,
             raw,
             "pred_cluster",
@@ -132,7 +129,7 @@ def prepare_method_topology(method: str, stage1_dir: Path, adaptive_dir: Path, r
             method,
             stage1_dir,
             adaptive_dir,
-            results_root,
+            topology_dir,
             payload,
             pred,
             "pred_cluster",
@@ -143,8 +140,8 @@ def prepare_method_topology(method: str, stage1_dir: Path, adaptive_dir: Path, r
 
 
 # 为 cluster-based RQ2 方法生成 raw/training assignment 和 repair metadata。
-def _prepare_cluster_based_topology(method, stage1_dir, adaptive_dir, results_root, payload, raw_assignment, assignment_source, r, allow_repair):
-    topology_dir = results_root / "rq2" / "topologies" / stage1_dir.parent.name / stage1_dir.name / method
+def _prepare_cluster_based_topology(method, stage1_dir, adaptive_dir, topology_dir, payload, raw_assignment, assignment_source, r, allow_repair):
+    topology_dir = Path(topology_dir)
     client_ids = payload["client_ids"]
     result = repair_cluster_feasibility(
         payload["fingerprints"],
@@ -283,10 +280,10 @@ def expected_rq2_config_hash(dataset: str, fold: int | None, seed: int, method: 
     stage1_dir = find_stage1_dir(root, cfg)
     adaptive_dir = find_stage2_dir(root, stage1_dir, "adaptive_isodata")
     r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 2))
-    cluster_dir, assignment_source, _ = prepare_method_topology(method, stage1_dir, adaptive_dir, results_root, seed, r)
-    run_name = rq2_run_key(dataset, fold, seed, method, global_rounds)
-    run_dir = results_root / "rq2" / "raw" / run_name
-    ckpt_dir = results_root / "rq2" / "checkpoints" / run_name
+    run_dir = rq2_run_dir(results_root, dataset, fold, seed, method, global_rounds)
+    topology_dir = run_dir / "topology"
+    cluster_dir, assignment_source, _ = prepare_method_topology(method, stage1_dir, adaptive_dir, topology_dir, seed, r)
+    ckpt_dir = run_dir / "checkpoints"
     cfg = configure_method(cfg, method, stage1_dir, cluster_dir, assignment_source, run_dir, ckpt_dir, global_rounds)
     return stable_config_hash(
         {
@@ -309,10 +306,11 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
     stage1_dir = find_stage1_dir(root, cfg)
     adaptive_dir = find_stage2_dir(root, stage1_dir, "adaptive_isodata")
     r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 2))
-    cluster_dir, assignment_source, feasibility_metadata = prepare_method_topology(method, stage1_dir, adaptive_dir, results_root, seed, r)
     run_name = rq2_run_key(dataset, fold, seed, method, global_rounds)
-    run_dir = results_root / "rq2" / "raw" / run_name
-    ckpt_dir = results_root / "rq2" / "checkpoints" / run_dir.name
+    run_dir = rq2_run_dir(results_root, dataset, fold, seed, method, global_rounds)
+    topology_dir = run_dir / "topology"
+    cluster_dir, assignment_source, feasibility_metadata = prepare_method_topology(method, stage1_dir, adaptive_dir, topology_dir, seed, r)
+    ckpt_dir = run_dir / "checkpoints"
     cfg = configure_method(cfg, method, stage1_dir, cluster_dir, assignment_source, run_dir, ckpt_dir, global_rounds)
     config_hash = stable_config_hash(
         {
@@ -338,6 +336,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         payload = {
             **metadata,
             "status": "success",
+            "run_key": run_name,
             "fingerprint_type": cfg.get("fingerprint", {}).get("type"),
             "r": int(r),
             "Q_hat": int(metrics.get("estimated_num_clusters", 0)),
@@ -359,6 +358,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         payload = {
             **metadata,
             "status": "failed",
+            "run_key": run_name,
             "error_type": type(exc).__name__,
             "error_message": str(exc),
             **feasibility_metadata,
