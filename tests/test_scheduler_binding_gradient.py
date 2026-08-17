@@ -122,3 +122,42 @@ def test_split_learning_gradient_updates_server_and_clients():
     assert any(not torch.equal(server_before[key], value) for key, value in server.state_dict().items())
     for before, client in zip(client_before, clients):
         assert any(not torch.equal(before[key], value) for key, value in client.encoder.state_dict().items())
+
+
+# 验证训练日志中的 weighted loss components 能重构 total objective。
+def test_loss_decomposition_reconstructs_total_objective():
+    torch.manual_seed(1)
+    clients = [
+        TinySplitClient("c0", 0, torch.randn(6, 3), torch.tensor([0, 1, 0, 1, 0, 1])),
+        TinySplitClient("c1", 1, torch.randn(6, 3), torch.tensor([0, 1, 0, 1, 0, 1])),
+    ]
+    cfg = {
+        "num_classes": 2,
+        "encoder_hidden_dim": 4,
+        "training": {"batch_size": 6, "client_lr": 0.1, "server_lr": 0.1},
+        "binding": {"batch_size": 4},
+        "fusion": {
+            "training_objective": "mmbind_weighted_contrastive",
+            "adapter_dim": 4,
+            "hidden_dim": 8,
+            "num_layers": 1,
+            "mmbind": {
+                "temperature": 0.2,
+                "contrastive_weight": 0.3,
+                "heterogeneous_ce_weight": 0.4,
+            },
+        },
+    }
+    server = ConcatMLPFusionServer([0, 1], 4, 2, cfg)
+    optimizer = torch.optim.SGD(server.parameters(), lr=0.1)
+
+    metrics = _train_local_step(server, optimizer, clients, [0, 1], cfg)
+
+    total = float(metrics["loss"])
+    weighted_sum = (
+        float(metrics["weighted_classification_loss"])
+        + float(metrics["weighted_contrastive_loss"])
+        + float(metrics["weighted_heterogeneous_loss"])
+    )
+    assert metrics["pseudo_batch_size"] > 0
+    assert abs(total - weighted_sum) < 1.0e-6

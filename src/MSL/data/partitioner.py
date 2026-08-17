@@ -196,6 +196,11 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         },
         "split": "test",
     }
+    if test.get("sample_ids") is not None:
+        test_payload["sample_ids"] = list(test["sample_ids"])
+    for group_key in ("subject_ids", "session_ids"):
+        if test.get(group_key) is not None:
+            test_payload[group_key] = test[group_key].contiguous()
     if test.get("modality_lengths") is not None:
         test_payload["modality_lengths"] = {
             name: test["modality_lengths"][idx].contiguous()
@@ -226,6 +231,32 @@ def run_stage1_partition(cfg: dict, project_root: Path):
         "split_num_samples": {
             "train": int(train["labels"].shape[0]),
             "test": int(test["labels"].shape[0]),
+        },
+        "split_sample_ids": {
+            "train": list(train.get("sample_ids", [])),
+            "test": list(test.get("sample_ids", [])),
+        },
+        "split_group_ids": {
+            "train_subjects": (
+                sorted({int(v) for v in train["subject_ids"].tolist()})
+                if train.get("subject_ids") is not None
+                else None
+            ),
+            "test_subjects": (
+                sorted({int(v) for v in test["subject_ids"].tolist()})
+                if test.get("subject_ids") is not None
+                else None
+            ),
+            "train_sessions": (
+                sorted({int(v) for v in train["session_ids"].tolist()})
+                if train.get("session_ids") is not None
+                else None
+            ),
+            "test_sessions": (
+                sorted({int(v) for v in test["session_ids"].tolist()})
+                if test.get("session_ids") is not None
+                else None
+            ),
         },
         "modalities": [
             {

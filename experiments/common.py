@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from MSL.data.dataset_defaults import DATASET_DEFAULTS
+from MSL.data.dataset_defaults import DATASET_DEFAULTS, DEFAULT_ADAPTIVE
 from MSL.utils.experiment_args import build_experiment_config, apply_experiment_overrides
 from MSL.utils.results import dataset_result_name, safe_result_component
 
@@ -28,7 +28,7 @@ def project_root() -> Path:
 
 
 # 读取当前 git commit，缺失时返回 unknown。
-def git_commit(root: Path) -> str:
+def git_commit(root: Path) -> str | None:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
@@ -37,7 +37,7 @@ def git_commit(root: Path) -> str:
             stderr=subprocess.DEVNULL,
         ).strip()
     except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+        return None
 
 
 # 根据 dataset/fold/seed 构建冻结协议配置。
@@ -184,6 +184,93 @@ def runtime_metadata(root: Path, dataset: str, fold: int | None, seed: int, meth
 def stable_config_hash(payload: dict) -> str:
     canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+# 构建正式实验协议 manifest；timestamp 只用于记录，不参与 protocol_hash。
+def build_protocol_manifest(results_root: Path | None = None) -> dict:
+    root = project_root()
+    datasets = {}
+    for dataset_name, defaults in DATASET_DEFAULTS.items():
+        folds = formal_folds(dataset_name)
+        representative_fold = folds[0]
+        representative_cfg = resolved_cfg(dataset_name, representative_fold, FORMAL_CV_SEED)
+        dataset_cfg = representative_cfg["dataset"]
+        datasets[dataset_name] = {
+            "fold_count": defaults["fold_count"],
+            "folds": folds,
+            "run_grid": [
+                {"fold": fold, "seed": int(seed)}
+                for fold, seed in formal_run_grid(dataset_name)
+            ],
+            "split_protocol": dataset_cfg.get("split_protocol"),
+            "split_protocol_template": defaults.get("dataset", {}).get("split_protocol_template"),
+            "clients_per_modality": int(representative_cfg["partition"]["clients_per_modality"]),
+            "global_rounds": int(representative_cfg["training"]["global_rounds"]),
+            "local_steps": int(representative_cfg["training"]["local_steps"]),
+            "batch_size": int(representative_cfg["training"]["batch_size"]),
+            "eval_batch_size": int(representative_cfg["training"]["eval_batch_size"]),
+            "r": int(representative_cfg["training"]["clients_per_cluster_per_round"]),
+            "training_objective": representative_cfg["fusion"]["training_objective"],
+            "loss_weights": dict(representative_cfg["fusion"]["mmbind"]),
+            "fingerprint_type": representative_cfg["fingerprint"]["type"],
+            "adaptive_isodata": dict(representative_cfg["cluster"]["adaptive"]),
+            "kmeans_configs": {"kmeans2": 2, "kmeans3": 3, "kmeans5": 5},
+            "evaluation_protocol": {
+                "selection": "fixed_rounds_no_validation",
+                "test_loss": "classification_cross_entropy",
+                "routing": "tolerant_activation_ensemble",
+            },
+            "cv_protocol": {
+                "uci_har": "official subject-disjoint train/test, repeated formal seeds",
+                "mhealth": "subject_5fold, one fixed seed per fold",
+                "pamap2": "subject_8fold_loso excluding subject 109, one fixed seed per fold",
+                "iemocap": "session_5fold_loso, one fixed seed per fold",
+            }.get(dataset_name),
+        }
+    manifest = {
+        "protocol_version": "cv_revision_2026_08_17",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "results_root": None if results_root is None else str(Path(results_root)),
+        "git_commit": git_commit(root),
+        "formal_seeds": list(FORMAL_SEEDS),
+        "formal_cv_seed": int(FORMAL_CV_SEED),
+        "rq1_methods": list(RQ1_METHODS),
+        "rq2_methods": list(RQ2_METHODS),
+        "default_adaptive_isodata": dict(DEFAULT_ADAPTIVE),
+        "datasets": datasets,
+        "yield_definition": {
+            "name": "pseudo_samples_over_requested_tuple_budget",
+            "formula": "pseudo_batch_size_per_round / (binding.batch_size * attempted_local_steps)",
+            "numerator": "actual complete same-label pseudo multimodal tuples built in the round",
+            "denominator": "configured requested pseudo tuple budget for that round",
+        },
+    }
+    manifest["protocol_hash"] = protocol_hash(manifest)
+    return manifest
+
+
+# 对正式协议计算 deterministic hash，忽略 timestamp 和输出路径。
+def protocol_hash(manifest_or_payload: dict | None = None) -> str:
+    payload = build_protocol_manifest(None) if manifest_or_payload is None else dict(manifest_or_payload)
+    payload.pop("timestamp", None)
+    payload.pop("results_root", None)
+    payload.pop("protocol_hash", None)
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+# 写出冻结协议 manifest。
+def write_protocol_manifest(results_root: Path) -> dict:
+    manifest = build_protocol_manifest(results_root)
+    write_json(Path(results_root) / "protocol_manifest.json", manifest)
+    return manifest
+
+
+# 标记运行是 formal 还是隔离 smoke。
+def run_type_metadata(results_root: Path) -> dict:
+    name_parts = {part.lower() for part in Path(results_root).parts}
+    is_smoke = any("smoke" in part for part in name_parts)
+    return {"run_type": "smoke" if is_smoke else "formal", "formal": not is_smoke}
 
 
 # 检查正式实验入口没有导入 mock/synthetic/dummy 数据模块。

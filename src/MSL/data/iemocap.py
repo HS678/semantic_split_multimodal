@@ -183,10 +183,13 @@ def load_iemocap_dataset(cfg: dict, project_root: Path) -> dict:
     def build_split(mask):
         if not bool(mask.any()):
             raise ValueError("IEMOCAP split produced no samples.")
+        selected_indices = torch.nonzero(mask, as_tuple=False).reshape(-1).tolist()
         return {
             "modalities": [payload["features"][mask].contiguous() for payload in payloads],
             "modality_lengths": [payload["lengths"][mask].contiguous() for payload in payloads],
             "labels": labels[mask].contiguous(),
+            "session_ids": sessions[mask].contiguous(),
+            "sample_ids": [manifest_ids[index] for index in selected_indices],
         }
 
     train = build_split(train_mask)

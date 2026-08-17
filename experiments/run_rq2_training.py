@@ -33,9 +33,11 @@ from experiments.common import (
     formal_result_dir,
     load_fingerprint_npz,
     project_root,
+    protocol_hash,
     resolved_cfg,
     runtime_metadata,
     stable_config_hash,
+    run_type_metadata,
     write_json,
 )
 
@@ -234,6 +236,7 @@ def summarize_train_log(path: Path, binding_batch_size: int) -> dict:
     expected_clusters = [json.loads(row.get("expected_cluster_ids") or "[]") for row in rows]
     attempted_steps = [int(float(row.get("attempted_local_steps") or 1)) for row in rows]
     pseudo_sizes = [int(float(row.get("pseudo_batch_size") or 0)) for row in rows]
+    last = rows[-1] if rows else {}
     return {
         "selected_client_count_per_round": selected_counts,
         "selected_cluster_counts_per_round": per_cluster,
@@ -250,6 +253,20 @@ def summarize_train_log(path: Path, binding_batch_size: int) -> dict:
         ],
         "empty_binding_per_round": [bool(int(float(row.get("empty_binding_round") or 0))) for row in rows],
         "training_loss_per_round": losses,
+        "train_total_loss_per_round": [float(row.get("train_total_loss") or row.get("loss") or 0.0) for row in rows],
+        "train_classification_loss_per_round": [float(row.get("train_classification_loss") or row.get("classification_loss") or 0.0) for row in rows],
+        "train_contrastive_loss_per_round": [float(row.get("train_contrastive_loss") or row.get("contrastive_loss") or 0.0) for row in rows],
+        "train_heterogeneous_loss_per_round": [float(row.get("train_heterogeneous_loss") or row.get("heterogeneous_loss") or 0.0) for row in rows],
+        "weighted_classification_loss_per_round": [float(row.get("weighted_classification_loss") or 0.0) for row in rows],
+        "weighted_contrastive_loss_per_round": [float(row.get("weighted_contrastive_loss") or 0.0) for row in rows],
+        "weighted_heterogeneous_loss_per_round": [float(row.get("weighted_heterogeneous_loss") or 0.0) for row in rows],
+        "train_final_total_loss": float(last.get("train_total_loss") or last.get("loss")) if last else None,
+        "train_final_classification_loss": float(last.get("train_classification_loss") or last.get("classification_loss")) if last else None,
+        "train_final_contrastive_loss": float(last.get("train_contrastive_loss") or last.get("contrastive_loss")) if last else None,
+        "train_final_heterogeneous_loss": float(last.get("train_heterogeneous_loss") or last.get("heterogeneous_loss")) if last else None,
+        "train_final_weighted_classification_loss": float(last.get("weighted_classification_loss")) if last and last.get("weighted_classification_loss") not in {None, ""} else None,
+        "train_final_weighted_contrastive_loss": float(last.get("weighted_contrastive_loss")) if last and last.get("weighted_contrastive_loss") not in {None, ""} else None,
+        "train_final_weighted_heterogeneous_loss": float(last.get("weighted_heterogeneous_loss")) if last and last.get("weighted_heterogeneous_loss") not in {None, ""} else None,
         "loss_mean": float(np_mean(losses)) if losses else None,
         "loss_std": float(np_std(losses)) if len(losses) > 1 else 0.0,
         "loss_variance": float(np_var(losses)) if len(losses) > 1 else 0.0,
@@ -324,6 +341,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         }
     )
     metadata = runtime_metadata(root, dataset, fold, seed, method)
+    current_protocol_hash = protocol_hash()
     set_seed(seed)
     device = select_device(device_name)
     start = time.time()
@@ -337,6 +355,8 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             **metadata,
             "status": "success",
             "run_key": run_name,
+            "protocol_hash": current_protocol_hash,
+            **run_type_metadata(results_root),
             "fingerprint_type": cfg.get("fingerprint", {}).get("type"),
             "r": int(r),
             "Q_hat": int(metrics.get("estimated_num_clusters", 0)),
@@ -344,6 +364,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             **round_summary,
             "accuracy": metrics.get("test_accuracy"),
             "macro_f1": metrics.get("test_macro_f1"),
+            "test_classification_loss": metrics.get("test_classification_loss"),
             "runtime_seconds": float(time.time() - start),
             "config_hash": config_hash,
             "device": str(device),
@@ -359,6 +380,8 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             **metadata,
             "status": "failed",
             "run_key": run_name,
+            "protocol_hash": current_protocol_hash,
+            **run_type_metadata(results_root),
             "error_type": type(exc).__name__,
             "error_message": str(exc),
             **feasibility_metadata,

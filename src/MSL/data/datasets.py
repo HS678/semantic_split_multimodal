@@ -152,6 +152,8 @@ def _select_subjects(split, subjects, split_name):
     return {
         "modalities": [x[mask].contiguous() for x in split["modalities"]],
         "labels": split["labels"][mask].contiguous(),
+        "subject_ids": split["subjects"][mask].contiguous(),
+        "sample_ids": [f"official_{split_name}_{index}" for index, keep in enumerate(mask.tolist()) if keep],
     }
 
 
@@ -266,10 +268,14 @@ def _mhealth_build_split(root: Path, subjects, dataset_cfg):
         return {
             "modalities": [torch.zeros((0, 1, 1), dtype=torch.float32) for _ in modality_columns],
             "labels": torch.zeros((0,), dtype=torch.long),
+            "subject_ids": torch.zeros((0,), dtype=torch.long),
+            "sample_ids": [],
         }
 
     split_modalities = [[] for _ in modality_columns]
     split_labels = []
+    split_subject_ids = []
+    split_sample_ids = []
     for subject_id in subjects:
         features, labels = _mhealth_read_subject_file(_mhealth_subject_path(root, int(subject_id)))
         modalities, y = _mhealth_window_subject(
@@ -284,10 +290,20 @@ def _mhealth_build_split(root: Path, subjects, dataset_cfg):
         for idx, x in enumerate(modalities):
             split_modalities[idx].append(x)
         split_labels.append(y)
+        split_subject_ids.extend([int(subject_id)] * int(len(y)))
+        split_sample_ids.extend(
+            f"subject{int(subject_id)}:window{window_index}"
+            for window_index in range(int(len(y)))
+        )
 
     x_all = [torch.tensor(np.concatenate(parts, axis=0), dtype=torch.float32) for parts in split_modalities]
     y_all = torch.tensor(np.concatenate(split_labels, axis=0), dtype=torch.long)
-    return {"modalities": x_all, "labels": y_all}
+    return {
+        "modalities": x_all,
+        "labels": y_all,
+        "subject_ids": torch.tensor(split_subject_ids, dtype=torch.long),
+        "sample_ids": split_sample_ids,
+    }
 
 
 def _normalize_from_train(train, *evaluation_splits):
@@ -299,10 +315,11 @@ def _normalize_from_train(train, *evaluation_splits):
         for split_idx, split in enumerate(evaluation_splits, start=1):
             normalized[split_idx].append((split["modalities"][modality_idx] - mean) / std)
     source_splits = (train, *evaluation_splits)
-    return tuple(
-        {"modalities": modalities, "labels": source["labels"]}
-        for modalities, source in zip(normalized, source_splits)
-    )
+    out = []
+    for modalities, source in zip(normalized, source_splits):
+        preserved = {key: value for key, value in source.items() if key not in {"modalities", "labels"}}
+        out.append({"modalities": modalities, "labels": source["labels"], **preserved})
+    return tuple(out)
 
 
 def _mhealth_input_shapes(modalities):
@@ -533,19 +550,33 @@ def _pamap2_build_split(protocol_dir: Path, subjects, dataset_cfg, cache_root: P
         return {
             "modalities": [torch.zeros((0, 1, 1), dtype=torch.float32) for _ in modality_columns],
             "labels": torch.zeros((0,), dtype=torch.long),
+            "subject_ids": torch.zeros((0,), dtype=torch.long),
+            "sample_ids": [],
         }
 
     split_modalities = [[] for _ in modality_columns]
     split_labels = []
+    split_subject_ids = []
+    split_sample_ids = []
     for subject_id in subjects:
         modalities, y = _pamap2_load_or_build_subject_windows(protocol_dir, int(subject_id), modality_columns, params, cache_root)
         for idx, x in enumerate(modalities):
             split_modalities[idx].append(x)
         split_labels.append(y)
+        split_subject_ids.extend([int(subject_id)] * int(y.shape[0]))
+        split_sample_ids.extend(
+            f"subject{int(subject_id)}:window{window_index}"
+            for window_index in range(int(y.shape[0]))
+        )
 
     x_all = [torch.cat(parts, dim=0).to(dtype=torch.float32) for parts in split_modalities]
     y_all = torch.cat(split_labels, dim=0).to(dtype=torch.long)
-    return {"modalities": x_all, "labels": y_all}
+    return {
+        "modalities": x_all,
+        "labels": y_all,
+        "subject_ids": torch.tensor(split_subject_ids, dtype=torch.long),
+        "sample_ids": split_sample_ids,
+    }
 
 
 def _pamap2_remap_labels(*splits):

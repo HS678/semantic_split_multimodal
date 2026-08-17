@@ -237,12 +237,20 @@ def _mmbind_fusion_losses(server, pseudo, spec, class_weights=None):
         heterogeneous_logits, _ = server.classify_adapted(heterogeneous_slots)
         heterogeneous_losses.append(nn.CrossEntropyLoss(weight=class_weights)(heterogeneous_logits, labels))
     heterogeneous_loss = torch.stack(heterogeneous_losses).mean()
-    loss = (
-        classification_loss
-        + spec["contrastive_weight"] * contrastive_loss
-        + spec["heterogeneous_ce_weight"] * heterogeneous_loss
+    weighted_classification_loss = classification_loss
+    weighted_contrastive_loss = spec["contrastive_weight"] * contrastive_loss
+    weighted_heterogeneous_loss = spec["heterogeneous_ce_weight"] * heterogeneous_loss
+    loss = weighted_classification_loss + weighted_contrastive_loss + weighted_heterogeneous_loss
+    return (
+        loss,
+        logits,
+        classification_loss,
+        contrastive_loss,
+        heterogeneous_loss,
+        weighted_classification_loss,
+        weighted_contrastive_loss,
+        weighted_heterogeneous_loss,
     )
-    return loss, logits, classification_loss, contrastive_loss, heterogeneous_loss
 
 
 def _train_local_step(server, server_optimizer, selected, required_clusters, cfg, class_weights=None):
@@ -264,6 +272,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
             "classification_loss": 0.0,
             "contrastive_loss": 0.0,
             "heterogeneous_loss": 0.0,
+            "weighted_classification_loss": 0.0,
+            "weighted_contrastive_loss": 0.0,
+            "weighted_heterogeneous_loss": 0.0,
             "accuracy": 0.0,
             "preds": torch.empty(0, dtype=torch.long),
             "labels": torch.empty(0, dtype=torch.long),
@@ -301,9 +312,21 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
         )
         contrastive_loss = classification_loss.detach() * 0.0
         heterogeneous_loss = classification_loss.detach() * 0.0
+        weighted_classification_loss = classification_loss
+        weighted_contrastive_loss = contrastive_loss
+        weighted_heterogeneous_loss = heterogeneous_loss
         loss = classification_loss
     else:
-        loss, logits, classification_loss, contrastive_loss, heterogeneous_loss = _mmbind_fusion_losses(
+        (
+            loss,
+            logits,
+            classification_loss,
+            contrastive_loss,
+            heterogeneous_loss,
+            weighted_classification_loss,
+            weighted_contrastive_loss,
+            weighted_heterogeneous_loss,
+        ) = _mmbind_fusion_losses(
             server,
             pseudo,
             fusion_training,
@@ -327,6 +350,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
         "classification_loss": float(classification_loss.item()),
         "contrastive_loss": float(contrastive_loss.item()),
         "heterogeneous_loss": float(heterogeneous_loss.item()),
+        "weighted_classification_loss": float(weighted_classification_loss.item()),
+        "weighted_contrastive_loss": float(weighted_contrastive_loss.item()),
+        "weighted_heterogeneous_loss": float(weighted_heterogeneous_loss.item()),
         "accuracy": float(correct / max(1, total)),
         "preds": preds,
         "labels": labels,
@@ -355,6 +381,9 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
     classification_losses = []
     contrastive_losses = []
     heterogeneous_losses = []
+    weighted_classification_losses = []
+    weighted_contrastive_losses = []
+    weighted_heterogeneous_losses = []
     binding_confidences = []
     all_preds = []
     all_labels = []
@@ -391,6 +420,9 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         classification_losses.append(float(local_metrics["classification_loss"]))
         contrastive_losses.append(float(local_metrics["contrastive_loss"]))
         heterogeneous_losses.append(float(local_metrics["heterogeneous_loss"]))
+        weighted_classification_losses.append(float(local_metrics["weighted_classification_loss"]))
+        weighted_contrastive_losses.append(float(local_metrics["weighted_contrastive_loss"]))
+        weighted_heterogeneous_losses.append(float(local_metrics["weighted_heterogeneous_loss"]))
         binding_confidences.append(float(local_metrics["binding_confidence_mean"]))
         all_preds.append(local_metrics["preds"])
         all_labels.append(local_metrics["labels"])
@@ -426,6 +458,9 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         "classification_loss": float(sum(classification_losses) / max(1, len(classification_losses))) if classification_losses else 0.0,
         "contrastive_loss": float(sum(contrastive_losses) / max(1, len(contrastive_losses))) if contrastive_losses else 0.0,
         "heterogeneous_loss": float(sum(heterogeneous_losses) / max(1, len(heterogeneous_losses))) if heterogeneous_losses else 0.0,
+        "weighted_classification_loss": float(sum(weighted_classification_losses) / max(1, len(weighted_classification_losses))) if weighted_classification_losses else 0.0,
+        "weighted_contrastive_loss": float(sum(weighted_contrastive_losses) / max(1, len(weighted_contrastive_losses))) if weighted_contrastive_losses else 0.0,
+        "weighted_heterogeneous_loss": float(sum(weighted_heterogeneous_losses) / max(1, len(weighted_heterogeneous_losses))) if weighted_heterogeneous_losses else 0.0,
         "accuracy": accuracy,
         "macro_f1": macro_f1,
         "weighted_f1": weighted_f1,
@@ -526,21 +561,32 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "global_round",
         "round",
         "loss",
+        "train_total_loss",
         "mean_loss",
         "classification_loss",
+        "train_classification_loss",
         "contrastive_loss",
+        "train_contrastive_loss",
         "heterogeneous_loss",
+        "train_heterogeneous_loss",
+        "weighted_classification_loss",
+        "weighted_contrastive_loss",
+        "weighted_heterogeneous_loss",
         "accuracy",
+        "train_accuracy",
         "macro_f1",
+        "train_macro_f1",
         "weighted_f1",
         "K_t",
         "pseudo_batch_size",
+        "pseudo_yield",
         "total_pseudo_samples",
         "mean_pseudo_batch_size",
         "common_labels_json",
         "local_step_common_labels_json",
         "binding_success",
         "empty_binding_round",
+        "empty_binding",
         "empty_binding_rounds",
         "binding_success_rate",
         "configured_local_steps",
@@ -589,6 +635,13 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             )
             latency = time.perf_counter() - start
             sched_metrics = scheduler.metrics(selected)
+            configured_binding_batch_size = int(
+                cfg.get("binding", {}).get("batch_size", cfg.get("training", {}).get("batch_size", 1))
+            )
+            pseudo_yield = float(
+                train_metrics["pseudo_batch_size"]
+                / max(1, configured_binding_batch_size * int(train_metrics["attempted_local_steps"]))
+            )
             empty_binding_rounds += int(train_metrics["empty_binding_round"])
             successful_binding_rounds += int(train_metrics["binding_success"] > 0.0)
             total_attempted_local_steps += int(train_metrics["attempted_local_steps"])
@@ -600,21 +653,32 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
                     "global_round": round_idx,
                     "round": round_idx,
                     "loss": train_metrics["loss"],
+                    "train_total_loss": train_metrics["loss"],
                     "mean_loss": train_metrics["mean_loss"],
                     "classification_loss": train_metrics.get("classification_loss", 0.0),
+                    "train_classification_loss": train_metrics.get("classification_loss", 0.0),
                     "contrastive_loss": train_metrics.get("contrastive_loss", 0.0),
+                    "train_contrastive_loss": train_metrics.get("contrastive_loss", 0.0),
                     "heterogeneous_loss": train_metrics.get("heterogeneous_loss", 0.0),
+                    "train_heterogeneous_loss": train_metrics.get("heterogeneous_loss", 0.0),
+                    "weighted_classification_loss": train_metrics.get("weighted_classification_loss", 0.0),
+                    "weighted_contrastive_loss": train_metrics.get("weighted_contrastive_loss", 0.0),
+                    "weighted_heterogeneous_loss": train_metrics.get("weighted_heterogeneous_loss", 0.0),
                     "accuracy": train_metrics["accuracy"],
+                    "train_accuracy": train_metrics["accuracy"],
                     "macro_f1": train_metrics.get("macro_f1", 0.0),
+                    "train_macro_f1": train_metrics.get("macro_f1", 0.0),
                     "weighted_f1": train_metrics.get("weighted_f1", 0.0),
                     "K_t": train_metrics["K_t"],
                     "pseudo_batch_size": train_metrics["pseudo_batch_size"],
+                    "pseudo_yield": pseudo_yield,
                     "total_pseudo_samples": train_metrics["total_pseudo_samples"],
                     "mean_pseudo_batch_size": train_metrics["mean_pseudo_batch_size"],
                     "common_labels_json": json.dumps(train_metrics["common_labels"]),
                     "local_step_common_labels_json": json.dumps(train_metrics["local_step_common_labels"]),
                     "binding_success": train_metrics["binding_success"],
                     "empty_binding_round": train_metrics["empty_binding_round"],
+                    "empty_binding": train_metrics["empty_binding_round"],
                     "empty_binding_rounds": empty_binding_rounds,
                     "binding_success_rate": float(binding_success_rate),
                     "configured_local_steps": train_metrics["configured_local_steps"],
@@ -690,6 +754,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
             "eval_status": "deferred",
             "eval_failure_reason": None,
             "loss": None,
+            "classification_loss": None,
+            "loss_type": "classification_cross_entropy",
             "accuracy": None,
             "balanced_accuracy": None,
             "macro_recall": None,
@@ -706,6 +772,8 @@ def run_mmbind_fusion_stage3_split_training(cfg: dict, project_root: Path, devic
         "test_eval_status": test_eval["eval_status"],
         "test_eval_failure_reason": test_eval["eval_failure_reason"],
         "test_loss": test_eval["loss"],
+        "test_loss_type": "classification_cross_entropy",
+        "test_classification_loss": test_eval.get("classification_loss", test_eval["loss"]),
         "test_accuracy": test_eval["accuracy"],
         "test_balanced_accuracy": test_eval.get("balanced_accuracy"),
         "test_macro_recall": test_eval.get("macro_recall"),

@@ -1,6 +1,17 @@
 from pathlib import Path
 
-from experiments.common import DATASET_DEFAULTS, RQ1_METHODS, RQ2_METHODS, formal_result_dir, formal_run_grid, resolved_cfg
+from experiments.common import (
+    DATASET_DEFAULTS,
+    RQ1_METHODS,
+    RQ2_METHODS,
+    build_protocol_manifest,
+    formal_result_dir,
+    formal_run_grid,
+    protocol_hash,
+    resolved_cfg,
+    run_type_metadata,
+    write_protocol_manifest,
+)
 from experiments.run_rq2_training import rq2_run_dir
 
 
@@ -47,3 +58,27 @@ def test_formal_result_directory_layout():
     assert rq2_run_dir(root, "mhealth", 3, 42, "randomsl", 1) == (
         root / "rq2" / "mhealth" / "randomsl" / "fold_03" / "seed_42" / "rounds_1"
     )
+
+
+# 验证 protocol manifest 包含正式协议 hash，且 hash 不受 timestamp/output path 影响。
+def test_protocol_manifest_hash_is_deterministic(tmp_path):
+    first = build_protocol_manifest(tmp_path / "results")
+    second = build_protocol_manifest(tmp_path / "other_results")
+    assert first["protocol_hash"] == second["protocol_hash"]
+    first["timestamp"] = "changed"
+    first["results_root"] = "changed"
+    assert protocol_hash(first) == second["protocol_hash"]
+
+
+# 验证 protocol manifest 会写入结果根目录。
+def test_write_protocol_manifest(tmp_path):
+    manifest = write_protocol_manifest(tmp_path)
+    path = tmp_path / "protocol_manifest.json"
+    assert path.exists()
+    assert manifest["protocol_hash"] == protocol_hash(manifest)
+
+
+# 验证 smoke 结果和 formal 结果在 metadata 中明确区分。
+def test_run_type_metadata_marks_smoke_roots():
+    assert run_type_metadata(Path("results_smoke")) == {"run_type": "smoke", "formal": False}
+    assert run_type_metadata(Path("results")) == {"run_type": "formal", "formal": True}

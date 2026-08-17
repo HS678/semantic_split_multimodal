@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, RQ1_METHODS, formal_result_dir, formal_run_grid, write_json
+from experiments.common import DATASET_DEFAULTS, RQ1_METHODS, formal_result_dir, formal_run_grid, protocol_hash, run_type_metadata, write_json, write_protocol_manifest
 from experiments.run_rq1_discovery import run_one
 
 
@@ -45,6 +45,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     results_root = (ROOT / args.results_root).resolve()
+    write_protocol_manifest(results_root)
     records = []
     for dataset in args.datasets:
         for fold, seed in formal_run_grid(dataset, args.seeds):
@@ -57,6 +58,8 @@ def main(argv=None):
                         "fold": fold,
                         "seed": int(seed),
                         "method": method,
+                        "protocol_hash": protocol_hash(),
+                        **run_type_metadata(results_root),
                         "status": "failed",
                         "error_type": type(exc).__name__,
                         "error_message": str(exc),

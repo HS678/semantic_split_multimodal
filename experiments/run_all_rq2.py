@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, RQ2_METHODS, formal_run_grid, write_json
+from experiments.common import DATASET_DEFAULTS, RQ2_METHODS, formal_run_grid, protocol_hash, write_json, write_protocol_manifest
 from experiments.run_rq2_training import expected_rq2_config_hash, rq2_run_dir, run_one
 
 
@@ -131,6 +131,8 @@ def load_existing_result(results_root: Path, dataset: str, fold: int | None, see
     expected_hash = expected_rq2_config_hash(dataset, fold, seed, method, results_root, global_rounds)
     if payload.get("config_hash") != expected_hash:
         return None
+    if payload.get("protocol_hash") != protocol_hash():
+        return None
     return payload
 
 
@@ -159,6 +161,7 @@ def main(argv=None):
     args = parse_args(argv)
     require_cuda_if_requested(args.require_cuda)
     results_root = (ROOT / args.results_root).resolve()
+    write_protocol_manifest(results_root)
     plan = build_plan(args.datasets, args.seeds, args.methods)
     print_plan(plan)
     records = []

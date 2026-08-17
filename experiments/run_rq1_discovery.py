@@ -19,9 +19,11 @@ from experiments.common import (
     find_stage2_dir,
     load_fingerprint_npz,
     project_root,
+    protocol_hash,
     resolved_cfg,
     formal_result_dir,
     runtime_metadata,
+    run_type_metadata,
     write_json,
 )
 from MSL.evaluation.metrics import discovery_metrics
@@ -61,6 +63,8 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
     cluster_sizes = {str(int(label)): int((pred == label).sum()) for label in sorted(set(pred.tolist()))}
     raw = {
         **runtime_metadata(root, dataset, fold, seed, method),
+        "protocol_hash": protocol_hash(),
+        **run_type_metadata(results_root),
         "fingerprint": "reused_stage2_fingerprints",
         "stage1_dir": str(stage1_dir),
         "adaptive_stage2_dir": str(adaptive_dir),
