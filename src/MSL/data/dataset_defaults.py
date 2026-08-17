@@ -83,7 +83,7 @@ DATASET_DEFAULTS = {
             "split_protocol_template": "session_5fold_loso_fold{fold}",
         },
         "fold_count": 5,
-        "default_global_rounds": 200,
+        "default_global_rounds": 300,
         "pretrain": {
             "objective": "classification",
             "epochs": 5,

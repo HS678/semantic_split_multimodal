@@ -27,8 +27,16 @@ def test_formal_run_grid_uses_cv_folds_once_and_repeats_non_cv_seed():
 def test_formal_run_counts():
     total_run_points = sum(len(formal_run_grid(dataset)) for dataset in DATASET_DEFAULTS)
     assert total_run_points == 23
-    assert total_run_points * len(RQ1_METHODS) == 92
-    assert total_run_points * len(RQ2_METHODS) == 138
+    assert total_run_points * len(RQ1_METHODS) == 115
+    assert total_run_points * len(RQ2_METHODS) == 161
+
+
+# 验证正式 global rounds 只将 IEMOCAP 调整到 300，其他既有默认不被误改。
+def test_dataset_default_global_rounds():
+    assert resolved_cfg("uci_har", None, 42)["training"]["global_rounds"] == 200
+    assert resolved_cfg("mhealth", 1, 42)["training"]["global_rounds"] == 200
+    assert resolved_cfg("iemocap", 1, 42)["training"]["global_rounds"] == 300
+    assert resolved_cfg("pamap2", 1, 42)["training"]["global_rounds"] == 300
 
 
 # 验证 UCI-HAR 的重复 seed 写入 split signature，避免 Stage1/Stage2 产物互相覆盖。

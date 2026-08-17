@@ -15,8 +15,8 @@ from MSL.utils.results import dataset_result_name, safe_result_component
 
 FORMAL_SEEDS = [42, 123, 2025, 3407, 7777]
 FORMAL_CV_SEED = 42
-RQ1_METHODS = ["adaptive_isodata", "kmeans2", "kmeans3", "kmeans5"]
-RQ2_METHODS = ["ours", "randomsl", "kmeans2", "kmeans3", "kmeans5", "oracle"]
+RQ1_METHODS = ["adaptive_isodata", "kmeans2", "kmeans3", "kmeans4", "kmeans5"]
+RQ2_METHODS = ["ours", "randomsl", "kmeans2", "kmeans3", "kmeans4", "kmeans5", "oracle"]
 
 
 # 返回当前项目根目录。
@@ -214,7 +214,7 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
             "loss_weights": dict(representative_cfg["fusion"]["mmbind"]),
             "fingerprint_type": representative_cfg["fingerprint"]["type"],
             "adaptive_isodata": dict(representative_cfg["cluster"]["adaptive"]),
-            "kmeans_configs": {"kmeans2": 2, "kmeans3": 3, "kmeans5": 5},
+            "kmeans_configs": {"kmeans2": 2, "kmeans3": 3, "kmeans4": 4, "kmeans5": 5},
             "evaluation_protocol": {
                 "selection": "fixed_rounds_no_validation",
                 "test_loss": "classification_cross_entropy",
@@ -228,7 +228,7 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
             }.get(dataset_name),
         }
     manifest = {
-        "protocol_version": "cv_revision_2026_08_17",
+        "protocol_version": "cv_revision_iemocap_300_rounds_kmeans4_2026_08_17",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "results_root": None if results_root is None else str(Path(results_root)),
         "git_commit": git_commit(root),

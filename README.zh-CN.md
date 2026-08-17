@@ -30,7 +30,7 @@ python -m pip install -e .
 ## 协议
 
 - 训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 Stage 2 审计和 evaluation-only oracle mapping。
-- 无验证集：固定 `global_rounds=200`，无 early stopping、无 best checkpoint 选择。
+- 无验证集：按数据集固定 `global_rounds`（UCI-HAR/MHEALTH 为 200，IEMOCAP/PAMAP2 为 300），无 early stopping、无 best checkpoint 选择。
 - 正式指标：`acc` / `macro_f1` / `weighted_f1`。
 - 配置项 `training.cluster_assignment_source=true_cluster` 用于 oracle 上限对比；正式无泄漏主线为 `pred_cluster`。
 - D2D 尚未实现，`d2d.enabled=false` 仅保留扩展口。
@@ -121,7 +121,7 @@ python experiments/run_rq1_discovery.py --dataset pamap2 --fold 1 --seed 42 --me
 python experiments/run_all_rq1.py
 ```
 
-RQ1 支持 `adaptive_isodata`、`kmeans2`、`kmeans3`、`kmeans5`。KMeans 方法复用同一套 Stage2 pretrained encoders 和 fingerprints，不重新预训练。
+RQ1 支持 `adaptive_isodata`、`kmeans2`、`kmeans3`、`kmeans4`、`kmeans5`。KMeans 方法复用同一套 Stage2 pretrained encoders 和 fingerprints，不重新预训练。
 
 RQ2 单方法运行：
 
@@ -133,7 +133,7 @@ python experiments/run_rq2_training.py \
   --method ours
 ```
 
-RQ2 支持 `ours`、`randomsl`、`kmeans2`、`kmeans3`、`kmeans5`、`oracle`。全部方法共享 trainer、binding、server、loss 和 evaluator；只切换 discovery topology、scheduler policy 和 slot number。
+RQ2 支持 `ours`、`randomsl`、`kmeans2`、`kmeans3`、`kmeans4`、`kmeans5`、`oracle`。全部方法共享 trainer、binding、server、loss 和 evaluator；只切换 discovery topology、scheduler policy 和 slot number。
 
 完整 RQ2：
 
