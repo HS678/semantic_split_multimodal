@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from experiments.common import (
-    DATASET_DEFAULTS,
     DISCOVERY_METHODS,
     TRAINING_METHODS,
     build_protocol_manifest,
@@ -12,7 +11,8 @@ from experiments.common import (
     run_type_metadata,
     write_protocol_manifest,
 )
-from experiments.msl.train import training_run_dir
+from MSL.protocol import DATASET_PROTOCOLS
+from experiments.training import training_run_dir
 
 
 # 验证正式协议：无 CV 数据集用 5 seeds，CV 数据集每折固定 seed 42。
@@ -25,14 +25,14 @@ def test_formal_run_grid_uses_cv_folds_once_and_repeats_non_cv_seed():
 
 # 验证正式 run 总数不再对 CV fold 叠加 5 个随机种子。
 def test_formal_run_counts():
-    total_run_points = sum(len(formal_run_grid(dataset)) for dataset in DATASET_DEFAULTS)
+    total_run_points = sum(len(formal_run_grid(dataset)) for dataset in DATASET_PROTOCOLS)
     assert total_run_points == 23
     assert total_run_points * len(DISCOVERY_METHODS) == 115
     assert total_run_points * len(TRAINING_METHODS) == 161
 
 
 # 验证正式 global rounds 只将 IEMOCAP 调整到 300，其他既有默认不被误改。
-def test_dataset_default_global_rounds():
+def test_dataset_protocol_global_rounds():
     assert resolved_cfg("uci_har", None, 42)["training"]["global_rounds"] == 200
     assert resolved_cfg("mhealth", 1, 42)["training"]["global_rounds"] == 200
     assert resolved_cfg("iemocap", 1, 42)["training"]["global_rounds"] == 300

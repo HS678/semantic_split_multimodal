@@ -4,7 +4,29 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from MSL.data import _fold_number, _validate_subject_splits
+
+def _validate_subject_splits(train_subjects, test_subjects, dataset_name):
+    splits = {
+        "train": {int(v) for v in train_subjects},
+        "test": {int(v) for v in test_subjects},
+    }
+    for split_name, subjects in splits.items():
+        if not subjects:
+            raise ValueError(f"{dataset_name} {split_name}_subjects must not be empty.")
+    overlap = sorted(splits["train"] & splits["test"])
+    if overlap:
+        raise ValueError(
+            f"{dataset_name} subject splits must be disjoint, train/test overlap={overlap}."
+        )
+    return splits
+
+
+def _fold_number(split_protocol: str) -> int:
+    import re
+    match = re.search(r"fold(\d+)", str(split_protocol or ""))
+    if not match:
+        raise ValueError(f"split_protocol must contain fold<N>: {split_protocol!r}")
+    return int(match.group(1))
 
 
 IEMOCAP_MODALITY_NAMES = ["audio", "video", "text"]

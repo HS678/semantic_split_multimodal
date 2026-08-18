@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from experiments.msl.train import main as train_main, run_one
+from experiments.training import main as train_main
 
 SUPPORTED_K = (2, 3, 4, 5)
 
@@ -11,8 +11,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--k", type=int, choices=SUPPORTED_K, default=2)
     known, rest = parser.parse_known_args(argv)
-    if "--method" not in rest:
-        rest = ["--method", f"kmeans{known.k}", *rest]
+    if "--method" in rest:
+        raise SystemExit("kmeans_sl.py fixes method from --k; use experiments/training.py for explicit methods.")
+    rest = ["--method", f"kmeans{known.k}", *rest]
     return train_main(rest)
 
 

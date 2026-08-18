@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, DISCOVERY_METHODS, formal_result_dir, formal_run_grid, protocol_hash, run_type_metadata, write_json, write_protocol_manifest
+from experiments.common import DATASET_PROTOCOLS, DISCOVERY_METHODS, formal_result_dir, formal_run_grid, protocol_hash, run_type_metadata, write_json, write_protocol_manifest
 from experiments.discovery_comparison import run_one
 
 
@@ -35,7 +35,7 @@ def aggregate(records: list[dict]) -> dict:
 # 解析 discovery comparison 全实验参数。
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run all discovery comparison discovery jobs on available real artifacts.")
-    parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_DEFAULTS), default=list(DATASET_DEFAULTS))
+    parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_PROTOCOLS), default=list(DATASET_PROTOCOLS))
     parser.add_argument("--seeds", nargs="*", type=int)
     parser.add_argument("--results-root", default="results")
     return parser.parse_args(argv)

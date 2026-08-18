@@ -1,5 +1,8 @@
 import random
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+
+import numpy as np
 
 
 # 从客户端对象读取预测簇编号。
@@ -12,31 +15,25 @@ def _client_id(client):
     return str(client.client_id)
 
 
-# 记录调度器共享的参与次数和覆盖率统计。
-class _SchedulerMetricsMixin:
-    @property
-    def clients_per_round(self):
-        raise NotImplementedError
-
-    # 统计本轮选择的 cluster coverage 和参与公平性。
-    def metrics(self, selected):
-        selected_clusters = {_client_cluster(client) for client in selected}
-        counts = [self.participation[_client_id(client)] for client in self.clients]
-        fairness = 1.0
-        if counts and sum(value * value for value in counts) > 0:
-            fairness = (sum(counts) ** 2) / (len(counts) * sum(value * value for value in counts))
-        per_cluster_selected = Counter(_client_cluster(client) for client in selected)
-        return {
-            "coverage": float(len(selected_clusters) / max(1, len(self.cluster_ids))),
-            "participation_fairness": float(fairness),
-            "round": int(self.round_index),
-            "clients_per_round": int(self.clients_per_round),
-            "clients_per_cluster_per_round": int(getattr(self, "clients_per_cluster_per_round", 0)),
-            "per_cluster_selected": {
-                str(cluster_id): int(per_cluster_selected.get(cluster_id, 0))
-                for cluster_id in self.cluster_ids
-            },
-        }
+# 统计本轮选择的 cluster coverage 和参与公平性。
+def _scheduler_metrics(scheduler, selected):
+    selected_clusters = {_client_cluster(client) for client in selected}
+    counts = [scheduler.participation[_client_id(client)] for client in scheduler.clients]
+    fairness = 1.0
+    if counts and sum(value * value for value in counts) > 0:
+        fairness = (sum(counts) ** 2) / (len(counts) * sum(value * value for value in counts))
+    per_cluster_selected = Counter(_client_cluster(client) for client in selected)
+    return {
+        "coverage": float(len(selected_clusters) / max(1, len(scheduler.cluster_ids))),
+        "participation_fairness": float(fairness),
+        "round": int(scheduler.round_index),
+        "clients_per_round": int(scheduler.clients_per_round),
+        "clients_per_cluster_per_round": int(getattr(scheduler, "clients_per_cluster_per_round", 0)),
+        "per_cluster_selected": {
+            str(cluster_id): int(per_cluster_selected.get(cluster_id, 0))
+            for cluster_id in scheduler.cluster_ids
+        },
+    }
 
 
 # 根据预测簇从每个簇中无放回地调度 r 个客户端。
@@ -109,7 +106,7 @@ class BalancedClusterRoundRobinScheduler:
 
     # 统计本轮选择的 cluster coverage 和参与公平性。
     def metrics(self, selected):
-        return _SchedulerMetricsMixin.metrics(self, selected)
+        return _scheduler_metrics(self, selected)
 
 
 # 从全体客户端中完全随机无放回选择 r * Q_hat 个客户端。
@@ -152,7 +149,7 @@ class RandomScheduler:
 
     # 统计随机选择后的 cluster 覆盖率但不用于补齐选择。
     def metrics(self, selected):
-        return _SchedulerMetricsMixin.metrics(self, selected)
+        return _scheduler_metrics(self, selected)
 
 
 # 根据名称构建正式训练使用的调度策略。
@@ -165,11 +162,6 @@ def build_scheduler(name, clients, clients_per_cluster_per_round, seed=0):
         clients_per_round = int(clients_per_cluster_per_round) * len(cluster_ids)
         return RandomScheduler(clients, clients_per_round=clients_per_round, seed=seed)
     raise ValueError("Unsupported scheduler. Use 'balanced_cluster_round_robin' or 'random'.")
-
-
-from dataclasses import dataclass
-
-import numpy as np
 
 
 # 表示 cluster scheduling 理论不可行或无法修复。

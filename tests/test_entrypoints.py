@@ -8,6 +8,7 @@ def test_semantic_entrypoints_import():
         "experiments.discovery_comparison",
         "experiments.run_all",
         "experiments.run_all_discovery",
+        "experiments.training",
         "experiments.msl.train",
         "experiments.msl.run_all",
         "experiments.baselines.random_sl",
@@ -47,3 +48,24 @@ def test_default_baseline_wrappers_select_shared_methods(monkeypatch):
     oracle_sl.main(["--dataset", "uci_har", "--seed", "42"])
     assert captured["random"] == ["--method", "randomsl", "--dataset", "uci_har", "--seed", "42"]
     assert captured["oracle"] == ["--method", "oracle", "--dataset", "uci_har", "--seed", "42"]
+
+
+def test_training_config_hash_has_no_topology_side_effect(monkeypatch, tmp_path):
+    from experiments import training
+
+    def forbidden_prepare(*_args, **_kwargs):
+        raise AssertionError("expected_training_config_hash must not prepare topology artifacts")
+
+    monkeypatch.setattr(training, "find_clients_dir", lambda *_args, **_kwargs: tmp_path / "clients")
+    monkeypatch.setattr(training, "find_discovery_dir", lambda *_args, **_kwargs: tmp_path / "discovery")
+    monkeypatch.setattr(training, "prepare_method_topology", forbidden_prepare)
+
+    value = training.expected_training_config_hash(
+        "mhealth",
+        1,
+        42,
+        "ours",
+        tmp_path / "results",
+        None,
+    )
+    assert isinstance(value, str)

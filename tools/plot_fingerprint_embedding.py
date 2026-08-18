@@ -12,7 +12,8 @@ import torch
 
 from MSL.data import Client
 from MSL.discovery import build_fingerprints
-from MSL.protocol import add_experiment_args, load_experiment_config_from_args
+from MSL.protocol import DATASET_PROTOCOLS
+from experiments.common import build_experiment_config, apply_experiment_overrides, with_repeated_seed_split_signature
 
 
 def _prepare_pca(fingerprints: np.ndarray, standardize: bool = True):
@@ -227,11 +228,20 @@ def rebuild_fingerprint_figure(cfg: dict, clients_dir: Path, discovery_dir: Path
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Create publication-quality PCA plots of modality discovery client fingerprints.")
-    add_experiment_args(parser, include_seed=True)
+    parser.add_argument("--dataset", choices=tuple(DATASET_PROTOCOLS), required=True)
+    parser.add_argument("--fold", type=int)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="auto")
+    parser.add_argument("--fingerprint-type", choices=["encoder", "signal", "hybrid"])
     parser.add_argument("--clients-dir", required=True)
     parser.add_argument("--discovery-dir", required=True)
     args = parser.parse_args(argv)
-    cfg = load_experiment_config_from_args(args)
+    cfg = build_experiment_config(dataset_type=args.dataset, seed=args.seed, device=args.device)
+    cfg = apply_experiment_overrides(cfg, fold=args.fold)
+    if args.fold is None and DATASET_PROTOCOLS[str(args.dataset)]["fold_count"] is None:
+        cfg = with_repeated_seed_split_signature(cfg, args.seed)
+    if args.fingerprint_type is not None:
+        cfg["fingerprint"] = {**dict(cfg.get("fingerprint", {})), "type": str(args.fingerprint_type)}
     outputs = rebuild_fingerprint_figure(cfg, Path(args.clients_dir), Path(args.discovery_dir), torch.device(args.device))
     for key, path in outputs.items():
         print(f"{key}={path}")

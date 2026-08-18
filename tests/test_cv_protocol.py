@@ -1,11 +1,8 @@
-from MSL.protocol import DATASET_DEFAULTS
-from MSL.data import (
-    MHEALTH_FOLD_SUBJECTS,
-    PAMAP2_EVALUATION_SUBJECTS,
-    UCI_HAR_TEST_SUBJECTS,
-    UCI_HAR_TRAIN_SUBJECTS,
-)
-from MSL.iemocap import IEMOCAP_FOLD_SESSIONS
+from MSL.protocol import DATASET_PROTOCOLS
+from MSL.datasets.mhealth import MHEALTH_FOLD_SUBJECTS
+from MSL.datasets.pamap2 import PAMAP2_EVALUATION_SUBJECTS
+from MSL.datasets.uci_har import UCI_HAR_TEST_SUBJECTS, UCI_HAR_TRAIN_SUBJECTS
+from MSL.datasets.iemocap import IEMOCAP_FOLD_SESSIONS
 from experiments.common import formal_folds
 
 
@@ -13,15 +10,15 @@ def assert_disjoint(train_groups, test_groups):
     assert set(int(value) for value in train_groups).isdisjoint(int(value) for value in test_groups)
 
 
-# 验证 defaults、runner 和 loader 对 fold count 的定义一致。
-def test_fold_counts_match_defaults_and_runners():
-    assert DATASET_DEFAULTS["uci_har"]["fold_count"] is None
+# 验证 protocol、runner 和 loader 对 fold count 的定义一致。
+def test_fold_counts_match_protocol_and_runners():
+    assert DATASET_PROTOCOLS["uci_har"]["fold_count"] is None
     assert formal_folds("uci_har") == [None]
-    assert DATASET_DEFAULTS["mhealth"]["fold_count"] == len(MHEALTH_FOLD_SUBJECTS) == 5
+    assert DATASET_PROTOCOLS["mhealth"]["fold_count"] == len(MHEALTH_FOLD_SUBJECTS) == 5
     assert formal_folds("mhealth") == [1, 2, 3, 4, 5]
-    assert DATASET_DEFAULTS["pamap2"]["fold_count"] == len(PAMAP2_EVALUATION_SUBJECTS) == 8
+    assert DATASET_PROTOCOLS["pamap2"]["fold_count"] == len(PAMAP2_EVALUATION_SUBJECTS) == 8
     assert formal_folds("pamap2") == list(range(1, 9))
-    assert DATASET_DEFAULTS["iemocap"]["fold_count"] == len(IEMOCAP_FOLD_SESSIONS) == 5
+    assert DATASET_PROTOCOLS["iemocap"]["fold_count"] == len(IEMOCAP_FOLD_SESSIONS) == 5
     assert formal_folds("iemocap") == [1, 2, 3, 4, 5]
 
 

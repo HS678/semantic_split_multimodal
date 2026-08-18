@@ -38,9 +38,8 @@ bash tools/data/launch_discover_modalities_all.sh
 实验：
 
 ```bash
-bash tools/launch_msl.sh
-bash tools/launch_random_sl.sh
 python experiments/msl/run_all.py --results-root results --device auto --require-cuda
+python experiments/run_all.py --results-root results --device auto --require-cuda
 ```
 
 日志建议写入：

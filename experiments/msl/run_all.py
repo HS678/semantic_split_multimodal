@@ -14,8 +14,8 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from experiments.common import DATASET_DEFAULTS, TRAINING_METHODS, formal_run_grid, protocol_hash, write_json, write_protocol_manifest
-from experiments.msl.train import expected_training_config_hash, training_run_dir, run_one
+from experiments.common import DATASET_PROTOCOLS, TRAINING_METHODS, formal_run_grid, protocol_hash, write_json, write_protocol_manifest
+from experiments.training import expected_training_config_hash, training_run_dir, run_one
 
 
 # 从 training record 中取最终测试指标。
@@ -149,7 +149,7 @@ def require_cuda_if_requested(require_cuda: bool) -> None:
 # 解析 training 全实验参数。
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run all training methods on available real artifacts.")
-    parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_DEFAULTS), default=list(DATASET_DEFAULTS))
+    parser.add_argument("--datasets", nargs="*", choices=tuple(DATASET_PROTOCOLS), default=list(DATASET_PROTOCOLS))
     parser.add_argument("--seeds", nargs="*", type=int)
     parser.add_argument("--methods", nargs="*", choices=TRAINING_METHODS, default=TRAINING_METHODS)
     parser.add_argument("--results-root", default="results")

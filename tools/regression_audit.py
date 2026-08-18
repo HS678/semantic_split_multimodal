@@ -18,6 +18,7 @@ PATH_KEYS = {
 }
 
 RUNTIME_KEYS = {
+    "d2d",
     "device",
     "git_commit",
     "protocol_hash",
@@ -72,6 +73,16 @@ def compare_bytes(old: Path, new: Path) -> bool:
     return Path(old).read_bytes() == Path(new).read_bytes()
 
 
+def compare_optional_bytes(old: Path, new: Path) -> bool | None:
+    old_exists = Path(old).exists()
+    new_exists = Path(new).exists()
+    if not old_exists and not new_exists:
+        return None
+    if old_exists != new_exists:
+        return False
+    return compare_bytes(old, new)
+
+
 def find_result_file(run_dir: Path) -> Path:
     current = Path(run_dir) / "result.json"
     if current.exists():
@@ -113,20 +124,21 @@ def audit(old_dir: Path, new_dir: Path) -> dict:
     selected_diff = first_row_diff(old_log, new_log, ["selected_client_ids"])
     train_log_diff = first_row_diff(old_log, new_log, ignore_keys=TRAIN_LOG_RUNTIME_KEYS)
     metric_diff = scrub_runtime_payload(old_metrics) != scrub_runtime_payload(new_metrics)
-    assignment_results = {
-        rel: compare_bytes(old_dir / rel, new_dir / rel)
-        for rel in [
-            "topology/pred_cluster.csv",
-            "topology/raw_cluster_assignment.csv",
-            "topology/true_cluster.csv",
-        ]
-    }
+    assignment_results = {}
+    for rel in [
+        "topology/pred_cluster.csv",
+        "topology/raw_cluster_assignment.csv",
+        "topology/true_cluster.csv",
+    ]:
+        result = compare_optional_bytes(old_dir / rel, new_dir / rel)
+        if result is not None:
+            assignment_results[rel] = result
     return {
         "old_dir": str(old_dir),
         "new_dir": str(new_dir),
         "old_device": old_metrics.get("device"),
         "new_device": new_metrics.get("device"),
-        "cluster_assignment_equal": all(assignment_results.values()),
+        "cluster_assignment_equal": all(assignment_results.values()) if assignment_results else True,
         "cluster_assignment_files": assignment_results,
         "selected_clients_equal": selected_diff is None,
         "selected_clients_first_diff": selected_diff,

@@ -507,8 +507,8 @@ def _training_class_weights(clients, cfg, device):
 
 
 def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device):
-    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/MSL/partition"))
-    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/MSL/cluster"))
+    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/pipeline/clients"))
+    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/pipeline/discovery"))
     result_dir = resolve_project_path(project_root, cfg.get("result", {}).get("output_dir", "local/logs"))
     model_dir = resolve_project_path(project_root, cfg.get("result_model", {}).get("output_dir", "local/checkpoints"))
     result_dir.mkdir(parents=True, exist_ok=True)

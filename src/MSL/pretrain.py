@@ -120,8 +120,8 @@ def _pretrain_client_encoder(client: Client, cfg: dict, device):
 
 
 def discover_modalities(cfg: dict, project_root: Path, device: torch.device):
-    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/MSL/partition"))
-    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/MSL/cluster"))
+    partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/pipeline/clients"))
+    cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/pipeline/discovery"))
     encoder_dir = cluster_dir / "pretrained_encoders"
     encoder_dir.mkdir(parents=True, exist_ok=True)
 

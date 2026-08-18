@@ -1,14 +1,15 @@
 import sys
 
-from experiments.msl.train import main as train_main, run_one
+from experiments.training import main as train_main
 
 DEFAULT_METHOD = "oracle"
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if "--method" not in argv:
-        argv = ["--method", DEFAULT_METHOD, *argv]
+    if "--method" in argv:
+        raise SystemExit("oracle_sl.py fixes method=oracle; use experiments/training.py for explicit methods.")
+    argv = ["--method", DEFAULT_METHOD, *argv]
     return train_main(argv)
 
 

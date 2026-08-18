@@ -15,7 +15,11 @@ src/MSL/
 ├── __init__.py
 ├── protocol.py
 ├── data.py
-├── iemocap.py
+├── datasets/
+│   ├── uci_har.py
+│   ├── mhealth.py
+│   ├── pamap2.py
+│   └── iemocap.py
 ├── discovery.py
 ├── models.py
 ├── pretrain.py
@@ -40,6 +44,15 @@ src/MSL/
 - feasibility repair 保留，仅在 cluster size `< r` 时保证 cluster-aware scheduler 可执行
 
 训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 discovery 审计和 evaluation-only tolerant routing。
+
+## 职责边界
+
+- `src/MSL/protocol.py`：正式实验协议唯一参数来源，只含协议常量和纯查询函数。
+- `src/MSL/datasets/`：各数据集专属读取、预处理、split、windowing、normalization。
+- `src/MSL/data.py`：统一 dataset dispatcher、client partition、artifact save/load 与公共校验。
+- `pipeline/`：生成 client/discovery artifacts。
+- `experiments/training.py`：实验层共享 runner，负责 method policy、topology artifact、结果目录、resume hash 和 CLI。
+- `src/MSL/training.py`：算法 trainer，负责实际 split learning 训练循环、loss、binding 调用、server/client 更新和评估输出。
 
 ## 数据准备
 
@@ -86,7 +99,7 @@ python experiments/run_all_discovery.py --results-root results
 MSL 主方法：
 
 ```bash
-python experiments/msl/train.py --dataset pamap2 --fold 1 --seed 42 --method ours
+python experiments/msl/train.py --dataset pamap2 --fold 1 --seed 42
 python experiments/msl/run_all.py --methods ours --results-root results --device auto --require-cuda
 ```
 
@@ -107,18 +120,21 @@ python experiments/run_all.py --results-root results --device auto --require-cud
 ```text
 results/
 ├── protocol_manifest.json
+├── pipeline/
+│   ├── clients/
+│   └── discovery/
 ├── discovery/
 ├── msl/
 └── baselines/
 ```
 
-公共 client partition 和 modality discovery 产物仍写入 `results/MSL/partition` 与 `results/MSL/cluster`，作为 pipeline 产物供 experiments 复用。
+新 pipeline 默认写入 `results/pipeline/clients` 与 `results/pipeline/discovery`。实验读取仍兼容旧 `results/MSL/...` 与 `local/results_msl/...`，用于复用已有产物。
 
 ## Baseline 接入
 
-内部 baseline 放在 `experiments/baselines/`，优先共享 `experiments/msl/train.py` 中的 trainer / binding / server / evaluator，仅切换 method policy。
+内部 baseline 放在 `experiments/baselines/`，共享 `experiments/training.py` 的实验层 runner；算法 trainer / binding / server / evaluator 仍在 `src/MSL/training.py` 等核心模块中。
 
-KMeans-SL 统一由 `experiments/baselines/kmeans_sl.py` 和 `experiments/msl/train.py --method kmeansK` 支持，`K=2/3/4/5`。
+KMeans-SL 统一由 `experiments/baselines/kmeans_sl.py --k 2/3/4/5` 和 `experiments/training.py --method kmeansK` 支持。
 
 外部论文 baseline 放在 `experiments/baselines/external/`，不强行塞入共享 trainer。
 

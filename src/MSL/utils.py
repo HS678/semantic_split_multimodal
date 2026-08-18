@@ -25,7 +25,6 @@ import re
 
 SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 _NON_IDENTITY_KEYS = {
-    "base_dir",
     "dataset_dir",
     "output_dir",
     "run_dir",
@@ -106,41 +105,15 @@ def experiment_config_signature(cfg: dict) -> str:
     return f"{safe_result_component(objective)}-h-{digest}"
 
 
-def configure_result_run(cfg: dict, project_root: Path) -> dict:
-    """Client preparation 专用：解析 base_dir 并生成 partition 输出目录（含协议签名字段）。"""
-    cfg = dict(cfg)
-    result_cfg = dict(cfg.get("results", {}))
-    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./results/MSL")
-    base_dir = _resolve_project_path(project_root, base_dir_value)
-    dataset_name = dataset_result_name(cfg)
-    dataset_dir = base_dir / "partition" / dataset_name
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-    clients_per_modality = int(
-        cfg.get("partition", {}).get("clients_per_modality", cfg.get("clients_per_modality", 10))
-    )
-    cfg["results"] = {
-        **result_cfg,
-        "base_dir": str(base_dir),
-        "dataset_dir": str(dataset_dir),
-        "run_dir": str(dataset_dir),
-        "data_partition": str(dataset_dir),
-    }
-    cfg["partition"] = {
-        **cfg.get("partition", {}),
-        "output_dir": str(dataset_dir),
-        "auto_signature_dir": True,
-        "clients_per_modality": clients_per_modality,
-    }
-    return cfg
-
-
 def resolve_pipeline_paths(cfg: dict, project_root: Path) -> dict:
-    """从 base_dir + 数据集 + 划分协议自动生成 pipeline/experiment 路径（config 无需手写路径）。"""
+    """从数据集 + 划分协议自动生成 pipeline artifact 路径。"""
     from MSL.data import load_dataset
 
     result_cfg = dict(cfg.get("results", {}))
-    base_dir_value = cfg.get("base_dir") or result_cfg.get("base_dir", "./results/MSL")
-    base_dir = _resolve_project_path(project_root, base_dir_value)
+    clients_root_value = result_cfg.get("clients_root", "./results/pipeline/clients")
+    discovery_root_value = result_cfg.get("discovery_root", "./results/pipeline/discovery")
+    clients_root = _resolve_project_path(project_root, clients_root_value)
+    discovery_root = _resolve_project_path(project_root, discovery_root_value)
     dataset_name = dataset_result_name(cfg)
     dataset = load_dataset(cfg, project_root)
     signature = partition_signature(
@@ -149,9 +122,9 @@ def resolve_pipeline_paths(cfg: dict, project_root: Path) -> dict:
         cfg.get("dataset", {}).get("split_protocol"),
     )
     return {
-        "clients_dir": base_dir / "partition" / dataset_name / signature,
-        "discovery_dir": base_dir / "cluster" / dataset_name / signature / "adaptive_isodata",
-        "output_dir": base_dir / "experiments",
+        "clients_dir": clients_root / dataset_name / signature,
+        "discovery_dir": discovery_root / dataset_name / signature / "adaptive_isodata",
+        "output_dir": discovery_root,
     }
 
 
