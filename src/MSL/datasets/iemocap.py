@@ -73,7 +73,7 @@ def _load_feature_payload(path: Path, modality_name: str) -> dict:
     if not path.exists():
         raise FileNotFoundError(
             f"Missing IEMOCAP {modality_name} feature cache: {path}. "
-            "Run 'python tools/prepare_iemocap.py' first."
+            "Run 'python pipeline/prepare_iemocap_features.py' first."
         )
     payload = torch.load(path, map_location="cpu")
     required = {"sample_ids", "features", "lengths", "feature_extractor"}
@@ -103,7 +103,7 @@ def load_manifest(processed_root: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(
             f"Missing IEMOCAP manifest: {path}. "
-            "Run 'python tools/prepare_iemocap.py' first."
+            "Run 'python pipeline/prepare_iemocap_features.py' first."
         )
     with path.open("r", encoding="utf-8") as f:
         payload = json.load(f)

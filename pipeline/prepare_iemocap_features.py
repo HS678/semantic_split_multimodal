@@ -3,12 +3,16 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 import torch
 
-from .iemocap import IEMOCAP_LABEL_MAPPING, load_manifest
+from MSL.datasets.iemocap import IEMOCAP_LABEL_MAPPING, load_manifest
 
 
 ANNOTATION_PATTERN = re.compile(

@@ -5,6 +5,7 @@ def test_semantic_entrypoints_import():
     for module_name in [
         "pipeline.prepare_clients",
         "pipeline.discover_modalities",
+        "pipeline.prepare_iemocap_features",
         "experiments.discovery_comparison",
         "experiments.run_all",
         "experiments.run_all_discovery",

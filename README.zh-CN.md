@@ -2,17 +2,70 @@
 
 未知模态环境下语义对齐的分布式分割多模态学习。
 
-## 目录
+本项目文件夹按“可直接复现实验的完整工作环境”组织：源码、正式协议、数据目录、IEMOCAP 预处理特征缓存和运行入口在同一目录树下。复现时只使用本文档列出的当前路径。
+
+## 快速复现
+
+进入项目根目录并激活环境：
+
+```bash
+cd /path/to/semantic_split_multimodal
+conda activate mpsl
+```
+
+确认 Python、CUDA 和依赖：
+
+```bash
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+python -m pytest tests -q
+```
+
+完整复现按当前路径从头生成数据划分、模态聚类和实验结果：
+
+```bash
+bash tools/data/launch_prepare_clients_all.sh
+bash tools/data/launch_discover_modalities_all.sh
+python experiments/run_all.py --results-root results --device cuda --require-cuda
+```
+
+如果 `local/datasets/IEMOCAP/processed/mfcc_mobilevit_xs_distilbert_v1/` 中缺少 IEMOCAP frozen feature cache，先生成该当前数据路径下的缓存：
+
+```bash
+python pipeline/prepare_iemocap_features.py --device cuda
+```
+
+后台完整复现命令：
+
+```bash
+mkdir -p logs && nohup bash -lc 'python -m pytest tests -q && bash tools/data/launch_prepare_clients_all.sh && bash tools/data/launch_discover_modalities_all.sh && python experiments/run_all.py --results-root results --device cuda --require-cuda' > logs/full_reproduce.log 2>&1 &
+```
+
+查看进度：
+
+```bash
+tail -f logs/full_reproduce.log
+```
+
+## 目录结构
 
 ```text
-protocol / pipeline / experiments / src / tools / tests
+.
+├── README.zh-CN.md
+├── requirements.txt
+├── pyproject.toml
+├── src/MSL/
+├── pipeline/
+├── experiments/
+├── tools/
+├── tests/
+├── local/datasets/        # 本地数据和预处理缓存，不提交到 Git
+└── results/               # 运行生成结果，不提交到 Git
 ```
 
 核心代码在 `src/MSL/`：
 
 ```text
 src/MSL/
-├── __init__.py
 ├── protocol.py
 ├── data.py
 ├── datasets/
@@ -30,7 +83,55 @@ src/MSL/
 └── utils.py
 ```
 
-## 协议
+## 环境
+
+推荐使用已配置好的 `mpsl` conda 环境。若从源码重新安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+CUDA 复现实验建议显式使用：
+
+```bash
+--device cuda --require-cuda
+```
+
+如果 `torch.cuda.is_available()` 为 `False`，先不要跑正式实验，检查当前 shell 是否能访问 GPU 驱动和 CUDA 版 PyTorch。
+
+## 数据
+
+默认数据位置：
+
+```text
+local/datasets/
+├── UCI-HAR/
+├── MHEALTH/
+├── PAMAP2/
+└── IEMOCAP/
+    ├── IEMOCAP_full/IEMOCAP_full_release/
+    ├── processed/mfcc_mobilevit_xs_distilbert_v1/
+    └── model_cache/
+```
+
+IEMOCAP 的正式 loader 不直接从视频/音频/文本原始文件训练，而是读取 frozen processed cache：
+
+```text
+local/datasets/IEMOCAP/processed/mfcc_mobilevit_xs_distilbert_v1/
+├── manifest.json
+├── audio.pt
+├── video.pt
+├── text.pt
+└── metadata.json
+```
+
+生成该 cache 的入口是：
+
+```bash
+python pipeline/prepare_iemocap_features.py --device cuda
+```
+
+## 正式协议
 
 正式实验参数唯一来源是 `src/MSL/protocol.py`。CLI 参数只用于临时 override；`protocol_manifest.json` 是运行后写出的协议快照，不作为输入配置。
 
@@ -41,33 +142,40 @@ src/MSL/
 - discovery 方法：`adaptive_isodata`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`
 - training 方法：`ours`, `randomsl`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`, `oracle`
 
+正式 run grid：
+
+- UCI-HAR: 5 个 seed，fold 为 `fold_00`
+- MHEALTH: 5 folds，seed 固定 `42`
+- PAMAP2: 8 folds，seed 固定 `42`
+- IEMOCAP: 5 folds，seed 固定 `42`
+
 训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 discovery 审计和 evaluation-only tolerant routing。
 
-## 职责边界
+## 复现步骤
 
-- `src/MSL/protocol.py`：正式实验协议唯一参数来源，只含协议常量和纯查询函数。
-- `src/MSL/datasets/`：各数据集专属读取、预处理、split、windowing、normalization。
-- `src/MSL/data.py`：统一 dataset dispatcher、client partition、artifact save/load 与公共校验。
-- `pipeline/`：生成 client/discovery artifacts。
-- `experiments/training.py`：实验层共享 runner，负责 method policy、topology artifact、结果目录、resume hash 和 CLI。
-- `src/MSL/training.py`：算法 trainer，负责实际 split learning 训练循环、loss、binding 调用、server/client 更新和评估输出。
-
-## 数据准备
-
-数据放在 `local/datasets/`：
-
-- UCI-HAR: `local/datasets/UCI-HAR/`
-- MHEALTH: `local/datasets/MHEALTH/`
-- PAMAP2: `local/datasets/PAMAP2/`
-- IEMOCAP: `local/datasets/IEMOCAP/IEMOCAP_full/IEMOCAP_full_release/`
-
-IEMOCAP 冻结特征准备：
+1. 检查环境：
 
 ```bash
-PYTHONPATH=src python tools/prepare_iemocap.py --device cuda
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+python -m compileall src pipeline experiments tools tests -q
+python -m pytest tests -q
 ```
 
-生成单模态客户端：
+2. 准备 IEMOCAP processed cache：
+
+```bash
+python pipeline/prepare_iemocap_features.py --device cuda
+```
+
+完整环境包应包含 `local/datasets/IEMOCAP/processed/mfcc_mobilevit_xs_distilbert_v1/` 下的 `manifest.json`、`audio.pt`、`video.pt`、`text.pt`。缺失时用上面的命令在当前数据路径生成。
+
+3. 生成单模态 client partition：
+
+```bash
+bash tools/data/launch_prepare_clients_all.sh
+```
+
+单数据集入口：
 
 ```bash
 bash tools/dataset/uci_har/prepare_clients.sh
@@ -76,7 +184,26 @@ bash tools/dataset/pamap2/prepare_clients.sh
 bash tools/dataset/iemocap/prepare_clients.sh
 ```
 
-发现模态簇：
+输出位置：
+
+```text
+results/pipeline/clients/<dataset>/<partition_signature>/
+```
+
+每个有效目录至少包含：
+
+```text
+train_clients/
+test_multimodal.pt
+```
+
+4. 发现模态簇并保存 pretrained encoders / fingerprints：
+
+```bash
+bash tools/data/launch_discover_modalities_all.sh
+```
+
+单数据集入口：
 
 ```bash
 bash tools/dataset/uci_har/discover_modalities.sh
@@ -85,38 +212,63 @@ bash tools/dataset/pamap2/discover_modalities.sh
 bash tools/dataset/iemocap/discover_modalities.sh
 ```
 
-## 实验
+输出位置：
 
-Discovery comparison：
+```text
+results/pipeline/discovery/<dataset>/<partition_signature>/adaptive_isodata/
+```
+
+每个有效目录至少包含：
+
+```text
+pred_cluster.csv
+pretrained_encoders/
+visualization/fingerprints.npz
+```
+
+5. 运行 RQ1 discovery comparison：
 
 ```bash
-python experiments/discovery_comparison.py --dataset pamap2 --fold 1 --seed 42 --method adaptive_isodata
 python experiments/run_all_discovery.py --results-root results
 ```
 
-MSL 主方法：
+6. 运行 RQ2 全部训练方法：
 
 ```bash
-python experiments/msl/train.py --dataset pamap2 --fold 1 --seed 42
-python experiments/msl/run_all.py --methods ours --results-root results --device auto --require-cuda
+python experiments/msl/run_all.py --results-root results --device cuda --require-cuda
 ```
 
-Baselines：
+7. 或者一键运行 RQ1 + RQ2：
 
 ```bash
-python experiments/msl/run_all.py --methods randomsl kmeans2 kmeans3 kmeans4 kmeans5 oracle --results-root results --device auto --require-cuda
+python experiments/run_all.py --results-root results --device cuda --require-cuda
 ```
 
-一键运行 discovery comparison + 全部 training 方法：
+## 单次调试
+
+单次 RQ1：
 
 ```bash
-python experiments/run_all.py --results-root results --device auto --require-cuda
+python experiments/discovery_comparison.py --dataset pamap2 --fold 1 --seed 42 --method adaptive_isodata
+```
+
+单次 RQ2 Ours：
+
+```bash
+python experiments/msl/train.py --dataset pamap2 --fold 1 --seed 42 --device cuda --require-cuda
+```
+
+单次 baseline：
+
+```bash
+python experiments/training.py --dataset pamap2 --fold 1 --seed 42 --method randomsl --device cuda --require-cuda
+python experiments/training.py --dataset pamap2 --fold 1 --seed 42 --method kmeans4 --device cuda --require-cuda
+python experiments/training.py --dataset pamap2 --fold 1 --seed 42 --method oracle --device cuda --require-cuda
 ```
 
 ## 结果
 
-
-Pipeline artifact 和正式实验结果统一使用当前 `results/` 目录结构：
+正式结果写入：
 
 ```text
 results/
@@ -125,31 +277,55 @@ results/
 │   ├── clients/
 │   └── discovery/
 ├── discovery/
+│   └── aggregated/
 ├── msl/
-└── baselines/
+│   └── aggregated/
+├── baselines/
+│   └── aggregated/
+└── aggregated/
 ```
 
 其中：
 
-* `results/pipeline/clients/`：保存单模态 client partition；
-* `results/pipeline/discovery/`：保存预训练 encoder、fingerprint 和模态发现结果；
-* `results/discovery/`：保存 Adaptive ISODATA 与 KMeans 的 discovery comparison 结果；
-* `results/msl/`：保存本文方法 Ours 的训练结果；
-* `results/baselines/`：保存 RandomSL、KMeans-SL 和 Oracle-SL 的训练结果。
+- `results/pipeline/clients/`：单模态 client partition；
+- `results/pipeline/discovery/`：预训练 encoder、fingerprint 和模态发现结果；
+- `results/discovery/`：RQ1 discovery comparison 原始结果和聚合结果；
+- `results/msl/`：Ours 训练原始结果、曲线、checkpoint 和聚合结果；
+- `results/baselines/`：RandomSL、KMeans-SL、Oracle-SL 训练原始结果、曲线、checkpoint 和聚合结果；
+- `results/aggregated/`：跨方法聚合表。
 
-实验只读取当前 `results/pipeline/` 生成的 pipeline artifacts，不读取其他历史目录。
+实验入口只读取当前 `results/pipeline/` 生成的 pipeline artifacts。
 
-## Baseline 接入
+## 职责边界
+
+- `src/MSL/protocol.py`：正式实验协议唯一参数来源，只含协议常量和纯查询函数。
+- `src/MSL/datasets/`：各数据集专属读取、预处理、split、windowing、normalization。
+- `pipeline/prepare_iemocap_features.py`：IEMOCAP 原始音频/视频/文本到 frozen feature cache 的离线准备。
+- `pipeline/prepare_clients.py`：从 dataset loader 输出生成单模态 client partition。
+- `pipeline/discover_modalities.py`：从 prepared clients 生成 pretrained encoders、fingerprints 和 adaptive discovery artifacts。
+- `experiments/discovery_comparison.py`：RQ1 单次 discovery comparison。
+- `experiments/run_all_discovery.py`：RQ1 全部正式实验。
+- `experiments/training.py`：RQ2 共享 runner，负责 method policy、topology artifact、结果目录、resume hash 和 CLI。
+- `experiments/msl/train.py`：Ours 单次训练入口。
+- `experiments/msl/run_all.py`：RQ2 全部训练方法入口。
+- `src/MSL/training.py`：实际 split learning 训练循环、loss、binding 调用、server/client 更新和评估输出。
+
+## Baseline
 
 内部 baseline 放在 `experiments/baselines/`，共享 `experiments/training.py` 的实验层 runner；算法 trainer / binding / server / evaluator 仍在 `src/MSL/training.py` 等核心模块中。
 
 KMeans-SL 统一由 `experiments/baselines/kmeans_sl.py --k 2/3/4/5` 和 `experiments/training.py --method kmeansK` 支持。
 
-外部论文 baseline 放在 `experiments/baselines/external/`，不强行塞入共享 trainer。
+外部论文 baseline 预留在 `experiments/baselines/external/`，不强行塞入共享 trainer。
 
-## 验证
+## 上传说明
 
-```bash
-python -m compileall src pipeline experiments tools tests -q
-python -m pytest tests -q
-```
+`local/`、`results/`、`.codex/`、`.agents/`、`.vscode/`、`__pycache__/`、`.pytest_cache/` 已在 `.gitignore` 中排除。正常 `git push` 不会上传数据、结果和本地缓存。
+
+如果要压缩当前完整环境给别人复现，请明确包含：
+
+- `local/datasets/`
+- `local/datasets/IEMOCAP/processed/`
+- `local/datasets/IEMOCAP/model_cache/`
+
+`results/` 是复现实验输出目录，按本文档命令重新生成。
