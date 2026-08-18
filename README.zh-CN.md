@@ -2,7 +2,7 @@
 
 未知模态环境下语义对齐的分布式分割多模态学习。
 
-本项目文件夹按“可直接复现实验的完整工作环境”组织：源码、正式协议、数据目录、IEMOCAP 预处理特征缓存和运行入口在同一目录树下。复现时只使用本文档列出的当前路径。
+本项目按从原始数据重新生成 pipeline artifacts 和正式实验结果的方式组织。`local/datasets/` 保存四个原始数据集；IEMOCAP 的 `model_cache/` 可作为预训练模型下载缓存保留。IEMOCAP frozen features、PAMAP2 window cache、client partitions、modality discovery artifacts 和正式实验结果均由当前代码生成。本项目文件夹按“可直接复现实验的完整工作环境”组织：源码、正式协议、数据目录、IEMOCAP 预处理特征缓存和运行入口在同一目录树下。复现时只使用本文档列出的当前路径。
 
 ## 快速复现
 
@@ -93,7 +93,7 @@ src/MSL/
 
 ## 环境
 
-推荐使用已配置好的 `mpsl` conda 环境。若从源码重新安装依赖：
+推荐配置好 `mpsl` conda 环境后，开始实验。从源码安装依赖：
 
 ```bash
 pip install -r requirements.txt
@@ -339,15 +339,3 @@ results/
 KMeans-SL 统一由 `experiments/baselines/kmeans_sl.py --k 2/3/4/5` 和 `experiments/training.py --method kmeansK` 支持。
 
 外部论文 baseline 预留在 `experiments/baselines/external/`，不强行塞入共享 trainer。
-
-## 上传说明
-
-`local/`、`results/`、`.codex/`、`.agents/`、`.vscode/`、`__pycache__/`、`.pytest_cache/` 已在 `.gitignore` 中排除。正常 `git push` 不会上传数据、结果和本地缓存。
-
-如果要压缩当前完整环境给别人复现，请明确包含：
-
-- `local/datasets/`
-- `local/datasets/IEMOCAP/processed/`
-- `local/datasets/IEMOCAP/model_cache/`
-
-`results/` 是复现实验输出目录，按本文档命令重新生成。
