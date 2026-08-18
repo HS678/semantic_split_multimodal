@@ -21,7 +21,15 @@ from MSL.protocol import (
     FORMAL_SEEDS,
     TRAINING_METHODS,
 )
-from MSL.utils import dataset_result_name, safe_result_component
+from MSL.utils import dataset_result_name, partition_signature, safe_result_component
+
+
+DATASET_MODALITY_NAMES = {
+    "uci_har": ("acc", "gyro"),
+    "mhealth": ("acc", "gyro", "mag", "ecg"),
+    "pamap2": ("acc", "gyro", "mag"),
+    "iemocap": ("audio", "video", "text"),
+}
 
 
 def build_experiment_config(
@@ -284,8 +292,17 @@ def formal_result_dir(results_root: Path, family: str, dataset: str, method: str
 # 尝试从已有真实 client partition 目录中定位数据划分产物。
 def find_clients_dir(root: Path, cfg: dict) -> Path:
     dataset_name = safe_result_component(dataset_result_name(cfg))
+    dataset_key = safe_result_component(cfg.get("dataset", {}).get("type", dataset_name))
+    if dataset_key not in DATASET_MODALITY_NAMES:
+        raise ValueError(f"Unknown dataset type for pipeline locator: {dataset_key!r}.")
+    clients_per_modality = int(cfg.get("partition", {}).get("clients_per_modality", 10))
     split_protocol = cfg.get("dataset", {}).get("split_protocol")
-    candidates = []
+    signature = partition_signature(
+        DATASET_MODALITY_NAMES[dataset_key],
+        clients_per_modality,
+        split_protocol,
+    )
+    candidates = [root / "results" / "pipeline" / "clients" / dataset_name / signature]
     for base in [root / "results" / "MSL", root / "local" / "results_msl"]:
         partition_root = base / "partition" / dataset_name
         if not partition_root.exists():
@@ -308,14 +325,20 @@ def find_discovery_dir(root: Path, clients_dir: Path, method: str = "adaptive_is
     dataset_name = clients_dir.parent.name
     partition_name = clients_dir.name
     candidates = [
+        root / "results" / "pipeline" / "discovery" / dataset_name / partition_name / method,
         root / "results" / "MSL" / "cluster" / dataset_name / partition_name / method,
         root / "local" / "results_msl" / "cluster" / dataset_name / partition_name / method,
     ]
     for candidate in candidates:
-        if (candidate / "pred_cluster.csv").exists() and (candidate / "pretrained_encoders").is_dir():
+        if (
+            (candidate / "pred_cluster.csv").exists()
+            and (candidate / "pretrained_encoders").is_dir()
+            and (candidate / "visualization" / "fingerprints.npz").exists()
+        ):
             return candidate.resolve()
     raise FileNotFoundError(
-        "Missing real modality discovery artifacts. Expected pred_cluster.csv and pretrained_encoders/ under "
+        "Missing real modality discovery artifacts. Expected pred_cluster.csv, pretrained_encoders/, "
+        "and visualization/fingerprints.npz under "
         f"{dataset_name}/{partition_name}/{method}."
     )
 

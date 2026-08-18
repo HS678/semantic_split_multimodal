@@ -22,9 +22,14 @@ if str(ROOT) not in sys.path:
 
 from MSL.pretrain import discover_modalities
 from MSL.protocol import DATASET_PROTOCOLS
-from MSL.utils import dataset_result_name, resolve_pipeline_paths, safe_result_component
+from MSL.utils import dataset_result_name, safe_result_component
 from MSL.utils import select_device, set_seed
-from experiments.common import build_experiment_config, apply_experiment_overrides, with_repeated_seed_split_signature
+from experiments.common import (
+    apply_experiment_overrides,
+    build_experiment_config,
+    find_clients_dir,
+    with_repeated_seed_split_signature,
+)
 
 
 def _resolve(path_value):
@@ -151,8 +156,7 @@ def main(argv=None):
     if args.fingerprint_type is not None:
         cfg["fingerprint"] = {**dict(cfg.get("fingerprint", {})), "type": str(args.fingerprint_type)}
 
-    resolved = resolve_pipeline_paths(cfg, ROOT)
-    clients_dir = args.clients_dir or resolved["clients_dir"]
+    clients_dir = _resolve(args.clients_dir) if args.clients_dir else find_clients_dir(ROOT, cfg)
     cfg, paths = build_discovery_run(cfg, clients_dir=clients_dir, output_root=args.output_root)
 
     start = time.time()

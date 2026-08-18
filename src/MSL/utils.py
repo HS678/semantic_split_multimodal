@@ -38,13 +38,6 @@ _NON_IDENTITY_KEYS = {
 }
 
 
-def _resolve_project_path(project_root: Path, value: str) -> Path:
-    path = Path(value)
-    if not path.is_absolute():
-        path = project_root / path
-    return path.resolve()
-
-
 def dataset_result_name(cfg: dict) -> str:
     dataset_cfg = cfg.get("dataset", {})
     return str(dataset_cfg.get("name", dataset_cfg.get("type", "dataset"))).strip().lower()
@@ -103,29 +96,6 @@ def experiment_config_signature(cfg: dict) -> str:
     objective = cfg.get("fusion", {}).get("training_objective", "objective")
     # 目录名保留 loss 方式 + 配置哈希，便于快速识别训练目标。
     return f"{safe_result_component(objective)}-h-{digest}"
-
-
-def resolve_pipeline_paths(cfg: dict, project_root: Path) -> dict:
-    """从数据集 + 划分协议自动生成 pipeline artifact 路径。"""
-    from MSL.data import load_dataset
-
-    result_cfg = dict(cfg.get("results", {}))
-    clients_root_value = result_cfg.get("clients_root", "./results/pipeline/clients")
-    discovery_root_value = result_cfg.get("discovery_root", "./results/pipeline/discovery")
-    clients_root = _resolve_project_path(project_root, clients_root_value)
-    discovery_root = _resolve_project_path(project_root, discovery_root_value)
-    dataset_name = dataset_result_name(cfg)
-    dataset = load_dataset(cfg, project_root)
-    signature = partition_signature(
-        dataset["modality_names"],
-        int(cfg.get("partition", {}).get("clients_per_modality", 10)),
-        cfg.get("dataset", {}).get("split_protocol"),
-    )
-    return {
-        "clients_dir": clients_root / dataset_name / signature,
-        "discovery_dir": discovery_root / dataset_name / signature / "adaptive_isodata",
-        "output_dir": discovery_root,
-    }
 
 
 import random
