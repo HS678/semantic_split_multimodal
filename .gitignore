@@ -1,6 +1,7 @@
 /local/
 /results/
 /results-*/
+/results_*/
 .agents/
 .codex/
 
