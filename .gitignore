@@ -2,6 +2,7 @@
 /results/
 /results-*/
 /results_*/
+/logs/
 .agents/
 .codex/
 
