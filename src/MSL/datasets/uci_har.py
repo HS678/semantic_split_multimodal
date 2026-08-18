@@ -1,3 +1,4 @@
+# UCI-HAR 官方惯性信号 loader 与 subject-disjoint split 定义。
 from pathlib import Path
 
 import numpy as np

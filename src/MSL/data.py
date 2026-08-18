@@ -1,3 +1,4 @@
+# 数据集统一 dispatcher、client partition 生成和 artifact 读写逻辑。
 from dataclasses import dataclass
 from typing import Optional
 

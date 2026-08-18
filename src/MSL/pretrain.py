@@ -1,3 +1,4 @@
+# 模态发现前的单模态 encoder 预训练、fingerprint 提取和聚类产物保存。
 import csv
 from pathlib import Path
 

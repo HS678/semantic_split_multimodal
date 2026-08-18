@@ -1,3 +1,4 @@
+# 正式实验总入口，串行执行 RQ1 discovery comparison 与 RQ2 training。
 import argparse
 import sys
 from pathlib import Path

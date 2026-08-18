@@ -1,3 +1,4 @@
+# RQ2 单次训练共享 runner，统一实现 Ours、RandomSL、KMeans-SL 与 Oracle-SL。
 import argparse
 import csv
 import json

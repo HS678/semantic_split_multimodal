@@ -1,3 +1,4 @@
+# 测试正式数据集 cross-validation split 协议。
 from MSL.protocol import DATASET_PROTOCOLS
 from MSL.datasets.mhealth import MHEALTH_FOLD_SUBJECTS
 from MSL.datasets.pamap2 import PAMAP2_EVALUATION_SUBJECTS

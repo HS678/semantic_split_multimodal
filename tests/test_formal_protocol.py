@@ -1,3 +1,4 @@
+# 测试正式协议 grid、路径布局、manifest hash 和 pipeline locator。
 from pathlib import Path
 
 from experiments.common import (

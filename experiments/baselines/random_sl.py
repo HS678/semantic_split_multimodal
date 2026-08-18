@@ -1,3 +1,4 @@
+# RandomSL 单次训练 wrapper，固定使用随机客户端选择策略。
 import sys
 
 from experiments.training import main as train_main

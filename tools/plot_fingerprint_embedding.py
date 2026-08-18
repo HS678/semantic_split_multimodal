@@ -1,3 +1,4 @@
+# 绘制模态 discovery fingerprint 的 PCA 可视化图。
 import argparse
 import csv
 import json

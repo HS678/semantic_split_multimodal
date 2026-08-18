@@ -1,3 +1,4 @@
+# IEMOCAP frozen feature cache loader 与 session-LOSO split 定义。
 import json
 from pathlib import Path
 

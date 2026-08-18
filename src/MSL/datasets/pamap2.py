@@ -1,3 +1,4 @@
+# PAMAP2 原始传感器数据 loader、缓存滑窗和 8-fold LOSO split 定义。
 import os
 from pathlib import Path
 

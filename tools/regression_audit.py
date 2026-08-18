@@ -1,3 +1,4 @@
+# 对比重构前后单次训练结果，检查 metrics、日志和 topology 是否一致。
 import argparse
 import csv
 import json

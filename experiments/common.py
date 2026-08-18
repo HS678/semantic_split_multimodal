@@ -1,3 +1,4 @@
+# 实验层公共配置、正式协议网格、路径定位和结果 metadata 工具。
 import argparse
 import hashlib
 import json

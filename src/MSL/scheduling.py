@@ -1,3 +1,4 @@
+# Cluster-aware 客户端调度、可行性校验和 repair 逻辑。
 import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass

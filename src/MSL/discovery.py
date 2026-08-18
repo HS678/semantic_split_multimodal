@@ -1,3 +1,4 @@
+# Adaptive ISODATA、KMeans 和聚类可行性相关 discovery 算法。
 from collections import Counter
 
 import numpy as np

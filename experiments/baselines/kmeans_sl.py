@@ -1,3 +1,4 @@
+# KMeans-SL 单次训练 wrapper，将 --k 映射到共享 training runner。
 import argparse
 import sys
 

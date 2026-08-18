@@ -1,3 +1,4 @@
+# Oracle-SL 单次训练 wrapper，固定使用真实 cluster assignment。
 import sys
 
 from experiments.training import main as train_main

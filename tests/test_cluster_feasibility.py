@@ -1,3 +1,4 @@
+# 测试 cluster 可行性校验、repair 和调度器约束。
 import inspect
 
 import numpy as np

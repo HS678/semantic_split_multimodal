@@ -1,3 +1,4 @@
+# Pipeline 第一阶段：从 IEMOCAP 原始音频、视频、文本生成 frozen feature cache。
 import argparse
 import json
 import os

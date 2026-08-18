@@ -1,3 +1,4 @@
+# RQ1 单次 discovery comparison 入口，比较 adaptive ISODATA 与 KMeans 聚类结果。
 import argparse
 import csv
 import sys

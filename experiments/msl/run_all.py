@@ -1,3 +1,4 @@
+# RQ2 全量训练入口，串行运行 Ours 与全部 baseline 方法并聚合结果。
 import argparse
 import csv
 import json

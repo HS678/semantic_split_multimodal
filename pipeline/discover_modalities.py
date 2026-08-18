@@ -1,3 +1,4 @@
+# Pipeline 第三阶段：从 prepared clients 生成模态聚类、fingerprint 和预训练 encoder。
 import argparse
 import json
 import subprocess

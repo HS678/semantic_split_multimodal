@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 单 GPU 串行运行四个数据集的 client partition 准备 pipeline。
 set -euo pipefail
 
 mkdir -p tools/logs/uci_har tools/logs/mhealth tools/logs/pamap2 tools/logs/iemocap

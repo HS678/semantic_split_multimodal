@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 串行生成 IEMOCAP 各 fold 的 client partition。
 set -euo pipefail
 
 for fold in 1 2 3 4 5; do

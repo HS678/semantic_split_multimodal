@@ -1,3 +1,4 @@
+# 多模态评估、tolerant routing 和 discovery metrics 计算逻辑。
 import csv
 from dataclasses import dataclass
 from pathlib import Path

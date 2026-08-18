@@ -1,3 +1,4 @@
+# 测试调度、binding 与梯度更新的关键行为。
 import copy
 from dataclasses import dataclass
 

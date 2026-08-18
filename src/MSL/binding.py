@@ -1,3 +1,4 @@
+# 语义 binding 与 pseudo-label 置信度计算逻辑。
 from dataclasses import dataclass
 from typing import Sequence
 

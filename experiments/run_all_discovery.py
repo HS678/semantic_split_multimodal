@@ -1,3 +1,4 @@
+# RQ1 全量入口，串行运行所有正式数据集、fold/seed 与 discovery 方法。
 import argparse
 import statistics
 import sys

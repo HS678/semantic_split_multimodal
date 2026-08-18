@@ -1,3 +1,4 @@
+# Ours 单次训练入口，固定 method=ours 后转交共享 training runner。
 import sys
 
 from experiments.training import main as training_main, run_one

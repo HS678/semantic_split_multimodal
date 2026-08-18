@@ -1,3 +1,4 @@
+# MHEALTH 原始传感器数据 loader、滑窗和 5-fold split 定义。
 from pathlib import Path
 
 import numpy as np

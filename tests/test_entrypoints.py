@@ -1,3 +1,4 @@
+# 测试 pipeline、experiments 和 baseline CLI 入口可导入与 wrapper 映射。
 import importlib
 
 

@@ -1,3 +1,4 @@
+# Pipeline 第二阶段：从数据集 loader 输出生成单模态 client partition。
 import argparse
 import json
 import sys

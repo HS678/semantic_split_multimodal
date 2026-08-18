@@ -1,3 +1,4 @@
+# 绘制训练日志中的 loss、accuracy 和调度统计曲线。
 import argparse
 import csv
 import os
