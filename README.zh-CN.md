@@ -20,24 +20,32 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 python -m pytest tests -q
 ```
 
-完整复现按当前路径从头生成数据划分、模态聚类和实验结果：
+默认正式复现面向单张 GPU，例如单张 RTX 4090。不要同时启动多个 discovery 或 training process；所有正式 launcher 都按固定顺序串行运行，避免显存竞争、OOM 和 runtime 干扰。
+
+完整复现按当前路径从头生成 IEMOCAP frozen feature cache、数据划分、模态聚类和实验结果：
 
 ```bash
-bash tools/data/launch_prepare_clients_all.sh
-bash tools/data/launch_discover_modalities_all.sh
-python experiments/run_all.py --results-root results --device cuda --require-cuda
-```
+conda activate mpsl
 
-如果 `local/datasets/IEMOCAP/processed/mfcc_mobilevit_xs_distilbert_v1/` 中缺少 IEMOCAP frozen feature cache，先生成该当前数据路径下的缓存：
+python -m compileall src pipeline experiments tools tests -q
+python -m pytest tests -q
 
-```bash
 python pipeline/prepare_iemocap_features.py --device cuda
+
+bash tools/data/launch_prepare_clients_all.sh
+
+bash tools/data/launch_discover_modalities_all.sh
+
+python experiments/run_all.py \
+  --results-root results \
+  --device cuda \
+  --require-cuda
 ```
 
 后台完整复现命令：
 
 ```bash
-mkdir -p logs && nohup bash -lc 'python -m pytest tests -q && bash tools/data/launch_prepare_clients_all.sh && bash tools/data/launch_discover_modalities_all.sh && python experiments/run_all.py --results-root results --device cuda --require-cuda' > logs/full_reproduce.log 2>&1 &
+mkdir -p logs && nohup bash -lc 'python -m compileall src pipeline experiments tools tests -q && python -m pytest tests -q && python pipeline/prepare_iemocap_features.py --device cuda && bash tools/data/launch_prepare_clients_all.sh && bash tools/data/launch_discover_modalities_all.sh && python experiments/run_all.py --results-root results --device cuda --require-cuda' > logs/full_reproduce.log 2>&1 &
 ```
 
 查看进度：
@@ -98,6 +106,14 @@ CUDA 复现实验建议显式使用：
 ```
 
 如果 `torch.cuda.is_available()` 为 `False`，先不要跑正式实验，检查当前 shell 是否能访问 GPU 驱动和 CUDA 版 PyTorch。
+
+单 GPU 正式复现约束：
+
+- `pipeline/prepare_iemocap_features.py --device cuda` 必须在 client preparation 前单独执行。
+- `tools/data/launch_prepare_clients_all.sh` 串行执行 UCI-HAR、MHEALTH、PAMAP2、IEMOCAP。
+- `tools/data/launch_discover_modalities_all.sh` 串行执行 UCI-HAR、MHEALTH、PAMAP2、IEMOCAP。
+- `experiments/run_all.py`、`experiments/run_all_discovery.py`、`experiments/msl/run_all.py` 按 formal grid 串行执行。
+- 不建议同时启动多个 discovery/training 进程。
 
 ## 数据
 
@@ -167,13 +183,15 @@ python -m pytest tests -q
 python pipeline/prepare_iemocap_features.py --device cuda
 ```
 
-完整环境包应包含 `local/datasets/IEMOCAP/processed/mfcc_mobilevit_xs_distilbert_v1/` 下的 `manifest.json`、`audio.pt`、`video.pt`、`text.pt`。缺失时用上面的命令在当前数据路径生成。
+该步骤必须在 client preparation 前单独执行，不要和其它 GPU-heavy 任务并发运行。
 
 3. 生成单模态 client partition：
 
 ```bash
 bash tools/data/launch_prepare_clients_all.sh
 ```
+
+该 launcher 严格串行执行四个数据集，顺序固定为 UCI-HAR、MHEALTH、PAMAP2、IEMOCAP；每个数据集写入独立日志，任一失败立即停止。
 
 单数据集入口：
 
@@ -202,6 +220,8 @@ test_multimodal.pt
 ```bash
 bash tools/data/launch_discover_modalities_all.sh
 ```
+
+该 launcher 严格串行执行四个数据集，顺序固定为 UCI-HAR、MHEALTH、PAMAP2、IEMOCAP；每个数据集写入独立日志，任一失败立即停止。不要同时启动多个 discovery 进程。
 
 单数据集入口：
 
@@ -243,6 +263,8 @@ python experiments/msl/run_all.py --results-root results --device cuda --require
 ```bash
 python experiments/run_all.py --results-root results --device cuda --require-cuda
 ```
+
+training formal grid 由 Python runner 串行执行。不要同时启动多个 training 进程。
 
 ## 单次调试
 
