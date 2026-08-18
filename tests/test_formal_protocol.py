@@ -13,9 +13,9 @@ from experiments.common import (
     run_type_metadata,
     write_protocol_manifest,
 )
-from MSL.protocol import DATASET_PROTOCOLS
 from experiments.training import training_run_dir
-
+from MSL.protocol import DATASET_PROTOCOLS
+from MSL.utils import partition_signature
 
 # 验证正式协议：无 CV 数据集用 5 seeds，CV 数据集每折固定 seed 42。
 def test_formal_run_grid_uses_cv_folds_once_and_repeats_non_cv_seed():
@@ -106,41 +106,66 @@ def _touch_discovery_artifacts(path: Path) -> None:
     (path / "visualization").mkdir()
     (path / "visualization" / "fingerprints.npz").write_bytes(b"")
 
-
-def test_find_clients_dir_supports_new_pipeline_layout(tmp_path):
+def test_find_clients_dir_supports_pipeline_layout(tmp_path):
     cfg = resolved_cfg("mhealth", 1, 42)
-    partition_name = "acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold1"
-    expected = tmp_path / "results" / "pipeline" / "clients" / "mhealth" / partition_name
+
+    partition_name = partition_signature(
+        ("acc", "gyro", "mag", "ecg"),
+        10,
+        cfg["dataset"]["split_protocol"],
+    )
+
+    expected = (
+        tmp_path
+        / "results"
+        / "pipeline"
+        / "clients"
+        / "mhealth"
+        / partition_name
+    )
+
     _touch_client_artifacts(expected)
 
     assert find_clients_dir(tmp_path, cfg) == expected.resolve()
 
-
-def test_find_discovery_dir_supports_new_pipeline_layout(tmp_path):
+def test_find_discovery_dir_supports_pipeline_layout(tmp_path):
     cfg = resolved_cfg("mhealth", 1, 42)
-    clients_dir = tmp_path / "results" / "pipeline" / "clients" / "mhealth" / (
-        "acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold1"
+
+    partition_name = partition_signature(
+        ("acc", "gyro", "mag", "ecg"),
+        10,
+        cfg["dataset"]["split_protocol"],
+    )
+
+    clients_dir = (
+        tmp_path
+        / "results"
+        / "pipeline"
+        / "clients"
+        / "mhealth"
+        / partition_name
     )
     _touch_client_artifacts(clients_dir)
-    expected = tmp_path / "results" / "pipeline" / "discovery" / "mhealth" / clients_dir.name / "adaptive_isodata"
+
+    expected = (
+        tmp_path
+        / "results"
+        / "pipeline"
+        / "discovery"
+        / "mhealth"
+        / partition_name
+        / "adaptive_isodata"
+    )
     _touch_discovery_artifacts(expected)
 
-    assert find_discovery_dir(tmp_path, find_clients_dir(tmp_path, cfg)) == expected.resolve()
+    resolved_clients = find_clients_dir(tmp_path, cfg)
 
-
-def test_pipeline_locator_prefers_new_layout_over_legacy(tmp_path):
-    cfg = resolved_cfg("mhealth", 1, 42)
-    partition_name = "acc_10clients_gyro_10clients_mag_10clients_ecg_10clients__subject_5fold_fold1"
-    new_clients = tmp_path / "results" / "pipeline" / "clients" / "mhealth" / partition_name
-    old_clients = tmp_path / "results" / "MSL" / "partition" / "mhealth" / partition_name
-    _touch_client_artifacts(new_clients)
-    _touch_client_artifacts(old_clients)
-
-    new_discovery = tmp_path / "results" / "pipeline" / "discovery" / "mhealth" / partition_name / "adaptive_isodata"
-    old_discovery = tmp_path / "results" / "MSL" / "cluster" / "mhealth" / partition_name / "adaptive_isodata"
-    _touch_discovery_artifacts(new_discovery)
-    _touch_discovery_artifacts(old_discovery)
-
-    clients_dir = find_clients_dir(tmp_path, cfg)
-    assert clients_dir == new_clients.resolve()
-    assert find_discovery_dir(tmp_path, clients_dir) == new_discovery.resolve()
+    assert resolved_clients == clients_dir.resolve()
+    assert (
+        find_discovery_dir(
+            tmp_path,
+            resolved_clients,
+            "adaptive_isodata",
+        )
+        == expected.resolve()
+    )

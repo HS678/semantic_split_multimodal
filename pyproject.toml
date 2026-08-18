@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "semantic-split-multimodal"
 version = "0.3.0"
-description = "Three-stage semantic split multimodal learning experiments"
+description = "Distributed split multimodal learning with unknown modality discovery"
 requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]

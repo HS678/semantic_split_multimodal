@@ -40,8 +40,6 @@ src/MSL/
 - IEMOCAP / PAMAP2: `global_rounds=300`
 - discovery 方法：`adaptive_isodata`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`
 - training 方法：`ours`, `randomsl`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`, `oracle`
-- 不做 membership canonicalization，保留原始 cluster-ID 行为
-- feasibility repair 保留，仅在 cluster size `< r` 时保证 cluster-aware scheduler 可执行
 
 训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 discovery 审计和 evaluation-only tolerant routing。
 
@@ -117,6 +115,9 @@ python experiments/run_all.py --results-root results --device auto --require-cud
 
 ## 结果
 
+
+Pipeline artifact 和正式实验结果统一使用当前 `results/` 目录结构：
+
 ```text
 results/
 ├── protocol_manifest.json
@@ -128,7 +129,15 @@ results/
 └── baselines/
 ```
 
-新 pipeline 默认写入 `results/pipeline/clients` 与 `results/pipeline/discovery`。实验读取仍兼容旧 `results/MSL/...` 与 `local/results_msl/...`，用于复用已有产物。
+其中：
+
+* `results/pipeline/clients/`：保存单模态 client partition；
+* `results/pipeline/discovery/`：保存预训练 encoder、fingerprint 和模态发现结果；
+* `results/discovery/`：保存 Adaptive ISODATA 与 KMeans 的 discovery comparison 结果；
+* `results/msl/`：保存本文方法 Ours 的训练结果；
+* `results/baselines/`：保存 RandomSL、KMeans-SL 和 Oracle-SL 的训练结果。
+
+实验只读取当前 `results/pipeline/` 生成的 pipeline artifacts，不读取其他历史目录。
 
 ## Baseline 接入
 

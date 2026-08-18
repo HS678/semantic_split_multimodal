@@ -292,56 +292,77 @@ def formal_result_dir(results_root: Path, family: str, dataset: str, method: str
 # 尝试从已有真实 client partition 目录中定位数据划分产物。
 def find_clients_dir(root: Path, cfg: dict) -> Path:
     dataset_name = safe_result_component(dataset_result_name(cfg))
-    dataset_key = safe_result_component(cfg.get("dataset", {}).get("type", dataset_name))
+    dataset_key = safe_result_component(
+        cfg.get("dataset", {}).get("type", dataset_name)
+    )
+
     if dataset_key not in DATASET_MODALITY_NAMES:
-        raise ValueError(f"Unknown dataset type for pipeline locator: {dataset_key!r}.")
-    clients_per_modality = int(cfg.get("partition", {}).get("clients_per_modality", 10))
+        raise ValueError(
+            f"Unknown dataset type for pipeline locator: {dataset_key!r}."
+        )
+
+    clients_per_modality = int(
+        cfg.get("partition", {}).get("clients_per_modality", 10)
+    )
     split_protocol = cfg.get("dataset", {}).get("split_protocol")
+
     signature = partition_signature(
         DATASET_MODALITY_NAMES[dataset_key],
         clients_per_modality,
         split_protocol,
     )
-    candidates = [root / "results" / "pipeline" / "clients" / dataset_name / signature]
-    for base in [root / "results" / "MSL", root / "local" / "results_msl"]:
-        partition_root = base / "partition" / dataset_name
-        if not partition_root.exists():
-            continue
-        if split_protocol:
-            candidates.extend(sorted(partition_root.glob(f"*__{safe_result_component(split_protocol)}")))
-        else:
-            candidates.extend(sorted(partition_root.glob("*")))
-    for candidate in candidates:
-        if (candidate / "train_clients").is_dir() and (candidate / "test_multimodal.pt").exists():
-            return candidate.resolve()
-    raise FileNotFoundError(
-        "Missing real client partition. Expected train_clients/ and test_multimodal.pt for "
-        f"dataset={dataset_name}, split_protocol={split_protocol}."
+
+    clients_dir = (
+        root
+        / "results"
+        / "pipeline"
+        / "clients"
+        / dataset_name
+        / signature
     )
 
+    if (
+        (clients_dir / "train_clients").is_dir()
+        and (clients_dir / "test_multimodal.pt").exists()
+    ):
+        return clients_dir.resolve()
+
+    raise FileNotFoundError(
+        "Missing client partition artifacts. Expected "
+        f"train_clients/ and test_multimodal.pt under {clients_dir}."
+    )
 
 # 尝试从已有真实 modality discovery 目录中定位 discovery 产物。
-def find_discovery_dir(root: Path, clients_dir: Path, method: str = "adaptive_isodata") -> Path:
+def find_discovery_dir(
+    root: Path,
+    clients_dir: Path,
+    method: str = "adaptive_isodata",
+) -> Path:
     dataset_name = clients_dir.parent.name
     partition_name = clients_dir.name
-    candidates = [
-        root / "results" / "pipeline" / "discovery" / dataset_name / partition_name / method,
-        root / "results" / "MSL" / "cluster" / dataset_name / partition_name / method,
-        root / "local" / "results_msl" / "cluster" / dataset_name / partition_name / method,
-    ]
-    for candidate in candidates:
-        if (
-            (candidate / "pred_cluster.csv").exists()
-            and (candidate / "pretrained_encoders").is_dir()
-            and (candidate / "visualization" / "fingerprints.npz").exists()
-        ):
-            return candidate.resolve()
-    raise FileNotFoundError(
-        "Missing real modality discovery artifacts. Expected pred_cluster.csv, pretrained_encoders/, "
-        "and visualization/fingerprints.npz under "
-        f"{dataset_name}/{partition_name}/{method}."
+
+    discovery_dir = (
+        root
+        / "results"
+        / "pipeline"
+        / "discovery"
+        / dataset_name
+        / partition_name
+        / method
     )
 
+    if (
+        (discovery_dir / "pred_cluster.csv").exists()
+        and (discovery_dir / "pretrained_encoders").is_dir()
+        and (discovery_dir / "visualization" / "fingerprints.npz").exists()
+    ):
+        return discovery_dir.resolve()
+
+    raise FileNotFoundError(
+        "Missing modality discovery artifacts. Expected "
+        "pred_cluster.csv, pretrained_encoders/, and "
+        f"visualization/fingerprints.npz under {discovery_dir}."
+    )
 
 # 读取 adaptive modality discovery 保存的 fingerprint 矩阵。
 def load_fingerprint_npz(discovery_dir: Path) -> dict:
