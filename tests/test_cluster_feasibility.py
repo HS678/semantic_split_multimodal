@@ -3,7 +3,7 @@ import inspect
 import numpy as np
 import pytest
 
-from MSL.learning.cluster_feasibility import (
+from MSL.scheduling import (
     InfeasibleClusterSchedulingError,
     repair_cluster_feasibility,
     validate_cluster_feasibility,

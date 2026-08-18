@@ -5,10 +5,10 @@ import pytest
 import torch
 from torch import nn
 
-from MSL.learning.binding import ClientActivationBatch, build_label_random_pseudo_batch
-from MSL.learning.fusion_sl import _train_local_step
-from MSL.learning.models import ConcatMLPFusionServer
-from MSL.learning.scheduling import BalancedClusterRoundRobinScheduler, RandomScheduler
+from MSL.binding import ClientActivationBatch, build_label_random_pseudo_batch
+from MSL.training import _train_local_step
+from MSL.models import ConcatMLPFusionServer
+from MSL.scheduling import BalancedClusterRoundRobinScheduler, RandomScheduler
 
 
 @dataclass

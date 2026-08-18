@@ -2,8 +2,8 @@ from pathlib import Path
 
 from experiments.common import (
     DATASET_DEFAULTS,
-    RQ1_METHODS,
-    RQ2_METHODS,
+    DISCOVERY_METHODS,
+    TRAINING_METHODS,
     build_protocol_manifest,
     formal_result_dir,
     formal_run_grid,
@@ -12,7 +12,7 @@ from experiments.common import (
     run_type_metadata,
     write_protocol_manifest,
 )
-from experiments.run_rq2_training import rq2_run_dir
+from experiments.msl.train import training_run_dir
 
 
 # 验证正式协议：无 CV 数据集用 5 seeds，CV 数据集每折固定 seed 42。
@@ -27,8 +27,8 @@ def test_formal_run_grid_uses_cv_folds_once_and_repeats_non_cv_seed():
 def test_formal_run_counts():
     total_run_points = sum(len(formal_run_grid(dataset)) for dataset in DATASET_DEFAULTS)
     assert total_run_points == 23
-    assert total_run_points * len(RQ1_METHODS) == 115
-    assert total_run_points * len(RQ2_METHODS) == 161
+    assert total_run_points * len(DISCOVERY_METHODS) == 115
+    assert total_run_points * len(TRAINING_METHODS) == 161
 
 
 # 验证正式 global rounds 只将 IEMOCAP 调整到 300，其他既有默认不被误改。
@@ -39,7 +39,7 @@ def test_dataset_default_global_rounds():
     assert resolved_cfg("pamap2", 1, 42)["training"]["global_rounds"] == 300
 
 
-# 验证 UCI-HAR 的重复 seed 写入 split signature，避免 Stage1/Stage2 产物互相覆盖。
+# 验证 UCI-HAR 的重复 seed 写入 split signature，避免 pipeline 产物互相覆盖。
 def test_uci_har_repeated_seed_split_signature():
     cfg = resolved_cfg("uci_har", None, 123)
     assert cfg["dataset"]["split_protocol"] == "subject_disjoint_70_30_seed123"
@@ -57,14 +57,14 @@ def test_explicit_seed_override_keeps_cross_product():
 # 验证正式结果目录使用 dataset/method/fold/seed 层级。
 def test_formal_result_directory_layout():
     root = Path("results")
-    assert formal_result_dir(root, "rq1", "pamap2", "kmeans3", 2, 42) == (
-        root / "rq1" / "pamap2" / "kmeans3" / "fold_02" / "seed_42"
+    assert formal_result_dir(root, "discovery", "pamap2", "kmeans3", 2, 42) == (
+        root / "discovery" / "pamap2" / "kmeans3" / "fold_02" / "seed_42"
     )
-    assert rq2_run_dir(root, "uci_har", None, 123, "ours", None) == (
-        root / "rq2" / "uci_har" / "ours" / "fold_00" / "seed_123"
+    assert training_run_dir(root, "uci_har", None, 123, "ours", None) == (
+        root / "msl" / "uci_har" / "ours" / "fold_00" / "seed_123"
     )
-    assert rq2_run_dir(root, "mhealth", 3, 42, "randomsl", 1) == (
-        root / "rq2" / "mhealth" / "randomsl" / "fold_03" / "seed_42" / "rounds_1"
+    assert training_run_dir(root, "mhealth", 3, 42, "randomsl", 1) == (
+        root / "baselines" / "mhealth" / "randomsl" / "fold_03" / "seed_42" / "rounds_1"
     )
 
 

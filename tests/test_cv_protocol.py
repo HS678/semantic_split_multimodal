@@ -1,11 +1,11 @@
-from MSL.data.dataset_defaults import DATASET_DEFAULTS
-from MSL.data.datasets import (
+from MSL.protocol import DATASET_DEFAULTS
+from MSL.data import (
     MHEALTH_FOLD_SUBJECTS,
     PAMAP2_EVALUATION_SUBJECTS,
     UCI_HAR_TEST_SUBJECTS,
     UCI_HAR_TRAIN_SUBJECTS,
 )
-from MSL.data.iemocap import IEMOCAP_FOLD_SESSIONS
+from MSL.iemocap import IEMOCAP_FOLD_SESSIONS
 from experiments.common import formal_folds
 
 

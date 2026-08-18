@@ -1,3 +1,0 @@
-dataset: uci_har
-folds: null
-split_protocol: subject_disjoint_70_30

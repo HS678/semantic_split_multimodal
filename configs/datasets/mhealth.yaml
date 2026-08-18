@@ -1,3 +1,0 @@
-dataset: mhealth
-folds: 5
-split_protocol_template: subject_5fold_fold{fold}

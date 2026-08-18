@@ -8,15 +8,20 @@ from pathlib import Path
 
 import numpy as np
 
-from MSL.data.dataset_defaults import DATASET_DEFAULTS, DEFAULT_ADAPTIVE
-from MSL.utils.experiment_args import build_experiment_config, apply_experiment_overrides
-from MSL.utils.results import dataset_result_name, safe_result_component
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from MSL.protocol import DATASET_DEFAULTS, DEFAULT_ADAPTIVE
+from MSL.protocol import build_experiment_config, apply_experiment_overrides
+from MSL.utils import dataset_result_name, safe_result_component
 
 
 FORMAL_SEEDS = [42, 123, 2025, 3407, 7777]
 FORMAL_CV_SEED = 42
-RQ1_METHODS = ["adaptive_isodata", "kmeans2", "kmeans3", "kmeans4", "kmeans5"]
-RQ2_METHODS = ["ours", "randomsl", "kmeans2", "kmeans3", "kmeans4", "kmeans5", "oracle"]
+DISCOVERY_METHODS = ["adaptive_isodata", "kmeans2", "kmeans3", "kmeans4", "kmeans5"]
+TRAINING_METHODS = ["ours", "randomsl", "kmeans2", "kmeans3", "kmeans4", "kmeans5", "oracle"]
 
 
 # 返回当前项目根目录。
@@ -68,7 +73,7 @@ def formal_run_grid(dataset: str, seeds: list[int] | None = None) -> list[tuple[
     return [(fold, int(seed)) for fold in folds for seed in seeds]
 
 
-# 无 CV 数据集用多个随机种子重复实验时，把 seed 写入 split signature 以避免 Stage 产物互相覆盖。
+# 无 CV 数据集用多个随机种子重复实验时，把 seed 写入 split signature 以避免 pipeline 产物互相覆盖。
 def repeated_seed_split_protocol(dataset: str, seed: int) -> str:
     dataset_cfg = DATASET_DEFAULTS[str(dataset)]["dataset"]
     base_protocol = str(dataset_cfg.get("split_protocol", "subject_disjoint"))
@@ -101,11 +106,11 @@ def seed_result_component(seed: int) -> str:
     return f"seed_{int(seed)}"
 
 
-# 返回单次 RQ 运行的层级结果目录。
-def formal_result_dir(results_root: Path, rq: str, dataset: str, method: str, fold: int | None, seed: int) -> Path:
+# 返回单次实验运行的层级结果目录。
+def formal_result_dir(results_root: Path, family: str, dataset: str, method: str, fold: int | None, seed: int) -> Path:
     return (
         Path(results_root)
-        / str(rq)
+        / str(family)
         / safe_result_component(dataset)
         / safe_result_component(method)
         / fold_result_component(fold)
@@ -113,8 +118,8 @@ def formal_result_dir(results_root: Path, rq: str, dataset: str, method: str, fo
     )
 
 
-# 尝试从已有真实 Stage1 目录中定位数据划分产物。
-def find_stage1_dir(root: Path, cfg: dict) -> Path:
+# 尝试从已有真实 client partition 目录中定位数据划分产物。
+def find_clients_dir(root: Path, cfg: dict) -> Path:
     dataset_name = safe_result_component(dataset_result_name(cfg))
     split_protocol = cfg.get("dataset", {}).get("split_protocol")
     candidates = []
@@ -130,15 +135,15 @@ def find_stage1_dir(root: Path, cfg: dict) -> Path:
         if (candidate / "train_clients").is_dir() and (candidate / "test_multimodal.pt").exists():
             return candidate.resolve()
     raise FileNotFoundError(
-        "Missing real Stage1 partition. Expected train_clients/ and test_multimodal.pt for "
+        "Missing real client partition. Expected train_clients/ and test_multimodal.pt for "
         f"dataset={dataset_name}, split_protocol={split_protocol}."
     )
 
 
-# 尝试从已有真实 Stage2 目录中定位 discovery 产物。
-def find_stage2_dir(root: Path, stage1_dir: Path, method: str = "adaptive_isodata") -> Path:
-    dataset_name = stage1_dir.parent.name
-    partition_name = stage1_dir.name
+# 尝试从已有真实 modality discovery 目录中定位 discovery 产物。
+def find_discovery_dir(root: Path, clients_dir: Path, method: str = "adaptive_isodata") -> Path:
+    dataset_name = clients_dir.parent.name
+    partition_name = clients_dir.name
     candidates = [
         root / "results" / "MSL" / "cluster" / dataset_name / partition_name / method,
         root / "local" / "results_msl" / "cluster" / dataset_name / partition_name / method,
@@ -147,14 +152,14 @@ def find_stage2_dir(root: Path, stage1_dir: Path, method: str = "adaptive_isodat
         if (candidate / "pred_cluster.csv").exists() and (candidate / "pretrained_encoders").is_dir():
             return candidate.resolve()
     raise FileNotFoundError(
-        "Missing real Stage2 discovery artifacts. Expected pred_cluster.csv and pretrained_encoders/ under "
+        "Missing real modality discovery artifacts. Expected pred_cluster.csv and pretrained_encoders/ under "
         f"{dataset_name}/{partition_name}/{method}."
     )
 
 
-# 读取 adaptive Stage2 保存的 fingerprint 矩阵。
-def load_fingerprint_npz(stage2_dir: Path) -> dict:
-    path = stage2_dir / "visualization" / "fingerprints.npz"
+# 读取 adaptive modality discovery 保存的 fingerprint 矩阵。
+def load_fingerprint_npz(discovery_dir: Path) -> dict:
+    path = discovery_dir / "visualization" / "fingerprints.npz"
     if not path.exists():
         raise FileNotFoundError(f"Missing fingerprints.npz: {path}")
     data = np.load(path, allow_pickle=False)
@@ -234,8 +239,8 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
         "git_commit": git_commit(root),
         "formal_seeds": list(FORMAL_SEEDS),
         "formal_cv_seed": int(FORMAL_CV_SEED),
-        "rq1_methods": list(RQ1_METHODS),
-        "rq2_methods": list(RQ2_METHODS),
+        "discovery_methods": list(DISCOVERY_METHODS),
+        "training_methods": list(TRAINING_METHODS),
         "default_adaptive_isodata": dict(DEFAULT_ADAPTIVE),
         "datasets": datasets,
         "yield_definition": {
