@@ -42,6 +42,15 @@ def test_dataset_protocol_global_rounds():
     assert resolved_cfg("pamap2", 1, 42)["training"]["global_rounds"] == 300
 
 
+# 验证正式 RQ2 使用固定每轮总客户端预算，不再使用每簇客户端预算。
+def test_dataset_protocol_clients_per_round_budget():
+    assert resolved_cfg("uci_har", None, 42)["training"]["clients_per_round"] == 4
+    assert resolved_cfg("mhealth", 1, 42)["training"]["clients_per_round"] == 8
+    assert resolved_cfg("pamap2", 1, 42)["training"]["clients_per_round"] == 6
+    assert resolved_cfg("iemocap", 1, 42)["training"]["clients_per_round"] == 6
+    assert "clients_per_cluster_per_round" not in resolved_cfg("mhealth", 1, 42)["training"]
+
+
 # 验证 UCI-HAR 的重复 seed 写入 split signature，避免 pipeline 产物互相覆盖。
 def test_uci_har_repeated_seed_split_signature():
     cfg = resolved_cfg("uci_har", None, 123)

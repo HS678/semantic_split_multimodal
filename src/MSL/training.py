@@ -22,6 +22,7 @@ class FusionSplitClient:
     def __init__(self, payload: dict, pred_cluster: int, encoder_state: dict, cfg: dict, device):
         self.client_id = str(payload["client_id"])
         self.pred_cluster = int(pred_cluster)
+        self.hidden_modality_id = int(payload["hidden_modality_id"])
         self.device = device
         self.samples = payload["samples"].to(device)
         self.labels = payload["labels"].to(device)
@@ -260,12 +261,13 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
     activation_batches, client_paths = _collect_selected_activations(selected)
     binding_cfg = cfg.get("binding", {})
     pseudo_batch_size = int(binding_cfg.get("batch_size", cfg.get("training", {}).get("batch_size", 32)))
-    common_labels = common_labels_for_clusters(activation_batches, expected_clusters)
+    common_labels = common_labels_for_clusters(activation_batches, selected_clusters)
     fusion_training = _fusion_training_spec(cfg)
     pseudo = build_label_random_pseudo_batch(
         activation_batches,
         required_clusters=expected_clusters,
         batch_size=pseudo_batch_size,
+        allow_missing_clusters_with_zero=True,
     )
     if pseudo is None:
         return {
@@ -361,7 +363,7 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
         "common_labels": common_labels,
         "binding_success": 1.0,
         "empty_binding_local_step": 0,
-        "cluster_slot_coverage": float(len(pseudo.cluster_ids) / max(1, len(expected_clusters))),
+        "cluster_slot_coverage": float(len(selected_clusters) / max(1, len(expected_clusters))),
         "server_update_l1": float(server_update_l1),
         "client_update_l1": float(client_update_l1),
         "fusion_training_objective": fusion_training["objective"],
@@ -507,6 +509,27 @@ def _training_class_weights(clients, cfg, device):
     return weights.to(device)
 
 
+def _round_modality_metrics(selected, expected_modalities):
+    expected = sorted(int(value) for value in expected_modalities)
+    selected_modalities = sorted({int(client.hidden_modality_id) for client in selected})
+    per_modality_selected = {
+        str(modality_id): int(
+            sum(1 for client in selected if int(client.hidden_modality_id) == int(modality_id))
+        )
+        for modality_id in expected
+    }
+    covered = len(set(selected_modalities) & set(expected))
+    full = int(covered == len(expected) and bool(expected))
+    return {
+        "selected_hidden_modality_ids": selected_modalities,
+        "per_modality_selected": per_modality_selected,
+        "covered_modality_count": int(covered),
+        "expected_modality_count": int(len(expected)),
+        "modality_coverage": float(covered / max(1, len(expected))),
+        "full_modality_coverage": int(full),
+    }
+
+
 def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device):
     partition_dir = resolve_project_path(project_root, cfg.get("partition", {}).get("output_dir", "results/pipeline/clients"))
     cluster_dir = resolve_project_path(project_root, cfg.get("cluster", {}).get("output_dir", "results/pipeline/discovery"))
@@ -529,17 +552,17 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}
     cluster_ids = sorted({int(client.pred_cluster) for client in clients})
+    expected_modalities = sorted({int(client.hidden_modality_id) for client in clients})
     cluster_to_slot = {int(cluster_id): int(slot) for slot, cluster_id in enumerate(cluster_ids)}
     training_cfg = cfg.get("training", {})
-    clients_per_cluster = training_cfg.get("clients_per_cluster_per_round")
-    if clients_per_cluster is None:
-        raise ValueError("training.clients_per_cluster_per_round is required for balanced cluster scheduling.")
-    clients_per_cluster = int(clients_per_cluster)
-    clients_per_round = clients_per_cluster * len(cluster_ids)
+    clients_per_round = training_cfg.get("clients_per_round")
+    if clients_per_round is None:
+        raise ValueError("training.clients_per_round is required for fixed-budget scheduling.")
+    clients_per_round = int(clients_per_round)
     scheduler = build_scheduler(
         training_cfg.get("scheduler", "balanced_cluster_round_robin"),
         clients,
-        clients_per_cluster_per_round=clients_per_cluster,
+        clients_per_round=clients_per_round,
         seed=int(cfg.get("seed", 42)),
     )
     server = ConcatMLPFusionServer(
@@ -597,6 +620,10 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "round_binding_success_rate",
         "coverage",
         "cluster_slot_coverage",
+        "modality_coverage",
+        "full_modality_coverage",
+        "covered_modality_count",
+        "expected_modality_count",
         "participation_fairness",
         "latency",
         "server_update_l1",
@@ -604,10 +631,15 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "fusion_training_objective",
         "binding_confidence_mean",
         "selected_client_ids",
+        "selected_client_ids_by_cluster_json",
         "selected_cluster_ids",
+        "selected_hidden_modality_ids_json",
         "expected_cluster_ids",
-        "clients_per_cluster_per_round",
+        "expected_modality_ids_json",
+        "clients_per_round",
+        "per_cluster_budget_json",
         "per_cluster_selected_json",
+        "per_modality_selected_json",
         "round_status",
     ]
     test_eval = None
@@ -619,6 +651,8 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     total_attempted_local_steps = 0
     total_effective_local_steps = 0
     total_empty_binding_local_steps = 0
+    modality_coverage_sum = 0.0
+    modality_full_coverage_rounds = 0
     with (result_dir / "train_log.csv").open("w", newline="", encoding="utf-8") as train_f:
         train_writer = csv.DictWriter(train_f, fieldnames=train_fields)
         train_writer.writeheader()
@@ -636,6 +670,9 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
             )
             latency = time.perf_counter() - start
             sched_metrics = scheduler.metrics(selected)
+            modality_metrics = _round_modality_metrics(selected, expected_modalities)
+            modality_coverage_sum += float(modality_metrics["modality_coverage"])
+            modality_full_coverage_rounds += int(modality_metrics["full_modality_coverage"])
             configured_binding_batch_size = int(
                 cfg.get("binding", {}).get("batch_size", cfg.get("training", {}).get("batch_size", 1))
             )
@@ -689,6 +726,10 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
                     "round_binding_success_rate": train_metrics["round_binding_success_rate"],
                     "coverage": sched_metrics["coverage"],
                     "cluster_slot_coverage": train_metrics["cluster_slot_coverage"],
+                    "modality_coverage": modality_metrics["modality_coverage"],
+                    "full_modality_coverage": modality_metrics["full_modality_coverage"],
+                    "covered_modality_count": modality_metrics["covered_modality_count"],
+                    "expected_modality_count": modality_metrics["expected_modality_count"],
                     "participation_fairness": sched_metrics["participation_fairness"],
                     "latency": float(latency),
                     "server_update_l1": train_metrics["server_update_l1"],
@@ -699,10 +740,15 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
                     ),
                     "binding_confidence_mean": train_metrics.get("binding_confidence_mean", 0.0),
                     "selected_client_ids": json.dumps([c.client_id for c in selected]),
+                    "selected_client_ids_by_cluster_json": json.dumps(sched_metrics["selected_client_ids_by_cluster"]),
                     "selected_cluster_ids": json.dumps(sorted({int(c.pred_cluster) for c in selected})),
+                    "selected_hidden_modality_ids_json": json.dumps(modality_metrics["selected_hidden_modality_ids"]),
                     "expected_cluster_ids": json.dumps(cluster_ids),
-                    "clients_per_cluster_per_round": sched_metrics["clients_per_cluster_per_round"],
+                    "expected_modality_ids_json": json.dumps(expected_modalities),
+                    "clients_per_round": sched_metrics["clients_per_round"],
+                    "per_cluster_budget_json": json.dumps(sched_metrics["per_cluster_budget"]),
                     "per_cluster_selected_json": json.dumps(sched_metrics["per_cluster_selected"]),
+                    "per_modality_selected_json": json.dumps(modality_metrics["per_modality_selected"]),
                     "round_status": train_metrics["round_status"],
                 }
             )
@@ -792,10 +838,15 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "cluster_ids": cluster_ids,
         "cluster_to_slot": cluster_to_slot,
         "estimated_num_clusters": len(cluster_ids),
+        "expected_modality_ids": expected_modalities,
+        "expected_modality_count": len(expected_modalities),
         "cluster_assignment_source": cluster_assignment_source,
         "cluster_assignment_path": str(cluster_assignment_path),
         "clients_per_round": clients_per_round,
-        "clients_per_cluster_per_round": clients_per_cluster,
+        "client_budget_policy": "fixed_total_clients_per_round",
+        "modality_coverage_mean": float(modality_coverage_sum / max(1, executed_rounds)),
+        "modality_full_coverage_rounds": int(modality_full_coverage_rounds),
+        "modality_full_coverage_rate": float(modality_full_coverage_rounds / max(1, executed_rounds)),
         "configured_local_steps": int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1))),
         "configured_global_rounds": int(rounds),
         "executed_global_rounds": int(executed_rounds),

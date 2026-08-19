@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass
+from math import ceil
 from pathlib import Path
 
 import torch
@@ -108,8 +109,19 @@ def link_pretrained_encoders(adaptive_dir: Path, target_dir: Path) -> None:
         shutil.copytree(source, target)
 
 
+# 计算固定总预算下单个 cluster 单轮最多会被抽取的客户端数。
+def required_capacity_per_cluster(cluster_count: int, clients_per_round: int) -> int:
+    cluster_count = int(cluster_count)
+    clients_per_round = int(clients_per_round)
+    if cluster_count <= 0:
+        raise ValueError("cluster_count must be positive.")
+    if clients_per_round <= 0:
+        raise ValueError("clients_per_round must be positive.")
+    return int(ceil(clients_per_round / cluster_count))
+
+
 # 为 training method解析 cluster_dir 和 assignment source。
-def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, topology_dir: Path, seed: int, r: int) -> tuple[Path, str, dict]:
+def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, topology_dir: Path, seed: int, clients_per_round: int) -> tuple[Path, str, dict]:
     policy = resolve_method_policy(method)
     payload = load_fingerprint_npz(adaptive_dir)
     client_ids = payload["client_ids"]
@@ -128,6 +140,7 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
         }
     if policy.method == "ours":
         raw = payload["pred_cluster"].astype(int)
+        required_capacity = required_capacity_per_cluster(len(set(raw.tolist())), clients_per_round)
         return _prepare_cluster_based_topology(
             method,
             clients_dir,
@@ -136,15 +149,17 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
             payload,
             raw,
             policy.assignment_source,
-            r,
+            required_capacity,
             allow_repair=policy.allow_repair,
         )
     if policy.method == "oracle":
         true = payload["true_cluster"].astype(int)
-        report = validate_cluster_feasibility(payload["fingerprints"], true, r)
+        required_capacity = required_capacity_per_cluster(len(set(true.tolist())), clients_per_round)
+        report = validate_cluster_feasibility(payload["fingerprints"], true, required_capacity)
         metadata = {
             "feasibility_checked": True,
             "feasibility_repair_applied": False,
+            "required_capacity_per_cluster": int(required_capacity),
             "num_reassigned_clients": 0,
             "cluster_sizes_before": {str(k): int(v) for k, v in report.cluster_sizes.items()},
             "cluster_sizes_after": {str(k): int(v) for k, v in report.cluster_sizes.items()},
@@ -156,6 +171,7 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
         return adaptive_dir, policy.assignment_source, metadata
     if policy.k is not None:
         pred = run_kmeans(payload["fingerprints"], policy.k, seed=seed)
+        required_capacity = required_capacity_per_cluster(len(set(pred.tolist())), clients_per_round)
         return _prepare_cluster_based_topology(
             method,
             clients_dir,
@@ -164,28 +180,29 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
             payload,
             pred,
             policy.assignment_source,
-            r,
+            required_capacity,
             allow_repair=policy.allow_repair,
         )
     raise ValueError(f"Unsupported training method: {method}")
 
 
 # 为 cluster-based training method生成 raw/training assignment 和 repair metadata。
-def _prepare_cluster_based_topology(method, clients_dir, adaptive_dir, topology_dir, payload, raw_assignment, assignment_source, r, allow_repair):
+def _prepare_cluster_based_topology(method, clients_dir, adaptive_dir, topology_dir, payload, raw_assignment, assignment_source, required_capacity, allow_repair):
     topology_dir = Path(topology_dir)
     client_ids = payload["client_ids"]
     result = repair_cluster_feasibility(
         payload["fingerprints"],
         raw_assignment,
-        r=int(r),
+        required_capacity_per_cluster=int(required_capacity),
         client_ids=client_ids,
     ) if allow_repair else None
     if result is None:
-        report = validate_cluster_feasibility(payload["fingerprints"], raw_assignment, r)
+        report = validate_cluster_feasibility(payload["fingerprints"], raw_assignment, required_capacity)
         training_assignment = raw_assignment
         metadata = {
             "feasibility_checked": True,
             "feasibility_repair_applied": False,
+            "required_capacity_per_cluster": int(required_capacity),
             "num_reassigned_clients": 0,
             "cluster_sizes_before": {str(k): int(v) for k, v in report.cluster_sizes.items()},
             "cluster_sizes_after": {str(k): int(v) for k, v in report.cluster_sizes.items()},
@@ -194,6 +211,7 @@ def _prepare_cluster_based_topology(method, clients_dir, adaptive_dir, topology_
     else:
         training_assignment = result.training_assignment
         metadata = result.to_metadata()
+        metadata["required_capacity_per_cluster"] = int(required_capacity)
     write_assignment_csv(topology_dir / "raw_cluster_assignment.csv", client_ids, raw_assignment, "raw_cluster")
     write_assignment_csv(topology_dir / "pred_cluster.csv", client_ids, training_assignment, "pred_cluster")
     write_assignment_csv(topology_dir / "true_cluster.csv", client_ids, payload["true_cluster"], "true_cluster")
@@ -248,6 +266,9 @@ def summarize_train_log(path: Path, binding_batch_size: int) -> dict:
             "selected_client_count_per_round": [],
             "selected_cluster_counts_per_round": [],
             "coverage_per_round": [],
+            "modality_coverage_per_round": [],
+            "full_modality_coverage_per_round": [],
+            "modality_full_coverage_rate": None,
             "empty_cluster_count_per_round": [],
             "candidate_labels_per_round": [],
             "pseudo_batch_size_per_round": [],
@@ -264,6 +285,8 @@ def summarize_train_log(path: Path, binding_batch_size: int) -> dict:
     selected_counts = [int(float(row.get("K_t") or row.get("clients_per_round") or 0)) for row in rows]
     per_cluster = [json.loads(row.get("per_cluster_selected_json") or "{}") for row in rows]
     expected_clusters = [json.loads(row.get("expected_cluster_ids") or "[]") for row in rows]
+    modality_coverages = [float(row.get("modality_coverage") or 0.0) for row in rows]
+    full_modality_coverages = [int(float(row.get("full_modality_coverage") or 0)) for row in rows]
     attempted_steps = [int(float(row.get("attempted_local_steps") or 1)) for row in rows]
     pseudo_sizes = [int(float(row.get("pseudo_batch_size") or 0)) for row in rows]
     last = rows[-1] if rows else {}
@@ -271,6 +294,21 @@ def summarize_train_log(path: Path, binding_batch_size: int) -> dict:
         "selected_client_count_per_round": selected_counts,
         "selected_cluster_counts_per_round": per_cluster,
         "coverage_per_round": [float(row.get("coverage") or 0.0) for row in rows],
+        "modality_coverage_per_round": modality_coverages,
+        "full_modality_coverage_per_round": [bool(value) for value in full_modality_coverages],
+        "modality_full_coverage_rate": float(sum(full_modality_coverages) / max(1, len(full_modality_coverages))),
+        "selected_client_ids_by_cluster_per_round": [
+            json.loads(row.get("selected_client_ids_by_cluster_json") or "{}")
+            for row in rows
+        ],
+        "selected_hidden_modality_ids_per_round": [
+            json.loads(row.get("selected_hidden_modality_ids_json") or "[]")
+            for row in rows
+        ],
+        "per_modality_selected_per_round": [
+            json.loads(row.get("per_modality_selected_json") or "{}")
+            for row in rows
+        ],
         "empty_cluster_count_per_round": [
             int(sum(1 for cluster_id in expected if int(counts.get(str(cluster_id), 0)) == 0))
             for expected, counts in zip(expected_clusters, per_cluster)
@@ -326,7 +364,7 @@ def expected_training_config_hash(dataset: str, fold: int | None, seed: int, met
     cfg = resolved_cfg(dataset, fold, seed)
     clients_dir = find_clients_dir(root, cfg)
     adaptive_dir = find_discovery_dir(root, clients_dir, "adaptive_isodata")
-    r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 2))
+    clients_per_round = int(cfg.get("training", {}).get("clients_per_round"))
     run_dir = training_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     topology_dir = run_dir / "topology"
     policy = resolve_method_policy(method)
@@ -341,7 +379,7 @@ def expected_training_config_hash(dataset: str, fold: int | None, seed: int, met
             "seed": int(seed),
             "method": method,
             "global_rounds": cfg.get("training", {}).get("global_rounds"),
-            "r": r,
+            "clients_per_round": clients_per_round,
             "cfg": cfg,
         }
     )
@@ -354,11 +392,18 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
     cfg = resolved_cfg(dataset, fold, seed)
     clients_dir = find_clients_dir(root, cfg)
     adaptive_dir = find_discovery_dir(root, clients_dir, "adaptive_isodata")
-    r = int(cfg.get("training", {}).get("clients_per_cluster_per_round", 2))
+    clients_per_round = int(cfg.get("training", {}).get("clients_per_round"))
     run_name = training_run_key(dataset, fold, seed, method, global_rounds)
     run_dir = training_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     topology_dir = run_dir / "topology"
-    cluster_dir, assignment_source, feasibility_metadata = prepare_method_topology(method, clients_dir, adaptive_dir, topology_dir, seed, r)
+    cluster_dir, assignment_source, feasibility_metadata = prepare_method_topology(
+        method,
+        clients_dir,
+        adaptive_dir,
+        topology_dir,
+        seed,
+        clients_per_round,
+    )
     ckpt_dir = run_dir / "checkpoints"
     cfg = configure_method(cfg, method, clients_dir, cluster_dir, assignment_source, run_dir, ckpt_dir, global_rounds)
     config_hash = stable_config_hash(
@@ -368,7 +413,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             "seed": int(seed),
             "method": method,
             "global_rounds": cfg.get("training", {}).get("global_rounds"),
-            "r": r,
+            "clients_per_round": clients_per_round,
             "cfg": cfg,
         }
     )
@@ -390,7 +435,8 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             "protocol_hash": current_protocol_hash,
             **run_type_metadata(results_root),
             "fingerprint_type": cfg.get("fingerprint", {}).get("type"),
-            "r": int(r),
+            "clients_per_round": int(clients_per_round),
+            "client_budget_policy": "fixed_total_clients_per_round",
             "Q_hat": int(metrics.get("estimated_num_clusters", 0)),
             **feasibility_metadata,
             **round_summary,

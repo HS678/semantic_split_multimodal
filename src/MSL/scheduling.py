@@ -2,6 +2,7 @@
 import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from math import ceil
 
 import numpy as np
 
@@ -16,7 +17,7 @@ def _client_id(client):
     return str(client.client_id)
 
 
-# 统计本轮选择的 cluster coverage 和参与公平性。
+# 统计本轮选择的 cluster 调试覆盖和参与公平性。
 def _scheduler_metrics(scheduler, selected):
     selected_clusters = {_client_cluster(client) for client in selected}
     counts = [scheduler.participation[_client_id(client)] for client in scheduler.clients]
@@ -24,28 +25,44 @@ def _scheduler_metrics(scheduler, selected):
     if counts and sum(value * value for value in counts) > 0:
         fairness = (sum(counts) ** 2) / (len(counts) * sum(value * value for value in counts))
     per_cluster_selected = Counter(_client_cluster(client) for client in selected)
+    selected_by_cluster = defaultdict(list)
+    for client in selected:
+        selected_by_cluster[_client_cluster(client)].append(_client_id(client))
+    per_cluster_budget = getattr(scheduler, "last_per_cluster_budget", {})
     return {
         "coverage": float(len(selected_clusters) / max(1, len(scheduler.cluster_ids))),
         "participation_fairness": float(fairness),
         "round": int(scheduler.round_index),
         "clients_per_round": int(scheduler.clients_per_round),
-        "clients_per_cluster_per_round": int(getattr(scheduler, "clients_per_cluster_per_round", 0)),
+        "per_cluster_budget": {
+            str(cluster_id): int(per_cluster_budget.get(cluster_id, 0))
+            for cluster_id in scheduler.cluster_ids
+        },
         "per_cluster_selected": {
             str(cluster_id): int(per_cluster_selected.get(cluster_id, 0))
+            for cluster_id in scheduler.cluster_ids
+        },
+        "selected_client_ids_by_cluster": {
+            str(cluster_id): sorted(selected_by_cluster.get(cluster_id, []))
             for cluster_id in scheduler.cluster_ids
         },
     }
 
 
-# 根据预测簇从每个簇中无放回地调度 r 个客户端。
+# 根据固定总预算在预测簇之间轮转均衡调度客户端。
 class BalancedClusterRoundRobinScheduler:
-    """Per-cluster random round-robin sampling without replacement."""
+    """Fixed-total cluster-balanced random round-robin sampling."""
 
-    def __init__(self, clients, clients_per_cluster_per_round, seed=0):
+    def __init__(self, clients, clients_per_round, seed=0):
         self.clients = list(clients)
-        self.clients_per_cluster_per_round = int(clients_per_cluster_per_round)
-        if self.clients_per_cluster_per_round <= 0:
-            raise ValueError("clients_per_cluster_per_round must be positive.")
+        self._clients_per_round = int(clients_per_round)
+        if self._clients_per_round <= 0:
+            raise ValueError("clients_per_round must be positive.")
+        if self._clients_per_round > len(self.clients):
+            raise ValueError(
+                "Balanced scheduler cannot sample more distinct clients than available: "
+                f"clients_per_round={self._clients_per_round}, num_clients={len(self.clients)}"
+            )
         self.rng = random.Random(int(seed))
         self.round_index = 0
         self.participation = Counter()
@@ -54,23 +71,36 @@ class BalancedClusterRoundRobinScheduler:
             self.by_cluster[_client_cluster(client)].append(client)
         if not self.by_cluster:
             raise ValueError("Balanced scheduler requires at least one predicted cluster.")
+        self.cluster_ids = sorted(self.by_cluster)
+        self.max_cluster_round_budget = int(ceil(self._clients_per_round / max(1, len(self.cluster_ids))))
         for cluster_id, group in self.by_cluster.items():
-            if len(group) < self.clients_per_cluster_per_round:
+            if len(group) < self.max_cluster_round_budget:
                 raise ValueError(
-                    "clients_per_cluster_per_round cannot exceed the number of clients "
-                    f"in pred_cluster {cluster_id}: r={self.clients_per_cluster_per_round}, "
+                    "clients_per_round implies a per-cluster round budget that exceeds "
+                    f"the number of clients in pred_cluster {cluster_id}: "
+                    f"max_cluster_round_budget={self.max_cluster_round_budget}, "
                     f"num_clients={len(group)}"
                 )
-        self.cluster_ids = sorted(self.by_cluster)
         self.pools = {
             cluster_id: self._new_pool(cluster_id, exclude=set())
             for cluster_id in self.cluster_ids
         }
+        self.last_per_cluster_budget = {cluster_id: 0 for cluster_id in self.cluster_ids}
 
     @property
     # 返回每轮总客户端预算。
     def clients_per_round(self):
-        return self.clients_per_cluster_per_round * len(self.cluster_ids)
+        return self._clients_per_round
+
+    # 根据轮次把固定总预算轮转分配给各 cluster。
+    def _round_budget(self):
+        base, remainder = divmod(self._clients_per_round, len(self.cluster_ids))
+        offset = self.round_index % len(self.cluster_ids)
+        rotated = self.cluster_ids[offset:] + self.cluster_ids[:offset]
+        budget = {cluster_id: int(base) for cluster_id in self.cluster_ids}
+        for cluster_id in rotated[:remainder]:
+            budget[cluster_id] += 1
+        return budget
 
     # 为指定簇创建一次洗牌后的候选池。
     def _new_pool(self, cluster_id, exclude):
@@ -79,10 +109,10 @@ class BalancedClusterRoundRobinScheduler:
         return pool
 
     # 从单个预测簇中无放回抽取本轮客户端。
-    def _sample_cluster(self, cluster_id):
+    def _sample_cluster(self, cluster_id, k):
         selected = []
         selected_ids = set()
-        while len(selected) < self.clients_per_cluster_per_round:
+        while len(selected) < int(k):
             pool = self.pools[cluster_id]
             if not pool:
                 self.pools[cluster_id] = self._new_pool(cluster_id, selected_ids)
@@ -97,8 +127,9 @@ class BalancedClusterRoundRobinScheduler:
     # 生成一个 cluster-balanced 训练轮次的客户端列表。
     def sample_round(self):
         selected = []
+        self.last_per_cluster_budget = self._round_budget()
         for cluster_id in self.cluster_ids:
-            selected.extend(self._sample_cluster(cluster_id))
+            selected.extend(self._sample_cluster(cluster_id, self.last_per_cluster_budget[cluster_id]))
         self.rng.shuffle(selected)
         self.round_index += 1
         for client in selected:
@@ -110,7 +141,7 @@ class BalancedClusterRoundRobinScheduler:
         return _scheduler_metrics(self, selected)
 
 
-# 从全体客户端中完全随机无放回选择 r * Q_hat 个客户端。
+# 从全体客户端中完全随机无放回选择固定总预算个客户端。
 class RandomScheduler:
     """Uniform random sampling without replacement; no cluster coverage guarantee."""
 
@@ -133,7 +164,7 @@ class RandomScheduler:
         if not self.clients:
             raise ValueError("RandomScheduler requires at least one client.")
         self.cluster_ids = sorted(self.by_cluster)
-        self.clients_per_cluster_per_round = 0
+        self.last_per_cluster_budget = {cluster_id: 0 for cluster_id in self.cluster_ids}
 
     @property
     # 返回每轮随机选择的总客户端数。
@@ -143,6 +174,7 @@ class RandomScheduler:
     # 生成一个完全随机训练轮次的客户端列表。
     def sample_round(self):
         selected = self.rng.sample(self.clients, self._clients_per_round)
+        self.last_per_cluster_budget = {cluster_id: 0 for cluster_id in self.cluster_ids}
         self.round_index += 1
         for client in selected:
             self.participation[_client_id(client)] += 1
@@ -154,13 +186,11 @@ class RandomScheduler:
 
 
 # 根据名称构建正式训练使用的调度策略。
-def build_scheduler(name, clients, clients_per_cluster_per_round, seed=0):
+def build_scheduler(name, clients, clients_per_round, seed=0):
     key = str(name).lower()
     if key in {"balanced_cluster_round_robin", "balanced"}:
-        return BalancedClusterRoundRobinScheduler(clients, clients_per_cluster_per_round, seed)
+        return BalancedClusterRoundRobinScheduler(clients, clients_per_round, seed)
     if key in {"random", "randomsl"}:
-        cluster_ids = sorted({_client_cluster(client) for client in clients})
-        clients_per_round = int(clients_per_cluster_per_round) * len(cluster_ids)
         return RandomScheduler(clients, clients_per_round=clients_per_round, seed=seed)
     raise ValueError("Unsupported scheduler. Use 'balanced_cluster_round_robin' or 'random'.")
 
@@ -178,7 +208,7 @@ class ClusterFeasibilityReport:
     violating_clusters: list[int]
     num_clients: int
     num_clusters: int
-    r: int
+    required_capacity_per_cluster: int
     required_clients: int
 
 
@@ -231,8 +261,8 @@ def cluster_sizes(assignments) -> dict[int, int]:
     return {int(label): int(np.sum(labels == label)) for label in sorted(np.unique(labels).tolist())}
 
 
-# 检查所有预测簇是否满足每轮至少调度 r 个不同客户端的要求。
-def validate_cluster_feasibility(fingerprints, cluster_assignments, r: int) -> ClusterFeasibilityReport:
+# 检查所有预测簇是否满足单轮最大抽样容量要求。
+def validate_cluster_feasibility(fingerprints, cluster_assignments, required_capacity_per_cluster: int) -> ClusterFeasibilityReport:
     features = np.asarray(fingerprints, dtype=np.float64)
     labels = np.asarray(cluster_assignments, dtype=int).reshape(-1)
     if features.ndim != 2:
@@ -244,25 +274,28 @@ def validate_cluster_feasibility(fingerprints, cluster_assignments, r: int) -> C
             "fingerprints and cluster_assignments must have the same number of clients: "
             f"{features.shape[0]} != {labels.shape[0]}"
         )
-    if int(r) <= 0:
-        raise ValueError("r must be positive.")
+    required_capacity_per_cluster = int(required_capacity_per_cluster)
+    if required_capacity_per_cluster <= 0:
+        raise ValueError("required_capacity_per_cluster must be positive.")
     sizes = cluster_sizes(labels)
     num_clients = int(labels.shape[0])
     num_clusters = int(len(sizes))
-    required_clients = int(num_clusters * int(r))
+    required_clients = int(num_clusters * required_capacity_per_cluster)
     if required_clients > num_clients:
         raise InfeasibleClusterSchedulingError(
             "Cluster scheduling is theoretically infeasible: "
-            f"N={num_clients}, K={num_clusters}, r={int(r)}, required_clients={required_clients}"
+            f"N={num_clients}, K={num_clusters}, "
+            f"required_capacity_per_cluster={required_capacity_per_cluster}, "
+            f"required_clients={required_clients}"
         )
-    violating = [cluster_id for cluster_id, size in sizes.items() if int(size) < int(r)]
+    violating = [cluster_id for cluster_id, size in sizes.items() if int(size) < required_capacity_per_cluster]
     return ClusterFeasibilityReport(
         is_feasible=not violating,
         cluster_sizes=sizes,
         violating_clusters=violating,
         num_clients=num_clients,
         num_clusters=num_clusters,
-        r=int(r),
+        required_capacity_per_cluster=required_capacity_per_cluster,
         required_clients=required_clients,
     )
 
@@ -276,13 +309,13 @@ def _centroids(features: np.ndarray, labels: np.ndarray) -> dict[int, np.ndarray
 
 
 # 选择迁移到目标 undersized cluster 时增量失真最小的 donor client。
-def _best_migration(features, labels, client_ids, target_cluster: int, r: int):
+def _best_migration(features, labels, client_ids, target_cluster: int, required_capacity_per_cluster: int):
     centers = _centroids(features, labels)
     sizes = cluster_sizes(labels)
     candidates = []
     target_center = centers[int(target_cluster)]
     for donor_cluster, size in sizes.items():
-        if int(donor_cluster) == int(target_cluster) or int(size) <= int(r):
+        if int(donor_cluster) == int(target_cluster) or int(size) <= int(required_capacity_per_cluster):
             continue
         donor_center = centers[int(donor_cluster)]
         for index in np.where(labels == int(donor_cluster))[0].tolist():
@@ -300,10 +333,10 @@ def _best_migration(features, labels, client_ids, target_cluster: int, r: int):
 def repair_cluster_feasibility(
     fingerprints,
     cluster_assignments,
-    r: int,
+    required_capacity_per_cluster: int,
     client_ids=None,
 ) -> ClusterRepairResult:
-    report = validate_cluster_feasibility(fingerprints, cluster_assignments, r)
+    report = validate_cluster_feasibility(fingerprints, cluster_assignments, required_capacity_per_cluster)
     features = np.asarray(fingerprints, dtype=np.float64)
     raw = np.asarray(cluster_assignments, dtype=int).reshape(-1)
     labels = raw.copy()
@@ -316,19 +349,25 @@ def repair_cluster_feasibility(
     migrations: list[ClusterMigration] = []
     if not report.is_feasible:
         while True:
-            current_report = validate_cluster_feasibility(features, labels, r)
+            current_report = validate_cluster_feasibility(features, labels, required_capacity_per_cluster)
             if current_report.is_feasible:
                 break
             target_cluster = sorted(
                 current_report.violating_clusters,
                 key=lambda cluster_id: (current_report.cluster_sizes[int(cluster_id)], int(cluster_id)),
             )[0]
-            needed = int(r) - int(current_report.cluster_sizes[int(target_cluster)])
+            needed = int(required_capacity_per_cluster) - int(current_report.cluster_sizes[int(target_cluster)])
             for _ in range(needed):
-                best = _best_migration(features, labels, client_ids, target_cluster, int(r))
+                best = _best_migration(
+                    features,
+                    labels,
+                    client_ids,
+                    target_cluster,
+                    int(required_capacity_per_cluster),
+                )
                 if best is None:
                     raise InfeasibleClusterSchedulingError(
-                        "Cluster feasibility repair failed because no donor cluster has size > r."
+                        "Cluster feasibility repair failed because no donor cluster has enough spare clients."
                     )
                 delta, client_id, index, donor_cluster = best
                 labels[int(index)] = int(target_cluster)
@@ -341,7 +380,7 @@ def repair_cluster_feasibility(
                     )
                 )
 
-    final_report = validate_cluster_feasibility(features, labels, r)
+    final_report = validate_cluster_feasibility(features, labels, required_capacity_per_cluster)
     return ClusterRepairResult(
         raw_assignment=raw,
         training_assignment=labels,

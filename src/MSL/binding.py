@@ -35,13 +35,14 @@ def build_label_random_pseudo_batch(
     required_clusters: Sequence[int],
     batch_size: int,
     generator: torch.Generator | None = None,
+    allow_missing_clusters_with_zero: bool = False,
 ) -> PseudoMultimodalBatch | None:
     """Build anchor-based same-label pseudo multimodal samples.
 
     Each pseudo sample contains exactly one activation from every required
-    predicted cluster slot. All selected activations in a pseudo sample share
-    the same class label. If any required cluster is absent from the selected
-    client batches, no pseudo batch is generated.
+    predicted cluster slot. All selected non-empty activations in a pseudo
+    sample share the same class label. Missing required clusters can be
+    represented by zero activations when explicitly requested by the trainer.
     """
 
     cluster_ids = sorted({int(cluster_id) for cluster_id in required_clusters})
@@ -63,16 +64,20 @@ def build_label_random_pseudo_batch(
             continue
         by_cluster[cluster_id].append(batch)
 
-    if any(not group for group in by_cluster.values()):
+    present_cluster_ids = [cluster_id for cluster_id in cluster_ids if by_cluster[cluster_id]]
+    if any(not group for group in by_cluster.values()) and not allow_missing_clusters_with_zero:
+        return None
+    if not present_cluster_ids:
         return None
 
-    common_labels = common_labels_for_clusters(batches, cluster_ids)
+    common_labels = common_labels_for_clusters(batches, present_cluster_ids)
     if not common_labels:
         return None
 
     device = batches[0].activations.device
+    feature_shape = tuple(batches[0].activations.shape[1:])
     common_label_set = set(int(label) for label in common_labels)
-    anchor_cluster = cluster_ids[0]
+    anchor_cluster = present_cluster_ids[0]
     anchor_candidates = [
         (batch, sample_index)
         for batch in by_cluster[anchor_cluster]
@@ -95,6 +100,11 @@ def build_label_random_pseudo_batch(
         label = int(anchor_batch.labels.detach().cpu().reshape(-1)[anchor_index].item())
         out_labels.append(label)
         for cluster_id in cluster_ids:
+            if not by_cluster[cluster_id]:
+                slot_activations[cluster_id].append(
+                    torch.zeros(feature_shape, dtype=anchor_batch.activations.dtype, device=device)
+                )
+                continue
             if cluster_id == anchor_cluster:
                 candidates = [(anchor_batch, anchor_index)]
             else:

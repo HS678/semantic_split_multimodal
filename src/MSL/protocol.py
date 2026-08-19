@@ -50,6 +50,7 @@ DATASET_PROTOCOLS = {
         },
         "encoders": {},
         "training": {
+            "clients_per_round": 4,
             "batch_size": 64,
             "eval_batch_size": 128,
             "client_lr": 0.0002,
@@ -118,6 +119,7 @@ DATASET_PROTOCOLS = {
             },
         },
         "training": {
+            "clients_per_round": 6,
             "batch_size": 32,
             "eval_batch_size": 64,
             "client_lr": 0.0001,
@@ -165,6 +167,7 @@ DATASET_PROTOCOLS = {
         },
         "encoders": {},
         "training": {
+            "clients_per_round": 8,
             "batch_size": 64,
             "eval_batch_size": 128,
             "client_lr": 0.0002,
@@ -212,6 +215,7 @@ DATASET_PROTOCOLS = {
         },
         "encoders": {},
         "training": {
+            "clients_per_round": 6,
             "batch_size": 64,
             "eval_batch_size": 128,
             "client_lr": 0.0001,

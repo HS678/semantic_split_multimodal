@@ -59,9 +59,17 @@ def aggregate(records: list[dict]) -> dict:
             values = [float(_metric(row, metric)) for row in success if _metric(row, metric) is not None]
             item[f"{metric}_mean"] = float(statistics.mean(values)) if values else None
             item[f"{metric}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0
-        for metric in ["coverage_per_round", "normalized_pseudo_yield_per_round"]:
+        for metric in [
+            "modality_coverage_per_round",
+            "full_modality_coverage_per_round",
+            "normalized_pseudo_yield_per_round",
+        ]:
             values = _flat_values(success, metric)
-            stem = "coverage" if metric == "coverage_per_round" else "pseudo_yield"
+            stem = {
+                "modality_coverage_per_round": "modality_coverage",
+                "full_modality_coverage_per_round": "modality_full_coverage",
+                "normalized_pseudo_yield_per_round": "pseudo_yield",
+            }[metric]
             item[f"{stem}_mean"] = float(statistics.mean(values)) if values else None
             item[f"{stem}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0
         item["repair_rate"] = float(

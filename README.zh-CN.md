@@ -151,12 +151,19 @@ python pipeline/prepare_iemocap_features.py --device cuda
 
 正式实验参数唯一来源是 `src/MSL/protocol.py`。CLI 参数只用于临时 override；`protocol_manifest.json` 是运行后写出的协议快照，不作为输入配置。
 
-冻结协议为 `iemocap300&kmeans4`：
+冻结协议为 `fixed_total_clients_per_round&modality_coverage`：
 
 - UCI-HAR / MHEALTH: `global_rounds=200`
 - IEMOCAP / PAMAP2: `global_rounds=300`
 - discovery 方法：`adaptive_isodata`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`
 - training 方法：`ours`, `randomsl`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`, `oracle`
+- RQ2 client budget 使用固定每轮总客户端数 `clients_per_round`，不使用每个 cluster 固定客户端数：
+  - UCI-HAR: `clients_per_round=4`
+  - MHEALTH: `clients_per_round=8`
+  - PAMAP2: `clients_per_round=6`
+  - IEMOCAP: `clients_per_round=6`
+- `ours`, `kmeans2`, `kmeans3`, `kmeans4`, `kmeans5`, `oracle` 将 `clients_per_round` 均匀轮转分配到当前方法的 clusters；当 `clients_per_round < cluster_num` 时，允许部分 cluster 本轮调度 0 个客户端。
+- `randomsl` 使用相同 `clients_per_round` 总预算，但保持全局随机选择客户端。
 
 正式 run grid：
 
@@ -165,7 +172,22 @@ python pipeline/prepare_iemocap_features.py --device cuda
 - PAMAP2: 8 folds，seed 固定 `42`
 - IEMOCAP: 5 folds，seed 固定 `42`
 
-训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名只用于 discovery 审计和 evaluation-only tolerant routing。
+训练、调度、binding、fusion slot 构造只使用 `pred_cluster` 与 label。`hidden_modality_id` / 真实模态名不参与训练决策，仅用于 discovery 审计、RQ2 每轮真实模态覆盖率统计和 evaluation-only tolerant routing。
+
+RQ2 每轮 `train_log.csv` 会记录：
+
+```text
+selected_client_ids
+selected_client_ids_by_cluster_json
+per_cluster_budget_json
+per_cluster_selected_json
+selected_hidden_modality_ids_json
+per_modality_selected_json
+modality_coverage
+full_modality_coverage
+```
+
+`modality_coverage` 按真实 `hidden_modality_id` 计算；`full_modality_coverage=1` 表示该轮被调度客户端覆盖了全部真实模态。最终 `final_metrics.json` 和 `result.json` 会汇总 `modality_full_coverage_rate`。
 
 ## 复现步骤
 

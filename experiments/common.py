@@ -45,7 +45,6 @@ def build_experiment_config(
     fusion_training_objective: str = "mmbind_weighted_contrastive",
     binding_type: str = "label_random",
     local_steps: int = 1,
-    clients_per_cluster_per_round: int = 2,
 ) -> dict:
     key = str(dataset_type).strip().lower()
     if key not in DATASET_PROTOCOLS:
@@ -86,7 +85,7 @@ def build_experiment_config(
             "scheduler": str(scheduler),
             "global_rounds": int(defaults.get("global_rounds", 200)),
             "local_steps": int(local_steps),
-            "clients_per_cluster_per_round": int(clients_per_cluster_per_round),
+            "clients_per_round": int(training_defaults["clients_per_round"]),
             "batch_size": int(training_defaults["batch_size"]),
             "eval_batch_size": int(training_defaults["eval_batch_size"]),
             "client_lr": float(training_defaults["client_lr"]),
@@ -422,7 +421,8 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
             "local_steps": int(representative_cfg["training"]["local_steps"]),
             "batch_size": int(representative_cfg["training"]["batch_size"]),
             "eval_batch_size": int(representative_cfg["training"]["eval_batch_size"]),
-            "r": int(representative_cfg["training"]["clients_per_cluster_per_round"]),
+            "clients_per_round": int(representative_cfg["training"]["clients_per_round"]),
+            "client_budget_policy": "fixed_total_clients_per_round_cluster_balanced_for_cluster_aware_methods",
             "training_objective": representative_cfg["fusion"]["training_objective"],
             "loss_weights": dict(representative_cfg["fusion"]["mmbind"]),
             "fingerprint_type": representative_cfg["fingerprint"]["type"],
@@ -441,7 +441,7 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
             }.get(dataset_name),
         }
     manifest = {
-        "protocol_version": "cv_revision_iemocap_300_rounds_kmeans4_2026_08_17",
+        "protocol_version": "cv_revision_fixed_total_clients_per_round_modality_coverage_2026_08_19",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "results_root": None if results_root is None else str(Path(results_root)),
         "git_commit": git_commit(root),
