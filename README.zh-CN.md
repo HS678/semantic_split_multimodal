@@ -288,6 +288,85 @@ python experiments/run_all.py --results-root results --device cuda --require-cud
 
 training formal grid 由 Python runner 串行执行。不要同时启动多个 training 进程。
 
+## RQ2 Training-Round Budget Sensitivity
+
+该实验是独立的小规模 sensitivity experiment，不属于正式 RQ2 主结果，不会写入：
+
+```text
+results/msl/
+results/baselines/
+results/aggregated/training_summary.*
+```
+
+默认单数据集入口仍固定：
+
+```text
+dataset = mhealth
+methods = ours, randomsl, oracle
+round_budgets = 25, 50, 100, 150, 200
+clients_per_round = 8
+```
+
+四数据集 sensitivity 可显式指定：
+
+```text
+uci_har:  round_budgets = 25, 50, 100, 150, 200; clients_per_round = 4
+mhealth:  round_budgets = 25, 50, 100, 150, 200; clients_per_round = 8
+pamap2:   round_budgets = 25, 50, 100, 150, 200, 250, 300; clients_per_round = 6
+iemocap:  round_budgets = 25, 50, 100, 150, 200, 250, 300; clients_per_round = 6
+```
+
+每个 `round_budget` 都是一次独立训练，只在该 run 结束后测试一次；不会在训练过程中周期性访问 test set。
+
+运行：
+
+```bash
+python experiments/sensitivity/round_budget.py \
+  --results-root results/sensitivity/round_budget \
+  --device cuda \
+  --require-cuda
+```
+
+后台运行：
+
+```bash
+mkdir -p logs && nohup bash -lc 'set -euo pipefail; python experiments/sensitivity/round_budget.py --results-root results/sensitivity/round_budget --device cuda --require-cuda' > logs/rq2_round_budget_sensitivity_mhealth.log 2>&1 &
+```
+
+补跑其它三个数据集：
+
+```bash
+mkdir -p logs && nohup bash -lc 'set -euo pipefail; python experiments/sensitivity/round_budget.py --datasets uci_har pamap2 iemocap --results-root results/sensitivity/round_budget --device cuda --require-cuda --target-accuracy 0.90' > logs/rq2_round_budget_sensitivity_other_datasets.log 2>&1 &
+```
+
+运行四个数据集全量 sensitivity 时：
+
+```bash
+mkdir -p logs && nohup bash -lc 'set -euo pipefail; python experiments/sensitivity/round_budget.py --datasets uci_har mhealth pamap2 iemocap --results-root results/sensitivity/round_budget --device cuda --require-cuda --target-accuracy 0.90' > logs/rq2_round_budget_sensitivity_all_datasets.log 2>&1 &
+```
+
+输出位置：
+
+```text
+results/sensitivity/round_budget/mhealth/<method>/rounds_<N>/fold_<F>/seed_<S>/
+results/sensitivity/round_budget/sensitivity_manifest.json
+results/sensitivity/round_budget/runs.json
+results/sensitivity/round_budget/summary.csv
+results/sensitivity/round_budget/summary.json
+results/sensitivity/round_budget/budget_auc.csv
+results/sensitivity/round_budget/budget_auc.json
+```
+
+可选计算离散 rounds-to-target：
+
+```bash
+python experiments/sensitivity/round_budget.py \
+  --results-root results/sensitivity/round_budget \
+  --device cuda \
+  --require-cuda \
+  --target-accuracy 0.90
+```
+
 ## 单次调试
 
 单次 RQ1：
