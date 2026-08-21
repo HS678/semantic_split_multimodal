@@ -20,10 +20,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from MSL.discovery import run_kmeans
-from MSL.scheduling import (
-    repair_cluster_feasibility,
-    validate_cluster_feasibility,
-)
+from MSL.scheduling import cluster_sizes
 from MSL.training import train_msl_split_learning
 from MSL.utils import select_device
 from MSL.utils import set_seed
@@ -57,13 +54,13 @@ class MethodPolicy:
 def resolve_method_policy(method: str) -> MethodPolicy:
     method = str(method).strip().lower()
     if method == "ours":
-        return MethodPolicy(method, None, "pred_cluster", "balanced_cluster_round_robin", True)
+        return MethodPolicy(method, None, "pred_cluster", "balanced_cluster_round_robin", False)
     if method == "randomsl":
         return MethodPolicy(method, None, "pred_cluster", "random", False)
     if method == "oracle":
         return MethodPolicy(method, None, "true_cluster", "balanced_cluster_round_robin", False)
     if method.startswith("kmeans"):
-        return MethodPolicy(method, int(method.replace("kmeans", "")), "pred_cluster", "balanced_cluster_round_robin", True)
+        return MethodPolicy(method, int(method.replace("kmeans", "")), "pred_cluster", "balanced_cluster_round_robin", False)
     raise ValueError(f"Unsupported training method: {method}")
 
 
@@ -154,16 +151,17 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
         )
     if policy.method == "oracle":
         true = payload["true_cluster"].astype(int)
+        sizes = cluster_sizes(true)
         required_capacity = required_capacity_per_cluster(len(set(true.tolist())), clients_per_round)
-        report = validate_cluster_feasibility(payload["fingerprints"], true, required_capacity)
+        violating = [cluster_id for cluster_id, size in sizes.items() if int(size) < int(required_capacity)]
         metadata = {
             "feasibility_checked": True,
             "feasibility_repair_applied": False,
             "required_capacity_per_cluster": int(required_capacity),
             "num_reassigned_clients": 0,
-            "cluster_sizes_before": {str(k): int(v) for k, v in report.cluster_sizes.items()},
-            "cluster_sizes_after": {str(k): int(v) for k, v in report.cluster_sizes.items()},
-            "violating_clusters_before": [int(v) for v in report.violating_clusters],
+            "cluster_sizes_before": {str(k): int(v) for k, v in sizes.items()},
+            "cluster_sizes_after": {str(k): int(v) for k, v in sizes.items()},
+            "violating_clusters_before": [int(v) for v in violating],
             "raw_cluster_assignment": {str(client_id): int(label) for client_id, label in zip(client_ids, true)},
             "training_cluster_assignment": {str(client_id): int(label) for client_id, label in zip(client_ids, true)},
             "yield_definition": normalized_yield_definition(),
@@ -190,28 +188,24 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
 def _prepare_cluster_based_topology(method, clients_dir, adaptive_dir, topology_dir, payload, raw_assignment, assignment_source, required_capacity, allow_repair):
     topology_dir = Path(topology_dir)
     client_ids = payload["client_ids"]
-    result = repair_cluster_feasibility(
-        payload["fingerprints"],
-        raw_assignment,
-        required_capacity_per_cluster=int(required_capacity),
-        client_ids=client_ids,
-    ) if allow_repair else None
-    if result is None:
-        report = validate_cluster_feasibility(payload["fingerprints"], raw_assignment, required_capacity)
-        training_assignment = raw_assignment
-        metadata = {
-            "feasibility_checked": True,
-            "feasibility_repair_applied": False,
-            "required_capacity_per_cluster": int(required_capacity),
-            "num_reassigned_clients": 0,
-            "cluster_sizes_before": {str(k): int(v) for k, v in report.cluster_sizes.items()},
-            "cluster_sizes_after": {str(k): int(v) for k, v in report.cluster_sizes.items()},
-            "violating_clusters_before": [int(v) for v in report.violating_clusters],
-        }
-    else:
-        training_assignment = result.training_assignment
-        metadata = result.to_metadata()
-        metadata["required_capacity_per_cluster"] = int(required_capacity)
+    if allow_repair:
+        raise RuntimeError(
+            "Formal training must use immutable cluster assignments; "
+            "training-time topology repair is disabled."
+        )
+    training_assignment = raw_assignment
+    sizes = cluster_sizes(raw_assignment)
+    violating = [cluster_id for cluster_id, size in sizes.items() if int(size) < int(required_capacity)]
+    metadata = {
+        "feasibility_checked": True,
+        "feasibility_repair_applied": False,
+        "required_capacity_per_cluster": int(required_capacity),
+        "num_reassigned_clients": 0,
+        "cluster_sizes_before": {str(k): int(v) for k, v in sizes.items()},
+        "cluster_sizes_after": {str(k): int(v) for k, v in sizes.items()},
+        "violating_clusters_before": [int(v) for v in violating],
+        "assignment_immutable": True,
+    }
     write_assignment_csv(topology_dir / "raw_cluster_assignment.csv", client_ids, raw_assignment, "raw_cluster")
     write_assignment_csv(topology_dir / "pred_cluster.csv", client_ids, training_assignment, "pred_cluster")
     write_assignment_csv(topology_dir / "true_cluster.csv", client_ids, payload["true_cluster"], "true_cluster")
@@ -230,7 +224,17 @@ def _prepare_cluster_based_topology(method, clients_dir, adaptive_dir, topology_
 
 
 # 将 training method转换为共享 trainer 的 policy 配置。
-def configure_method(cfg: dict, method: str, clients_dir: Path, cluster_dir: Path, assignment_source: str, run_dir: Path, ckpt_dir: Path, global_rounds: int | None) -> dict:
+def configure_method(
+    cfg: dict,
+    method: str,
+    clients_dir: Path,
+    cluster_dir: Path,
+    assignment_source: str,
+    run_dir: Path,
+    ckpt_dir: Path,
+    global_rounds: int | None,
+    evaluation_mode: str = "formal",
+) -> dict:
     policy = resolve_method_policy(method)
     cfg = dict(cfg)
     cfg["partition"] = {**dict(cfg.get("partition", {})), "output_dir": str(clients_dir)}
@@ -242,6 +246,10 @@ def configure_method(cfg: dict, method: str, clients_dir: Path, cluster_dir: Pat
     }
     if global_rounds is not None:
         cfg["training"]["global_rounds"] = int(global_rounds)
+    cfg["evaluation"] = {
+        **dict(cfg.get("evaluation", {})),
+        "evaluation_mode": str(evaluation_mode),
+    }
     cfg["result"] = {**dict(cfg.get("result", {})), "output_dir": str(run_dir)}
     cfg["result_model"] = {**dict(cfg.get("result_model", {})), "output_dir": str(ckpt_dir)}
     cfg["training_method"] = method
@@ -359,7 +367,15 @@ def np_var(values):
 
 
 # 运行单个 training method并保存最终 metrics。
-def expected_training_config_hash(dataset: str, fold: int | None, seed: int, method: str, results_root: Path, global_rounds: int | None) -> str:
+def expected_training_config_hash(
+    dataset: str,
+    fold: int | None,
+    seed: int,
+    method: str,
+    results_root: Path,
+    global_rounds: int | None,
+    evaluation_mode: str = "formal",
+) -> str:
     root = project_root()
     cfg = resolved_cfg(dataset, fold, seed)
     clients_dir = find_clients_dir(root, cfg)
@@ -371,13 +387,24 @@ def expected_training_config_hash(dataset: str, fold: int | None, seed: int, met
     cluster_dir = topology_dir if policy.method == "ours" or policy.k is not None else adaptive_dir
     assignment_source = policy.assignment_source
     ckpt_dir = run_dir / "checkpoints"
-    cfg = configure_method(cfg, method, clients_dir, cluster_dir, assignment_source, run_dir, ckpt_dir, global_rounds)
+    cfg = configure_method(
+        cfg,
+        method,
+        clients_dir,
+        cluster_dir,
+        assignment_source,
+        run_dir,
+        ckpt_dir,
+        global_rounds,
+        evaluation_mode=evaluation_mode,
+    )
     return stable_config_hash(
         {
             "dataset": dataset,
             "fold": fold,
             "seed": int(seed),
             "method": method,
+            "evaluation_mode": str(evaluation_mode),
             "global_rounds": cfg.get("training", {}).get("global_rounds"),
             "clients_per_round": clients_per_round,
             "cfg": cfg,
@@ -386,7 +413,16 @@ def expected_training_config_hash(dataset: str, fold: int | None, seed: int, met
 
 
 # 运行单个 training method并保存最终 metrics。
-def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root: Path, device_name: str, global_rounds: int | None) -> dict:
+def run_one(
+    dataset: str,
+    fold: int | None,
+    seed: int,
+    method: str,
+    results_root: Path,
+    device_name: str,
+    global_rounds: int | None,
+    evaluation_mode: str = "formal",
+) -> dict:
     assert_no_mock_pipeline_imports()
     root = project_root()
     cfg = resolved_cfg(dataset, fold, seed)
@@ -405,13 +441,24 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         clients_per_round,
     )
     ckpt_dir = run_dir / "checkpoints"
-    cfg = configure_method(cfg, method, clients_dir, cluster_dir, assignment_source, run_dir, ckpt_dir, global_rounds)
+    cfg = configure_method(
+        cfg,
+        method,
+        clients_dir,
+        cluster_dir,
+        assignment_source,
+        run_dir,
+        ckpt_dir,
+        global_rounds,
+        evaluation_mode=evaluation_mode,
+    )
     config_hash = stable_config_hash(
         {
             "dataset": dataset,
             "fold": fold,
             "seed": int(seed),
             "method": method,
+            "evaluation_mode": str(evaluation_mode),
             "global_rounds": cfg.get("training", {}).get("global_rounds"),
             "clients_per_round": clients_per_round,
             "cfg": cfg,
@@ -437,6 +484,9 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             "fingerprint_type": cfg.get("fingerprint", {}).get("type"),
             "clients_per_round": int(clients_per_round),
             "client_budget_policy": "fixed_total_clients_per_round",
+            "evaluation_mode": metrics.get("evaluation_mode"),
+            "eval_every_rounds": metrics.get("eval_every_rounds"),
+            "curve_metrics_file": metrics.get("curve_metrics_file"),
             "Q_hat": int(metrics.get("estimated_num_clusters", 0)),
             **feasibility_metadata,
             **round_summary,
@@ -460,6 +510,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
             "run_key": run_name,
             "protocol_hash": current_protocol_hash,
             **run_type_metadata(results_root),
+            "evaluation_mode": str(evaluation_mode),
             "error_type": type(exc).__name__,
             "error_message": str(exc),
             **feasibility_metadata,
@@ -487,6 +538,7 @@ def parse_args(argv=None):
     parser.add_argument("--method", choices=TRAINING_METHODS, required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--global-rounds", type=int)
+    parser.add_argument("--evaluation-mode", choices=("formal", "curve"), default="formal")
     parser.add_argument("--require-cuda", action="store_true")
     return parser.parse_args(argv)
 
@@ -503,6 +555,7 @@ def main(argv=None):
         (ROOT / args.results_root).resolve(),
         args.device,
         args.global_rounds,
+        args.evaluation_mode,
     )
     print(f"training {args.method} finished: status={result['status']} run_dir={result['run_dir']}")
 

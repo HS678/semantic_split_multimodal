@@ -116,7 +116,7 @@ def build_experiment_config(
                 "heterogeneous_ce_weight": float(defaults["mmbind"]["heterogeneous_ce_weight"]),
             },
         },
-        "evaluation": {"run_test": True},
+        "evaluation": {"run_test": True, "evaluation_mode": "formal"},
         "fingerprint_visualization": {
             "enabled": True,
             "method": "pca",
@@ -428,6 +428,16 @@ def build_protocol_manifest(results_root: Path | None = None) -> dict:
             "fingerprint_type": representative_cfg["fingerprint"]["type"],
             "adaptive_isodata": dict(representative_cfg["cluster"]["adaptive"]),
             "kmeans_configs": {"kmeans2": 2, "kmeans3": 3, "kmeans4": 4, "kmeans5": 5},
+            "auto_kmeans": {
+                "candidate_ks": [2, 3, 4, 5],
+                "selection_metric": "silhouette",
+                "tie_break": "smaller_k",
+            },
+            "gmm_bic": {
+                "candidate_ks": [2, 3, 4, 5],
+                "selection_metric": "bic",
+                "tie_break": "smaller_k",
+            },
             "evaluation_protocol": {
                 "selection": "fixed_rounds_no_validation",
                 "test_loss": "classification_cross_entropy",

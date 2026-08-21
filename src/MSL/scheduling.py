@@ -2,7 +2,6 @@
 import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from math import ceil
 
 import numpy as np
 
@@ -72,15 +71,10 @@ class BalancedClusterRoundRobinScheduler:
         if not self.by_cluster:
             raise ValueError("Balanced scheduler requires at least one predicted cluster.")
         self.cluster_ids = sorted(self.by_cluster)
-        self.max_cluster_round_budget = int(ceil(self._clients_per_round / max(1, len(self.cluster_ids))))
-        for cluster_id, group in self.by_cluster.items():
-            if len(group) < self.max_cluster_round_budget:
-                raise ValueError(
-                    "clients_per_round implies a per-cluster round budget that exceeds "
-                    f"the number of clients in pred_cluster {cluster_id}: "
-                    f"max_cluster_round_budget={self.max_cluster_round_budget}, "
-                    f"num_clients={len(group)}"
-                )
+        self.cluster_capacity = {
+            cluster_id: int(len(group))
+            for cluster_id, group in self.by_cluster.items()
+        }
         self.pools = {
             cluster_id: self._new_pool(cluster_id, exclude=set())
             for cluster_id in self.cluster_ids
@@ -100,6 +94,27 @@ class BalancedClusterRoundRobinScheduler:
         budget = {cluster_id: int(base) for cluster_id in self.cluster_ids}
         for cluster_id in rotated[:remainder]:
             budget[cluster_id] += 1
+        budget = {
+            cluster_id: min(int(value), int(self.cluster_capacity[cluster_id]))
+            for cluster_id, value in budget.items()
+        }
+        remaining = int(self._clients_per_round - sum(budget.values()))
+        while remaining > 0:
+            changed = False
+            for cluster_id in rotated:
+                if remaining <= 0:
+                    break
+                if budget[cluster_id] >= self.cluster_capacity[cluster_id]:
+                    continue
+                budget[cluster_id] += 1
+                remaining -= 1
+                changed = True
+            if not changed:
+                raise ValueError(
+                    "Balanced scheduler cannot allocate the requested distinct client budget: "
+                    f"clients_per_round={self._clients_per_round}, "
+                    f"total_capacity={sum(self.cluster_capacity.values())}"
+                )
         return budget
 
     # 为指定簇创建一次洗牌后的候选池。

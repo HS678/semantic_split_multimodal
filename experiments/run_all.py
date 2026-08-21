@@ -19,6 +19,7 @@ def parse_args(argv=None):
     parser.add_argument("--methods", nargs="*")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--global-rounds", type=int)
+    parser.add_argument("--evaluation-mode", choices=("formal", "curve"), default="formal")
     parser.add_argument("--retry-failed", action="store_true")
     parser.add_argument("--require-cuda", action="store_true")
     parser.add_argument("--skip-discovery", action="store_true")
@@ -43,6 +44,7 @@ def _training_args(args) -> list[str]:
         out.extend(["--device", args.device])
     if args.global_rounds is not None:
         out.extend(["--global-rounds", str(args.global_rounds)])
+    out.extend(["--evaluation-mode", args.evaluation_mode])
     if args.retry_failed:
         out.append("--retry-failed")
     if args.require_cuda:

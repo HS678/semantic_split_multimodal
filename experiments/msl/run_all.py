@@ -72,6 +72,18 @@ def aggregate(records: list[dict]) -> dict:
             }[metric]
             item[f"{stem}_mean"] = float(statistics.mean(values)) if values else None
             item[f"{stem}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0
+        table_iv_sources = {
+            "FMC": "modality_full_coverage_rate",
+            "EUR": "local_step_binding_success_rate",
+        }
+        for out_metric, source_metric in table_iv_sources.items():
+            values = [
+                float(_metric(row, source_metric))
+                for row in success
+                if _metric(row, source_metric) is not None
+            ]
+            item[f"{out_metric}_mean"] = float(statistics.mean(values)) if values else None
+            item[f"{out_metric}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0
         item["repair_rate"] = float(
             sum(1 for row in success if row.get("feasibility_repair_applied") is True) / max(1, len(success))
         )
@@ -126,7 +138,16 @@ def print_plan(plan: list[dict]) -> None:
 
 
 # 读取已存在的 run result 以支持 success resume 和 failed 记录。
-def load_existing_result(results_root: Path, dataset: str, fold: int | None, seed: int, method: str, global_rounds: int | None, retry_failed: bool):
+def load_existing_result(
+    results_root: Path,
+    dataset: str,
+    fold: int | None,
+    seed: int,
+    method: str,
+    global_rounds: int | None,
+    retry_failed: bool,
+    evaluation_mode: str = "formal",
+):
     run_dir = training_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     success_path = run_dir / "result.json"
     failed_path = run_dir / "failed_run.json"
@@ -141,7 +162,15 @@ def load_existing_result(results_root: Path, dataset: str, fold: int | None, see
         return None
     if payload.get("method") != method or not payload.get("config_hash"):
         return None
-    expected_hash = expected_training_config_hash(dataset, fold, seed, method, results_root, global_rounds)
+    expected_hash = expected_training_config_hash(
+        dataset,
+        fold,
+        seed,
+        method,
+        results_root,
+        global_rounds,
+        evaluation_mode=evaluation_mode,
+    )
     if payload.get("config_hash") != expected_hash:
         return None
     if payload.get("protocol_hash") != protocol_hash():
@@ -164,6 +193,7 @@ def parse_args(argv=None):
     parser.add_argument("--results-root", default="results")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--global-rounds", type=int)
+    parser.add_argument("--evaluation-mode", choices=("formal", "curve"), default="formal")
     parser.add_argument("--retry-failed", action="store_true")
     parser.add_argument("--require-cuda", action="store_true")
     return parser.parse_args(argv)
@@ -189,6 +219,7 @@ def main(argv=None):
                     method,
                     args.global_rounds,
                     args.retry_failed,
+                    args.evaluation_mode,
                 )
                 if record is None:
                     record = run_one(
@@ -199,7 +230,8 @@ def main(argv=None):
                         results_root,
                         args.device,
                         args.global_rounds,
-                )
+                        args.evaluation_mode,
+                    )
                 records.append(record)
     summary = aggregate(records)
     msl_summary = _summary_for_methods(summary, {"ours"})

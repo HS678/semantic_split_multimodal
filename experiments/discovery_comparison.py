@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from MSL.discovery import run_kmeans
+from MSL.discovery import run_auto_kmeans, run_gmm_bic, run_kmeans
 from experiments.common import (
     DISCOVERY_METHODS,
     add_common_run_args,
@@ -54,9 +54,20 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
 
     if method == "adaptive_isodata":
         pred = payload["pred_cluster"].astype(int)
+        selection_metadata = None
     elif method.startswith("kmeans"):
         k = int(method.replace("kmeans", ""))
         pred = run_kmeans(fingerprints, k, seed=seed)
+        selection_metadata = {
+            "method": method,
+            "selection_metric": "fixed_k",
+            "selected_k": int(k),
+            "selected_Q_hat": int(k),
+        }
+    elif method == "auto_kmeans":
+        pred, selection_metadata = run_auto_kmeans(fingerprints, seed=seed)
+    elif method == "gmm_bic":
+        pred, selection_metadata = run_gmm_bic(fingerprints, seed=seed)
     else:
         raise ValueError(f"Unsupported discovery method: {method}")
 
@@ -71,11 +82,14 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
         "adaptive_discovery_dir": str(adaptive_dir),
         "M": int(metrics["true_Q"]),
         "Q_hat": int(metrics["estimated_Q"]),
+        "estimated_Q": int(metrics["estimated_Q"]),
         "ARI": float(metrics["ARI"]),
         "NMI": float(metrics["NMI"]),
         "Purity": metrics["pred_cluster_purity"],
         "hungarian_ACC": float(metrics["hungarian_ACC"]),
         "cluster_count_error": int(metrics["abs_Q_error"]),
+        "abs_Q_error": int(metrics["abs_Q_error"]),
+        "selection_metadata": selection_metadata,
         "cluster_assignments": {str(client_id): int(label) for client_id, label in zip(client_ids, pred)},
         "cluster_sizes": cluster_sizes,
         "diagnostics": metrics,
@@ -85,7 +99,7 @@ def run_one(dataset: str, fold: int | None, seed: int, method: str, results_root
     raw_path = run_dir / "discovery_result.json"
     write_json(raw_path, raw)
 
-    if method.startswith("kmeans"):
+    if method != "adaptive_isodata":
         artifact_dir = run_dir / "artifacts"
         write_assignment_csv(artifact_dir / "pred_cluster.csv", client_ids, pred, "pred_cluster")
         write_assignment_csv(artifact_dir / "true_cluster.csv", client_ids, true, "true_cluster")

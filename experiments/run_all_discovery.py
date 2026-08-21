@@ -25,7 +25,35 @@ def aggregate(records: list[dict]) -> dict:
     for (dataset, method), rows in groups.items():
         success = [row for row in rows if row.get("status") == "success"]
         item = {"count": len(success), "failed": len(rows) - len(success)}
-        for metric in ["ARI", "NMI", "hungarian_ACC", "cluster_count_error", "Q_hat", "M"]:
+        item["estimated_Q_values"] = [
+            int(row.get("estimated_Q", row.get("Q_hat")))
+            for row in success
+            if row.get("estimated_Q", row.get("Q_hat")) is not None
+        ]
+        item["per_run_estimated_Q"] = [
+            {
+                "dataset": row.get("dataset"),
+                "fold": row.get("fold"),
+                "seed": int(row.get("seed")),
+                "method": row.get("method"),
+                "estimated_Q": int(row.get("estimated_Q", row.get("Q_hat"))),
+            }
+            for row in success
+            if row.get("estimated_Q", row.get("Q_hat")) is not None
+        ]
+        for metric in ["estimated_Q", "abs_Q_error", "ARI", "NMI", "hungarian_ACC"]:
+            source = {
+                "estimated_Q": "Q_hat",
+                "abs_Q_error": "cluster_count_error",
+            }.get(metric)
+            values = [
+                float(row.get(metric, row.get(source) if source else None))
+                for row in success
+                if row.get(metric, row.get(source) if source else None) is not None
+            ]
+            item[f"{metric}_mean"] = float(statistics.mean(values)) if values else None
+            item[f"{metric}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0
+        for metric in ["Q_hat", "M"]:
             values = [float(row[metric]) for row in success if metric in row]
             item[f"{metric}_mean"] = float(statistics.mean(values)) if values else None
             item[f"{metric}_std"] = float(statistics.pstdev(values)) if len(values) > 1 else 0.0

@@ -1,6 +1,8 @@
 # Split Learning 训练循环、MMBind loss 调用、server/client 更新和评估输出。
 import csv
+import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -16,6 +18,101 @@ from MSL.evaluation import build_oracle_eval_mapping
 from MSL.models import create_client_encoder
 from MSL.models import ConcatMLPFusionServer
 from MSL.scheduling import build_scheduler
+
+
+EVALUATION_MODES = {"curve", "formal"}
+DEFAULT_CURVE_EVAL_EVERY_ROUNDS = 10
+
+
+def _evaluation_mode_spec(cfg: dict) -> dict:
+    evaluation_cfg = dict(cfg.get("evaluation", {}))
+    mode = str(evaluation_cfg.get("evaluation_mode", "formal")).strip().lower()
+    if mode not in EVALUATION_MODES:
+        raise ValueError(
+            "evaluation.evaluation_mode must be one of "
+            f"{sorted(EVALUATION_MODES)}, got {mode!r}."
+        )
+    eval_every = int(evaluation_cfg.get("eval_every_rounds", DEFAULT_CURVE_EVAL_EVERY_ROUNDS))
+    if eval_every <= 0:
+        raise ValueError("evaluation.eval_every_rounds must be positive.")
+    return {"mode": mode, "eval_every_rounds": eval_every}
+
+
+def _curve_evaluation_rounds(rmax: int, eval_every_rounds: int = DEFAULT_CURVE_EVAL_EVERY_ROUNDS) -> list[int]:
+    rmax = int(rmax)
+    eval_every_rounds = int(eval_every_rounds)
+    if rmax <= 0:
+        raise ValueError("rmax must be positive.")
+    if eval_every_rounds <= 0:
+        raise ValueError("eval_every_rounds must be positive.")
+    rounds = list(range(eval_every_rounds, rmax + 1, eval_every_rounds))
+    if not rounds or rounds[-1] != rmax:
+        rounds.append(rmax)
+    return rounds
+
+
+def _write_curve_rows(path: Path, rows: list[dict]) -> None:
+    fields = ["round", "test_accuracy", "test_macro_f1", "test_weighted_f1"]
+    with Path(path).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field) for field in fields})
+
+
+def _evaluate_test_checkpoint(
+    *,
+    evaluation_mode: str,
+    checkpoint_role: str,
+    server,
+    clients_by_id,
+    multimodal_path: Path,
+    oracle_mapping: dict,
+    cfg: dict,
+    device,
+):
+    if str(checkpoint_role) == "periodic" and str(evaluation_mode) != "curve":
+        raise RuntimeError("periodic test evaluation is only allowed in curve evaluation_mode.")
+    return evaluate_naturally_paired_fusion(
+        server,
+        clients_by_id,
+        multimodal_path,
+        oracle_mapping,
+        cfg,
+        device,
+    )
+
+
+def _file_sha256(path: Path) -> str | None:
+    path = Path(path)
+    if not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_formal_test_access_marker(result_dir: Path, checkpoint_path: Path) -> Path:
+    marker_path = Path(result_dir) / "formal_test_access.json"
+    if marker_path.exists():
+        raise RuntimeError(f"Formal test access marker already exists: {marker_path}")
+    payload = {
+        "status": "accessed",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "checkpoint_policy": "final",
+        "checkpoint_path": str(Path(checkpoint_path)),
+        "checkpoint_sha256": _file_sha256(checkpoint_path),
+        "evaluation_mode": "formal",
+    }
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    fd = os.open(marker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(encoded)
+        handle.write(b"\n")
+    return marker_path
 
 
 class FusionSplitClient:
@@ -548,6 +645,9 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "cluster_assignment_path": str(cluster_assignment_path),
         "cluster_assignment_column": str(cluster_assignment_column),
     }
+    evaluation_spec = _evaluation_mode_spec(cfg)
+    evaluation_mode = evaluation_spec["mode"]
+    eval_every_rounds = int(evaluation_spec["eval_every_rounds"])
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}
@@ -580,6 +680,7 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     rounds = int(cfg.get("training", {}).get("global_rounds", cfg.get("global_rounds", 3)))
     if rounds <= 0:
         raise ValueError("training.global_rounds must be positive.")
+    curve_eval_rounds = set(_curve_evaluation_rounds(rounds, eval_every_rounds)) if evaluation_mode == "curve" else set()
 
     train_fields = [
         "global_round",
@@ -644,6 +745,8 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     ]
     test_eval = None
     oracle_mapping = None
+    curve_rows = []
+    periodic_test_evaluation_count = 0
     executed_rounds = 0
     stop_reason = "max_global_rounds"
     empty_binding_rounds = 0
@@ -753,6 +856,36 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
                 }
             )
             train_f.flush()
+            if evaluation_mode == "curve" and round_idx in curve_eval_rounds:
+                if oracle_mapping is None:
+                    oracle_mapping = build_oracle_eval_mapping(
+                        partition_dir / "client_meta.csv",
+                        cluster_assignment_path,
+                        None,
+                        cluster_assignment_column,
+                    )
+                test_eval_at_round = _evaluate_test_checkpoint(
+                    evaluation_mode=evaluation_mode,
+                    checkpoint_role="periodic",
+                    server=server,
+                    clients_by_id=clients_by_id,
+                    multimodal_path=partition_dir / "test_multimodal.pt",
+                    oracle_mapping=oracle_mapping,
+                    cfg=cfg,
+                    device=device,
+                )
+                periodic_test_evaluation_count += 1
+                curve_rows.append(
+                    {
+                        "round": int(round_idx),
+                        "test_accuracy": test_eval_at_round.get("accuracy"),
+                        "test_macro_f1": test_eval_at_round.get("macro_f1"),
+                        "test_weighted_f1": test_eval_at_round.get("weighted_f1"),
+                    }
+                )
+
+    if evaluation_mode == "curve":
+        _write_curve_rows(result_dir / "test_curve.csv", curve_rows)
 
     last_metrics = {
         "checkpoint_role": "last_training_state",
@@ -770,33 +903,40 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     )
 
     run_test = bool(cfg.get("evaluation", {}).get("run_test", True))
-    test_evaluation_count = 0
-    if oracle_mapping is None:
-        oracle_mapping = build_oracle_eval_mapping(
-            partition_dir / "client_meta.csv",
-            cluster_assignment_path,
-            None,
-            cluster_assignment_column,
-        )
+    final_test_evaluation_count = 0
+    final_checkpoint_path = model_dir / "last_model.pt"
     _load_checkpoint(
-        model_dir / "last_model.pt",
+        final_checkpoint_path,
         server,
         clients,
         cluster_ids,
         cluster_to_slot,
         device,
     )
-    if run_test:
-        test_eval = evaluate_naturally_paired_fusion(
-            server,
-            clients_by_id,
-            partition_dir / "test_multimodal.pt",
-            oracle_mapping,
-            cfg,
-            device,
+    if evaluation_mode == "formal" and run_test:
+        if periodic_test_evaluation_count:
+            raise RuntimeError("formal evaluation_mode forbids periodic test evaluation.")
+        if oracle_mapping is None:
+            oracle_mapping = build_oracle_eval_mapping(
+                partition_dir / "client_meta.csv",
+                cluster_assignment_path,
+                None,
+                cluster_assignment_column,
+            )
+        formal_marker_path = _write_formal_test_access_marker(result_dir, final_checkpoint_path)
+        test_eval = _evaluate_test_checkpoint(
+            evaluation_mode=evaluation_mode,
+            checkpoint_role="final",
+            server=server,
+            clients_by_id=clients_by_id,
+            multimodal_path=partition_dir / "test_multimodal.pt",
+            oracle_mapping=oracle_mapping,
+            cfg=cfg,
+            device=device,
         )
-        test_evaluation_count = 1
+        final_test_evaluation_count = 1
     else:
+        formal_marker_path = None
         test_eval = {
             "eval_status": "deferred",
             "eval_failure_reason": None,
@@ -812,9 +952,11 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
             "confusion_matrix": None,
         }
 
+    test_evaluation_count = int(periodic_test_evaluation_count + final_test_evaluation_count)
     final_metrics = {
         "checkpoint": "last_model.pt",
         "selected_by": "fixed_rounds_no_validation",
+        "checkpoint_policy": "final",
         "best_round": int(executed_rounds),
         "test_eval_status": test_eval["eval_status"],
         "test_eval_failure_reason": test_eval["eval_failure_reason"],
@@ -867,14 +1009,21 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "stop_round": int(executed_rounds),
         "stop_reason": stop_reason,
         "test_evaluation_count": int(test_evaluation_count),
-        "evaluation_mode": "formal_test" if run_test else "test_deferred",
+        "test_evaluations": int(test_evaluation_count),
+        "final_test_evaluation_count": int(final_test_evaluation_count),
+        "periodic_test_evaluation_count": int(periodic_test_evaluation_count),
+        "evaluation_mode": evaluation_mode,
+        "eval_every_rounds": int(eval_every_rounds) if evaluation_mode == "curve" else None,
+        "curve_eval_rounds": [int(row["round"]) for row in curve_rows],
+        "curve_metrics_file": "test_curve.csv" if evaluation_mode == "curve" else None,
+        "formal_test_access_marker": str(formal_marker_path) if formal_marker_path is not None else None,
         "official_result": (
             {
                 "selection": "fixed_rounds_no_validation",
                 "metrics_file": "final_metrics.json",
                 "model_file": "last_model.pt",
             }
-            if run_test
+            if evaluation_mode == "formal" and run_test
             else None
         ),
     }

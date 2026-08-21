@@ -4,6 +4,7 @@ from collections import Counter
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
 from sklearn.metrics import (
     adjusted_rand_score,
     calinski_harabasz_score,
@@ -639,6 +640,98 @@ def run_kmeans(client_reps, known_k, seed=0):
     x = standardize_features(np.stack(client_reps))
     model = KMeans(n_clusters=int(known_k), random_state=int(seed), n_init=10)
     return model.fit_predict(x).astype(int)
+
+
+FROZEN_MODEL_SELECTION_KS = (2, 3, 4, 5)
+
+
+def _fingerprint_matrix(client_reps):
+    return standardize_features(np.stack(client_reps))
+
+
+def _valid_candidate_ks(n_samples: int, candidate_ks=FROZEN_MODEL_SELECTION_KS):
+    return [int(k) for k in candidate_ks if int(k) >= 2 and int(k) < int(n_samples)]
+
+
+def run_auto_kmeans(client_reps, seed=0, candidate_ks=FROZEN_MODEL_SELECTION_KS):
+    x = _fingerprint_matrix(client_reps)
+    n_samples = int(x.shape[0])
+    candidates = []
+    successful = []
+    for k in candidate_ks:
+        k = int(k)
+        item = {"k": k, "status": "skipped", "silhouette": None}
+        if k not in _valid_candidate_ks(n_samples, candidate_ks=[k]):
+            item["reason"] = "silhouette_undefined_for_candidate_k"
+            candidates.append(item)
+            continue
+        try:
+            labels = KMeans(n_clusters=k, random_state=int(seed), n_init=10).fit_predict(x).astype(int)
+            score = float(silhouette_score(x, labels))
+        except Exception as exc:
+            item["status"] = "failed"
+            item["reason"] = f"{type(exc).__name__}: {exc}"
+            candidates.append(item)
+            continue
+        item["status"] = "success"
+        item["silhouette"] = score
+        candidates.append(item)
+        successful.append((score, k, labels))
+    if not successful:
+        raise RuntimeError("Auto-KMeans failed: no candidate K has a defined silhouette score.")
+    _, selected_k, selected_labels = max(successful, key=lambda value: (value[0], -value[1]))
+    metadata = {
+        "method": "auto_kmeans",
+        "candidate_ks": [int(k) for k in candidate_ks],
+        "selection_metric": "silhouette",
+        "selection_rule": "max_silhouette",
+        "tie_break": "smaller_k",
+        "selected_k": int(selected_k),
+        "selected_Q_hat": int(selected_k),
+        "candidates": candidates,
+    }
+    return selected_labels.astype(int), metadata
+
+
+def run_gmm_bic(client_reps, seed=0, candidate_ks=FROZEN_MODEL_SELECTION_KS):
+    x = _fingerprint_matrix(client_reps)
+    n_samples = int(x.shape[0])
+    candidates = []
+    successful = []
+    for k in candidate_ks:
+        k = int(k)
+        item = {"k": k, "status": "skipped", "bic": None}
+        if k < 2 or k > n_samples:
+            item["reason"] = "invalid_candidate_k_for_sample_count"
+            candidates.append(item)
+            continue
+        try:
+            model = GaussianMixture(n_components=k, random_state=int(seed), covariance_type="full", n_init=1)
+            labels = model.fit_predict(x).astype(int)
+            bic = float(model.bic(x))
+        except Exception as exc:
+            item["status"] = "failed"
+            item["reason"] = f"{type(exc).__name__}: {exc}"
+            candidates.append(item)
+            continue
+        item["status"] = "success"
+        item["bic"] = bic
+        candidates.append(item)
+        successful.append((bic, k, labels))
+    if not successful:
+        raise RuntimeError("GMM+BIC failed: no candidate K produced a valid BIC.")
+    _, selected_k, selected_labels = min(successful, key=lambda value: (value[0], value[1]))
+    metadata = {
+        "method": "gmm_bic",
+        "candidate_ks": [int(k) for k in candidate_ks],
+        "selection_metric": "bic",
+        "selection_rule": "min_bic",
+        "tie_break": "smaller_k",
+        "selected_k": int(selected_k),
+        "selected_Q_hat": int(selected_k),
+        "candidates": candidates,
+    }
+    return selected_labels.astype(int), metadata
 
 
 def _estimate_k_by_silhouette(client_reps, seed=0):

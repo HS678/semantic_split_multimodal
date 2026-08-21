@@ -239,11 +239,13 @@ DATASET_PROTOCOLS = {
 FORMAL_CV_SEED = 42
 
 DISCOVERY_METHODS = (
-    "adaptive_isodata",
     "kmeans2",
     "kmeans3",
     "kmeans4",
     "kmeans5",
+    "auto_kmeans",
+    "gmm_bic",
+    "adaptive_isodata",
 )
 
 TRAINING_METHODS = (

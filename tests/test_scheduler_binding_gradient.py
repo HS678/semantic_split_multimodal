@@ -53,15 +53,62 @@ def test_balanced_scheduler_allows_zero_budget_clusters_and_rotates():
     assert second_metrics["per_cluster_budget"] == {"0": 0, "1": 1, "2": 1}
 
 
-# 验证 cluster size 不足时不能复制客户端填充。
-def test_balanced_scheduler_rejects_small_cluster():
-    with pytest.raises(ValueError):
-        BalancedClusterRoundRobinScheduler(make_clients({0: 1, 1: 5}), clients_per_round=4, seed=7)
+# 验证 cluster size 不足时按容量裁剪并把剩余预算分配给有容量的 cluster。
+def test_balanced_scheduler_capacity_aware_small_cluster():
+    clients = make_clients({0: 1, 1: 5})
+    original_clusters = {client.client_id: client.pred_cluster for client in clients}
+    scheduler = BalancedClusterRoundRobinScheduler(clients, clients_per_round=4, seed=7)
+    selected = scheduler.sample_round()
+    metrics = scheduler.metrics(selected)
+
+    assert len(selected) == 4
+    assert len({client.client_id for client in selected}) == 4
+    assert metrics["per_cluster_selected"] == {"0": 1, "1": 3}
+    assert {client.client_id: client.pred_cluster for client in clients} == original_clusters
+
+
+def test_balanced_scheduler_capacity_aware_multiple_undersized_clusters():
+    scheduler = BalancedClusterRoundRobinScheduler(make_clients({0: 1, 1: 1, 2: 8}), clients_per_round=6, seed=7)
+    selected = scheduler.sample_round()
+    metrics = scheduler.metrics(selected)
+
+    assert len(selected) == 6
+    assert len({client.client_id for client in selected}) == 6
+    assert metrics["per_cluster_selected"] == {"0": 1, "1": 1, "2": 4}
+    assert metrics["per_cluster_budget"] == {"0": 1, "1": 1, "2": 4}
+
+
+def test_balanced_scheduler_can_select_all_clients_when_k_equals_total():
+    clients = make_clients({0: 1, 1: 1, 2: 3})
+    scheduler = BalancedClusterRoundRobinScheduler(clients, clients_per_round=len(clients), seed=7)
+    selected = scheduler.sample_round()
+    metrics = scheduler.metrics(selected)
+
+    assert len(selected) == len(clients)
+    assert len({client.client_id for client in selected}) == len(clients)
+    assert metrics["per_cluster_selected"] == {"0": 1, "1": 1, "2": 3}
+
+
+def test_balanced_scheduler_leftover_rotation_not_fixed_to_one_cluster():
+    scheduler = BalancedClusterRoundRobinScheduler(make_clients({0: 1, 1: 9, 2: 14, 3: 16}), clients_per_round=8, seed=7)
+    budgets = []
+    for _ in range(4):
+        selected = scheduler.sample_round()
+        metrics = scheduler.metrics(selected)
+        assert len(selected) == 8
+        assert len({client.client_id for client in selected}) == 8
+        assert metrics["per_cluster_selected"]["0"] == 1
+        budgets.append(metrics["per_cluster_budget"])
+
+    assert budgets[0] == {"0": 1, "1": 3, "2": 2, "3": 2}
+    assert budgets[2] == {"0": 1, "1": 2, "2": 3, "3": 2}
+    assert budgets[3] == {"0": 1, "1": 2, "2": 2, "3": 3}
 
 
 # 验证 RandomScheduler 只按总预算随机选择且不强制覆盖所有 cluster。
 def test_random_scheduler_does_not_force_coverage():
     clients = make_clients({0: 9, 1: 1})
+    original_clusters = {client.client_id: client.pred_cluster for client in clients}
     scheduler = RandomScheduler(clients, clients_per_round=2, seed=1)
     seen_missing = False
     for _ in range(20):
@@ -71,6 +118,7 @@ def test_random_scheduler_does_not_force_coverage():
         if scheduler.metrics(selected)["coverage"] < 1.0:
             seen_missing = True
     assert seen_missing
+    assert {client.client_id: client.pred_cluster for client in clients} == original_clusters
 
 
 # 验证 same-label binding 默认仍要求覆盖全部 required slots。
