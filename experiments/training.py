@@ -11,6 +11,7 @@ from math import ceil
 from pathlib import Path
 
 import torch
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -19,7 +20,6 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from MSL.discovery import run_kmeans
 from MSL.scheduling import cluster_sizes
 from MSL.training import train_msl_split_learning
 from MSL.utils import select_device
@@ -45,22 +45,25 @@ from experiments.common import (
 @dataclass(frozen=True)
 class MethodPolicy:
     method: str
-    k: int | None
+    c1_method: str | None
     assignment_source: str
     scheduler: str
     allow_repair: bool
 
 
+C1_BASED_TRAINING_METHODS = {"kmeans2", "kmeans3", "kmeans4", "kmeans5", "auto_kmeans", "gmm_bic"}
+
+
 def resolve_method_policy(method: str) -> MethodPolicy:
     method = str(method).strip().lower()
     if method == "ours":
-        return MethodPolicy(method, None, "pred_cluster", "balanced_cluster_round_robin", False)
+        return MethodPolicy(method, "adaptive_isodata", "pred_cluster", "balanced_cluster_round_robin", False)
     if method == "randomsl":
         return MethodPolicy(method, None, "pred_cluster", "random", False)
     if method == "oracle":
         return MethodPolicy(method, None, "true_cluster", "balanced_cluster_round_robin", False)
-    if method.startswith("kmeans"):
-        return MethodPolicy(method, int(method.replace("kmeans", "")), "pred_cluster", "balanced_cluster_round_robin", False)
+    if method in C1_BASED_TRAINING_METHODS:
+        return MethodPolicy(method, method, "pred_cluster", "balanced_cluster_round_robin", False)
     raise ValueError(f"Unsupported training method: {method}")
 
 
@@ -93,6 +96,19 @@ def write_assignment_csv(path: Path, client_ids, labels, column: str) -> None:
             writer.writerow({"client_id": str(client_id), column: int(label)})
 
 
+def read_assignment_csv(path: Path, client_ids, column: str = "pred_cluster"):
+    if not Path(path).exists():
+        raise FileNotFoundError(f"Missing immutable C1 assignment artifact: {path}")
+    rows = {}
+    with Path(path).open("r", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            rows[str(row["client_id"])] = int(row[column])
+    missing = [str(client_id) for client_id in client_ids if str(client_id) not in rows]
+    if missing:
+        raise ValueError(f"C1 assignment artifact {path} misses client ids: {missing[:5]}")
+    return [int(rows[str(client_id)]) for client_id in client_ids]
+
+
 # 将 adaptive discovery 的 pretrained encoders 复用到派生 topology 目录。
 def link_pretrained_encoders(adaptive_dir: Path, target_dir: Path) -> None:
     source = adaptive_dir / "pretrained_encoders"
@@ -118,7 +134,7 @@ def required_capacity_per_cluster(cluster_count: int, clients_per_round: int) ->
 
 
 # 为 training method解析 cluster_dir 和 assignment source。
-def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, topology_dir: Path, seed: int, clients_per_round: int) -> tuple[Path, str, dict]:
+def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, topology_dir: Path, seed: int, clients_per_round: int, c1_assignment_dir: Path | None = None) -> tuple[Path, str, dict]:
     policy = resolve_method_policy(method)
     payload = load_fingerprint_npz(adaptive_dir)
     client_ids = payload["client_ids"]
@@ -167,8 +183,13 @@ def prepare_method_topology(method: str, clients_dir: Path, adaptive_dir: Path, 
             "yield_definition": normalized_yield_definition(),
         }
         return adaptive_dir, policy.assignment_source, metadata
-    if policy.k is not None:
-        pred = run_kmeans(payload["fingerprints"], policy.k, seed=seed)
+    if policy.method in C1_BASED_TRAINING_METHODS:
+        if c1_assignment_dir is None:
+            raise ValueError(f"{method} training requires a matching C1 discovery assignment directory.")
+        pred = np.asarray(
+            read_assignment_csv(Path(c1_assignment_dir) / "artifacts" / "pred_cluster.csv", client_ids, "pred_cluster"),
+            dtype=int,
+        )
         required_capacity = required_capacity_per_cluster(len(set(pred.tolist())), clients_per_round)
         return _prepare_cluster_based_topology(
             method,
@@ -384,7 +405,7 @@ def expected_training_config_hash(
     run_dir = training_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     topology_dir = run_dir / "topology"
     policy = resolve_method_policy(method)
-    cluster_dir = topology_dir if policy.method == "ours" or policy.k is not None else adaptive_dir
+    cluster_dir = topology_dir if policy.method == "ours" or policy.method in C1_BASED_TRAINING_METHODS else adaptive_dir
     assignment_source = policy.assignment_source
     ckpt_dir = run_dir / "checkpoints"
     cfg = configure_method(
@@ -432,6 +453,11 @@ def run_one(
     run_name = training_run_key(dataset, fold, seed, method, global_rounds)
     run_dir = training_run_dir(results_root, dataset, fold, seed, method, global_rounds)
     topology_dir = run_dir / "topology"
+    c1_assignment_dir = (
+        formal_result_dir(root / "results" / "c1_formal_discovery", "discovery", dataset, method, fold, seed)
+        if method in C1_BASED_TRAINING_METHODS
+        else None
+    )
     cluster_dir, assignment_source, feasibility_metadata = prepare_method_topology(
         method,
         clients_dir,
@@ -439,6 +465,7 @@ def run_one(
         topology_dir,
         seed,
         clients_per_round,
+        c1_assignment_dir=c1_assignment_dir,
     )
     ckpt_dir = run_dir / "checkpoints"
     cfg = configure_method(

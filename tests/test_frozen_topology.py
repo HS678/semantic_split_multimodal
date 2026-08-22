@@ -62,12 +62,22 @@ def test_ours_topology_uses_raw_adaptive_assignment_without_repair(tmp_path, mon
     assert saved["raw_cluster_assignment"] == saved["training_cluster_assignment"]
 
 
-def test_kmeans_topology_uses_raw_kmeans_assignment_without_repair(tmp_path, monkeypatch):
+def _write_c1_assignment(path: Path, client_ids, labels):
+    path.mkdir(parents=True, exist_ok=True)
+    with (path / "pred_cluster.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["client_id", "pred_cluster"])
+        writer.writeheader()
+        for client_id, label in zip(client_ids, labels):
+            writer.writerow({"client_id": str(client_id), "pred_cluster": int(label)})
+
+
+def test_c1_based_topology_uses_own_immutable_assignment_without_repair(tmp_path, monkeypatch):
     payload = _payload()
-    kmeans_assignment = np.asarray([0, 0, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int)
+    c1_assignment = np.asarray([0, 0, 1, 1, 1, 1, 1, 1, 1, 1], dtype=int)
     clients_dir, adaptive_dir, topology_dir = _prepare_dirs(tmp_path)
+    c1_dir = tmp_path / "c1" / "artifacts"
+    _write_c1_assignment(c1_dir, payload["client_ids"], c1_assignment)
     monkeypatch.setattr(training, "load_fingerprint_npz", lambda _path: payload)
-    monkeypatch.setattr(training, "run_kmeans", lambda fingerprints, k, seed=0: kmeans_assignment)
 
     cluster_dir, assignment_source, metadata = training.prepare_method_topology(
         "kmeans2",
@@ -76,11 +86,12 @@ def test_kmeans_topology_uses_raw_kmeans_assignment_without_repair(tmp_path, mon
         topology_dir,
         seed=7,
         clients_per_round=4,
+        c1_assignment_dir=tmp_path / "c1",
     )
 
     raw = _read_assignment(Path(cluster_dir) / "raw_cluster_assignment.csv", "raw_cluster")
     pred = _read_assignment(Path(cluster_dir) / "pred_cluster.csv", "pred_cluster")
-    expected = {str(client_id): int(label) for client_id, label in zip(payload["client_ids"], kmeans_assignment)}
+    expected = {str(client_id): int(label) for client_id, label in zip(payload["client_ids"], c1_assignment)}
     assert assignment_source == "pred_cluster"
     assert raw == expected
     assert pred == expected
@@ -94,3 +105,5 @@ def test_cluster_aware_method_policies_disable_formal_repair():
     assert training.resolve_method_policy("ours").allow_repair is False
     assert training.resolve_method_policy("kmeans2").allow_repair is False
     assert training.resolve_method_policy("kmeans5").allow_repair is False
+    assert training.resolve_method_policy("auto_kmeans").allow_repair is False
+    assert training.resolve_method_policy("gmm_bic").allow_repair is False

@@ -249,12 +249,14 @@ DISCOVERY_METHODS = (
 )
 
 TRAINING_METHODS = (
-    "ours",
     "randomsl",
     "kmeans2",
     "kmeans3",
     "kmeans4",
     "kmeans5",
+    "auto_kmeans",
+    "gmm_bic",
+    "ours",
     "oracle",
 )
 

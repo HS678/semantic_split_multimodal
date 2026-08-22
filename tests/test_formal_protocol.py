@@ -31,7 +31,7 @@ def test_formal_run_counts():
     total_run_points = sum(len(formal_run_grid(dataset)) for dataset in DATASET_PROTOCOLS)
     assert total_run_points == 23
     assert total_run_points * len(DISCOVERY_METHODS) == 161
-    assert total_run_points * len(TRAINING_METHODS) == 161
+    assert total_run_points * len(TRAINING_METHODS) == 207
 
 
 # 验证正式 global rounds 只将 IEMOCAP 调整到 300，其他既有默认不被误改。
