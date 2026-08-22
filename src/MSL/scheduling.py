@@ -70,7 +70,13 @@ class BalancedClusterRoundRobinScheduler:
             self.by_cluster[_client_cluster(client)].append(client)
         if not self.by_cluster:
             raise ValueError("Balanced scheduler requires at least one predicted cluster.")
-        self.cluster_ids = sorted(self.by_cluster)
+        self.cluster_ids = sorted(
+            self.by_cluster,
+            key=lambda cluster_id: [
+                _client_id(client)
+                for client in sorted(self.by_cluster[cluster_id], key=_client_id)
+            ],
+        )
         self.cluster_capacity = {
             cluster_id: int(len(group))
             for cluster_id, group in self.by_cluster.items()

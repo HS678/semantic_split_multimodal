@@ -257,7 +257,6 @@ TRAINING_METHODS = (
     "auto_kmeans",
     "gmm_bic",
     "ours",
-    "oracle",
 )
 
 

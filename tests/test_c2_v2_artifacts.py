@@ -65,7 +65,7 @@ def test_v2_manifest_explicitly_enumerates_expected_runs(tmp_path):
         seeds=[1],
     )
 
-    assert len(records) == 18
+    assert len(records) == 16
     assert {
         "dataset",
         "fold",

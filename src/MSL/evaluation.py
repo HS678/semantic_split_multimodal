@@ -51,6 +51,34 @@ class EvaluationRouting:
         }
 
 
+@dataclass
+class PhysicalEvaluationRouting:
+    true_modalities: list[int]
+    canonical_clients: dict[int, object]
+    client_rows: list[dict]
+
+    # 返回正式 C2 evaluator 的 physical-slot routing 元数据。
+    def to_metadata(self) -> dict:
+        return {
+            "status": SUCCESS,
+            "failure_reason": None,
+            "mapping_type": "physical_modality_canonical_client",
+            "evaluation_encoder_rule": "canonical_client_per_physical_modality_by_sorted_client_id",
+            "evaluation_encoder_aggregation": "none",
+            "uses_hidden_modality_id": True,
+            "uses_test_labels_for_routing": False,
+            "uses_pred_cluster_for_routing": False,
+            "uses_p_mq_weighted_mixing": False,
+            "true_modalities": [int(value) for value in self.true_modalities],
+            "true_Q": int(len(self.true_modalities)),
+            "canonical_client_ids_by_modality": {
+                str(modality_id): str(getattr(client, "client_id", ""))
+                for modality_id, client in sorted(self.canonical_clients.items())
+            },
+            "client_rows": self.client_rows,
+        }
+
+
 # 读取 client preparation 保存的 client metadata。
 def read_client_meta(path: Path) -> dict[str, dict]:
     if not Path(path).exists():
@@ -157,6 +185,59 @@ def build_tolerant_evaluation_routing(
         activation_ensemble_groups=activation_ensemble_groups,
         client_rows=client_rows,
     )
+
+
+def build_physical_evaluation_routing(
+    client_meta_path: Path,
+    clients_by_id: dict[str, object],
+) -> PhysicalEvaluationRouting:
+    client_meta = read_client_meta(Path(client_meta_path))
+    client_rows = []
+    clients_by_modality: dict[int, list[object]] = {}
+    for client_id in sorted(client_meta):
+        if client_id not in clients_by_id:
+            raise KeyError(f"Missing trained client object for {client_id}.")
+        modality_id = int(client_meta[client_id]["hidden_modality_id"])
+        client = clients_by_id[client_id]
+        client_rows.append(
+            {
+                "client_id": client_id,
+                "hidden_modality_id": modality_id,
+                "hidden_modality_name": client_meta[client_id].get("hidden_modality_name"),
+                "encoder_type": client_meta[client_id].get("encoder_type"),
+            }
+        )
+        clients_by_modality.setdefault(modality_id, []).append(client)
+    true_modalities = sorted(clients_by_modality)
+    if not true_modalities:
+        raise ValueError("Physical evaluation routing requires at least one physical modality.")
+    canonical_clients = {
+        modality_id: sorted(
+            clients,
+            key=lambda client: str(getattr(client, "client_id", "")),
+        )[0]
+        for modality_id, clients in clients_by_modality.items()
+    }
+    for client in canonical_clients.values():
+        client.encoder.eval()
+    return PhysicalEvaluationRouting(
+        true_modalities=true_modalities,
+        canonical_clients=canonical_clients,
+        client_rows=client_rows,
+    )
+
+
+def route_physical_paired_batch(xs, batch_lengths, routing: PhysicalEvaluationRouting, device) -> dict[int, torch.Tensor]:
+    slot_activations = {}
+    for modality_id in routing.true_modalities:
+        client = routing.canonical_clients[int(modality_id)]
+        xb = xs[int(modality_id)].to(device)
+        lengths = batch_lengths[int(modality_id)]
+        if lengths is not None:
+            lengths = lengths.to(device)
+        encoder = client.encoder
+        slot_activations[int(modality_id)] = encoder(xb) if lengths is None else encoder(xb, lengths)
+    return slot_activations
 
 
 # 按 tolerant routing 公式为一个 batch 构造所有 predicted slot 表征。
@@ -492,10 +573,11 @@ def evaluate_naturally_paired_fusion(
     cfg: dict,
     device,
 ):
-    if oracle_mapping.get("status") != SUCCESS:
+    evaluation_mapping = oracle_mapping or {}
+    if evaluation_mapping and evaluation_mapping.get("status") != SUCCESS:
         return {
             "eval_status": "failed",
-            "eval_failure_reason": oracle_mapping.get("failure_reason", "evaluation_mapping_failure"),
+            "eval_failure_reason": evaluation_mapping.get("failure_reason", "evaluation_mapping_failure"),
             "loss": None,
             "classification_loss": None,
             "accuracy": None,
@@ -508,13 +590,6 @@ def evaluate_naturally_paired_fusion(
     modality_names = list(payload["modality_names"])
     modalities = payload["modalities"]
     modality_lengths = payload.get("modality_lengths")
-    routing = build_tolerant_evaluation_routing(
-        Path(cfg["evaluation"]["client_meta_path"]),
-        Path(cfg["evaluation"]["cluster_assignment_path"]),
-        clients_by_id,
-        cfg["evaluation"].get("cluster_assignment_column", "pred_cluster"),
-    )
-
     tensors = [modalities[name] for name in modality_names]
     length_tensors = None
     if modality_lengths is not None:
@@ -531,10 +606,14 @@ def evaluate_naturally_paired_fusion(
     total = 0
     num_eval_batches = 0
     eval_modality_ids = list(range(len(tensors)))
-    eval_cluster_ids = routing.pred_clusters
+    routing = build_physical_evaluation_routing(
+        Path(cfg["evaluation"]["client_meta_path"]),
+        clients_by_id,
+    )
+    eval_slot_ids = routing.true_modalities
 
     server.eval()
-    used_clients = list(clients_by_id.values())
+    used_clients = list(routing.canonical_clients.values())
     for client in used_clients:
         client.encoder.eval()
 
@@ -547,7 +626,7 @@ def evaluate_naturally_paired_fusion(
                 xs = list(batch[: len(tensors)])
                 batch_lengths = list(batch[len(tensors) : 2 * len(tensors)])
             yb = batch[-1]
-            slot_activations = route_paired_batch(xs, batch_lengths, routing, device)
+            slot_activations = route_physical_paired_batch(xs, batch_lengths, routing, device)
             logits, _ = server(slot_activations)
             pred = logits.argmax(dim=1)
             y_true.extend(yb.tolist())
@@ -571,9 +650,11 @@ def evaluate_naturally_paired_fusion(
             "num_eval_samples": int(total),
             "num_eval_batches": int(num_eval_batches),
             "eval_modality_ids": eval_modality_ids,
-            "eval_cluster_ids": eval_cluster_ids,
-            "oracle_mapping_type": oracle_mapping.get("mapping_type", "tolerant_evaluation_only"),
-            "tolerant_routing": routing.to_metadata(),
+            "eval_cluster_ids": [],
+            "eval_slot_ids": eval_slot_ids,
+            "oracle_mapping_type": routing.to_metadata()["mapping_type"],
+            "evaluation_mapping": routing.to_metadata(),
+            "tolerant_routing": None,
         }
     )
     return metrics

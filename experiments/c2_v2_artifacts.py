@@ -19,7 +19,7 @@ from experiments.convergence import C2_V2_METHODS, COMMON_TARGET_LEVELS
 from experiments.training import expected_training_config_hash, training_run_dir
 
 
-LEGACY_REUSED_METHODS = {"randomsl", "ours", "oracle"}
+LEGACY_REUSED_METHODS = {"randomsl", "ours"}
 
 
 def canonical_run_dir(output_root: Path, evaluation_mode: str, dataset: str, fold: int | None, seed: int, method: str) -> Path:

@@ -14,7 +14,6 @@ from sklearn.metrics import f1_score
 from MSL.binding import ClientActivationBatch, build_label_random_pseudo_batch, common_labels_for_clusters
 from MSL.data import resolve_project_path
 from MSL.evaluation import evaluate_naturally_paired_fusion
-from MSL.evaluation import build_oracle_eval_mapping
 from MSL.models import create_client_encoder
 from MSL.models import ConcatMLPFusionServer
 from MSL.scheduling import build_scheduler
@@ -196,6 +195,7 @@ def _collect_selected_activations(selected):
     activation_batches = []
     client_paths = {}
     for client in selected:
+        physical_slot_id = int(client.hidden_modality_id)
         sampled = client.sample_batch()
         if len(sampled) == 2:
             x, y = sampled
@@ -209,12 +209,12 @@ def _collect_selected_activations(selected):
         activation_batches.append(
             ClientActivationBatch(
                 client_id=client.client_id,
-                pred_cluster=client.pred_cluster,
+                pred_cluster=physical_slot_id,
                 activations=z_server,
                 labels=y,
             )
         )
-        client_paths.setdefault(int(client.pred_cluster), {}).setdefault(client.client_id, []).append((client, z_client, z_server))
+        client_paths.setdefault(physical_slot_id, {}).setdefault(client.client_id, []).append((client, z_client, z_server))
     return activation_batches, client_paths
 
 
@@ -353,16 +353,16 @@ def _mmbind_fusion_losses(server, pseudo, spec, class_weights=None):
 
 
 def _train_local_step(server, server_optimizer, selected, required_clusters, cfg, class_weights=None):
-    expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
-    selected_clusters = sorted({int(client.pred_cluster) for client in selected})
+    expected_slots = sorted(int(slot_id) for slot_id in required_clusters)
+    selected_slots = sorted({int(client.hidden_modality_id) for client in selected})
     activation_batches, client_paths = _collect_selected_activations(selected)
     binding_cfg = cfg.get("binding", {})
     pseudo_batch_size = int(binding_cfg.get("batch_size", cfg.get("training", {}).get("batch_size", 32)))
-    common_labels = common_labels_for_clusters(activation_batches, selected_clusters)
+    common_labels = common_labels_for_clusters(activation_batches, selected_slots)
     fusion_training = _fusion_training_spec(cfg)
     pseudo = build_label_random_pseudo_batch(
         activation_batches,
-        required_clusters=expected_clusters,
+        required_clusters=expected_slots,
         batch_size=pseudo_batch_size,
         allow_missing_clusters_with_zero=True,
     )
@@ -382,7 +382,8 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
             "common_labels": common_labels,
             "binding_success": 0.0,
             "empty_binding_local_step": 1,
-            "cluster_slot_coverage": float(len(selected_clusters) / max(1, len(expected_clusters))),
+            "cluster_slot_coverage": float(len(selected_slots) / max(1, len(expected_slots))),
+            "physical_slot_coverage": float(len(selected_slots) / max(1, len(expected_slots))),
             "server_update_l1": 0.0,
             "client_update_l1": 0.0,
             "fusion_training_objective": fusion_training["objective"],
@@ -460,7 +461,8 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
         "common_labels": common_labels,
         "binding_success": 1.0,
         "empty_binding_local_step": 0,
-        "cluster_slot_coverage": float(len(selected_clusters) / max(1, len(expected_clusters))),
+        "cluster_slot_coverage": float(len(selected_slots) / max(1, len(expected_slots))),
+        "physical_slot_coverage": float(len(selected_slots) / max(1, len(expected_slots))),
         "server_update_l1": float(server_update_l1),
         "client_update_l1": float(client_update_l1),
         "fusion_training_objective": fusion_training["objective"],
@@ -469,9 +471,9 @@ def _train_local_step(server, server_optimizer, selected, required_clusters, cfg
 
 
 def _train_round(server, server_optimizer, selected, required_clusters, cfg, class_weights=None):
-    expected_clusters = sorted(int(cluster_id) for cluster_id in required_clusters)
-    selected_clusters = sorted({int(client.pred_cluster) for client in selected})
-    missing_clusters = sorted(set(expected_clusters) - set(selected_clusters))
+    expected_slots = sorted(int(slot_id) for slot_id in required_clusters)
+    selected_slots = sorted({int(client.hidden_modality_id) for client in selected})
+    missing_slots = sorted(set(expected_slots) - set(selected_slots))
 
     configured_local_steps = int(cfg.get("training", {}).get("local_steps", cfg.get("local_steps", 1)))
     if configured_local_steps <= 0:
@@ -502,7 +504,7 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
             server,
             server_optimizer,
             selected,
-            expected_clusters,
+            expected_slots,
             cfg,
             class_weights=class_weights,
         )
@@ -545,8 +547,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         weighted_f1 = 0.0
     binding_success_rate = float(effective_local_steps / max(1, attempted_local_steps))
     round_status = "empty_binding_round" if empty_binding_round else "effective"
-    if missing_clusters:
-        empty_binding_reason = "missing_cluster"
+    if missing_slots:
+        empty_binding_reason = "missing_physical_modality"
     elif empty_binding_round:
         empty_binding_reason = "no_common_label"
     else:
@@ -583,7 +585,8 @@ def _train_round(server, server_optimizer, selected, required_clusters, cfg, cla
         "client_update_l1": float(client_update_l1),
         "fusion_training_objective": _fusion_training_spec(cfg)["objective"],
         "binding_confidence_mean": float(sum(binding_confidences) / max(1, len(binding_confidences))) if binding_confidences else 0.0,
-        "missing_cluster_ids": missing_clusters,
+        "missing_cluster_ids": missing_slots,
+        "missing_physical_slot_ids": missing_slots,
         "empty_binding_reason": empty_binding_reason,
     }
 
@@ -651,9 +654,10 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
     clients = _load_clients(cfg, partition_dir, cluster_dir, device)
     class_weights = _training_class_weights(clients, cfg, device)
     clients_by_id = {client.client_id: client for client in clients}
-    cluster_ids = sorted({int(client.pred_cluster) for client in clients})
+    scheduler_cluster_ids = sorted({int(client.pred_cluster) for client in clients})
     expected_modalities = sorted({int(client.hidden_modality_id) for client in clients})
-    cluster_to_slot = {int(cluster_id): int(slot) for slot, cluster_id in enumerate(cluster_ids)}
+    fusion_slot_ids = expected_modalities
+    cluster_to_slot = {int(slot_id): int(slot) for slot, slot_id in enumerate(fusion_slot_ids)}
     training_cfg = cfg.get("training", {})
     clients_per_round = training_cfg.get("clients_per_round")
     if clients_per_round is None:
@@ -666,7 +670,7 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         seed=int(cfg.get("seed", 42)),
     )
     server = ConcatMLPFusionServer(
-        cluster_ids,
+        fusion_slot_ids,
         int(cfg.get("encoder_hidden_dim", 128)),
         int(cfg.get("num_classes", 6)),
         cfg,
@@ -767,7 +771,7 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
                 server,
                 server_optimizer,
                 selected,
-                cluster_ids,
+                fusion_slot_ids,
                 cfg,
                 class_weights=class_weights,
             )
@@ -846,7 +850,7 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
                     "selected_client_ids_by_cluster_json": json.dumps(sched_metrics["selected_client_ids_by_cluster"]),
                     "selected_cluster_ids": json.dumps(sorted({int(c.pred_cluster) for c in selected})),
                     "selected_hidden_modality_ids_json": json.dumps(modality_metrics["selected_hidden_modality_ids"]),
-                    "expected_cluster_ids": json.dumps(cluster_ids),
+                    "expected_cluster_ids": json.dumps(scheduler_cluster_ids),
                     "expected_modality_ids_json": json.dumps(expected_modalities),
                     "clients_per_round": sched_metrics["clients_per_round"],
                     "per_cluster_budget_json": json.dumps(sched_metrics["per_cluster_budget"]),
@@ -857,13 +861,6 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
             )
             train_f.flush()
             if evaluation_mode == "curve" and round_idx in curve_eval_rounds:
-                if oracle_mapping is None:
-                    oracle_mapping = build_oracle_eval_mapping(
-                        partition_dir / "client_meta.csv",
-                        cluster_assignment_path,
-                        None,
-                        cluster_assignment_column,
-                    )
                 test_eval_at_round = _evaluate_test_checkpoint(
                     evaluation_mode=evaluation_mode,
                     checkpoint_role="periodic",
@@ -897,7 +894,7 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         server,
         clients,
         cfg,
-        cluster_ids,
+        fusion_slot_ids,
         cluster_to_slot,
         last_metrics,
     )
@@ -909,20 +906,13 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         final_checkpoint_path,
         server,
         clients,
-        cluster_ids,
+        fusion_slot_ids,
         cluster_to_slot,
         device,
     )
     if evaluation_mode == "formal" and run_test:
         if periodic_test_evaluation_count:
             raise RuntimeError("formal evaluation_mode forbids periodic test evaluation.")
-        if oracle_mapping is None:
-            oracle_mapping = build_oracle_eval_mapping(
-                partition_dir / "client_meta.csv",
-                cluster_assignment_path,
-                None,
-                cluster_assignment_column,
-            )
         formal_marker_path = _write_formal_test_access_marker(result_dir, final_checkpoint_path)
         test_eval = _evaluate_test_checkpoint(
             evaluation_mode=evaluation_mode,
@@ -977,9 +967,13 @@ def train_msl_split_learning(cfg: dict, project_root: Path, device: torch.device
         "test_num_eval_samples": test_eval.get("num_eval_samples"),
         "test_num_eval_batches": test_eval.get("num_eval_batches"),
         "oracle_eval_mapping": oracle_mapping,
-        "cluster_ids": cluster_ids,
+        "evaluation_mapping": test_eval.get("evaluation_mapping"),
+        "cluster_ids": fusion_slot_ids,
+        "fusion_slot_ids": fusion_slot_ids,
+        "server_slot_semantics": "physical_modality_slots",
+        "scheduler_cluster_ids": scheduler_cluster_ids,
         "cluster_to_slot": cluster_to_slot,
-        "estimated_num_clusters": len(cluster_ids),
+        "estimated_num_clusters": len(scheduler_cluster_ids),
         "expected_modality_ids": expected_modalities,
         "expected_modality_count": len(expected_modalities),
         "cluster_assignment_source": cluster_assignment_source,

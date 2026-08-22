@@ -27,9 +27,9 @@ C2_V2_METHODS = (
     "auto_kmeans",
     "gmm_bic",
     "ours",
-    "oracle",
 )
 COMMON_TARGET_LEVELS = (60, 70, 80)
+ORACLE_TARGET_METHOD = "oracle"
 
 
 def read_curve_csv(path: Path) -> list[dict]:
@@ -107,11 +107,14 @@ def build_v2_run_manifest(
 ) -> list[dict]:
     datasets = list(DATASET_PROTOCOLS) if datasets is None else list(datasets)
     methods = list(C2_V2_METHODS) if methods is None else list(methods)
+    source_methods = list(methods)
+    if ORACLE_TARGET_METHOD not in source_methods:
+        source_methods.append(ORACLE_TARGET_METHOD)
     records = []
     for dataset in datasets:
         for fold, seed in formal_run_grid(dataset, seeds):
-            for method in methods:
-                source_root = legacy_curve_root if method in {"randomsl", "ours", "oracle"} else new_curve_root
+            for method in source_methods:
+                source_root = legacy_curve_root if method in {"randomsl", "ours", ORACLE_TARGET_METHOD} else new_curve_root
                 run_dir = training_run_dir(source_root, dataset, fold, int(seed), method, None)
                 records.append(
                     {
@@ -123,7 +126,12 @@ def build_v2_run_manifest(
                         "source_root": str(source_root),
                         "run_dir": str(run_dir),
                         "curve_file": str(run_dir / "test_curve.csv"),
-                        "source_kind": "legacy_reused" if method in {"randomsl", "ours", "oracle"} else "v2_new_run",
+                        "source_kind": (
+                            "oracle_target_source"
+                            if method == ORACLE_TARGET_METHOD
+                            else "legacy_reused" if method in {"randomsl", "ours"}
+                            else "v2_new_run"
+                        ),
                         "v2_output_root": str(output_root),
                     }
                 )
@@ -155,7 +163,7 @@ def aggregate_common_targets(manifest_records: list[dict]) -> dict:
 
     out_records = []
     for dataset, fold, seed in sorted({_matched_key(item) for item in manifest_records}):
-        oracle_key = (dataset, fold, int(seed), "oracle")
+        oracle_key = (dataset, fold, int(seed), ORACLE_TARGET_METHOD)
         if oracle_key not in rows_by_key_method:
             raise RuntimeError(f"Missing matched Oracle curve for {(dataset, fold, seed)}.")
         target_info = oracle_stable_target(rows_by_key_method[oracle_key])
